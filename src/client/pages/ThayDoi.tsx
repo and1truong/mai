@@ -36,7 +36,7 @@ type BthToc = {
   trang_thai: string;
   thong_diep_id: string;
   thong_diep_tieu_de?: string;
-  url_trang?: string;
+  url_trang?: string | null;
   so_xuat_ban?: number;
 };
 
@@ -116,11 +116,12 @@ function NutTask({ task, sauLam }: { task: TaskSua; sauLam: () => void }) {
   }
   return (
     <Flex gap="2" align="center" wrap="wrap">
-      {task.loai === "sinh_lai" && task.trang_thai === "mo" && (
-        <Button size="1" onClick={() => void goi("de-xuat")} disabled={dangGui}>
-          Đề xuất sửa
-        </Button>
-      )}
+      {task.loai === "sinh_lai" &&
+        (task.trang_thai === "mo" || task.trang_thai === "dang_lam") && (
+          <Button size="1" onClick={() => void goi("de-xuat")} disabled={dangGui}>
+            {task.trang_thai === "mo" ? "Đề xuất sửa" : "Đề xuất lại"}
+          </Button>
+        )}
       {task.loai === "thu_cong" && (task.trang_thai === "mo" || task.trang_thai === "dang_lam") && (
         <Button
           size="1"
@@ -132,7 +133,7 @@ function NutTask({ task, sauLam }: { task: TaskSua; sauLam: () => void }) {
           Đã sửa tay
         </Button>
       )}
-      {task.trang_thai === "mo" && (
+      {(task.trang_thai === "mo" || task.trang_thai === "dang_lam") && (
         <Button
           size="1"
           variant="soft"

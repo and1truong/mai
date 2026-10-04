@@ -366,4 +366,65 @@ describe("phát hiện thay đổi nguồn", () => {
       await app.dong();
     }
   });
+
+  test("PUT thuật ngữ y hệt → không detection giả (khóa thời gian loại khỏi diff)", async () => {
+    const app = await taoServerTam();
+    try {
+      const rTh = await post(app, "/api/ho-so-thuong-hieu", {
+        ten: "TH Thuat Ngu",
+        vi_du_giong_van: "Ấm áp",
+      });
+      const th = (await rTh.json()).du_lieu;
+
+      const terms = {
+        thuat_ngu: [{ thuat_ngu: "MAI", giu_nguyen: true, ban_dich: { en: "MAI" } }],
+      };
+      // Lần đầu: thuat_ngu đổi thật (rỗng → có mục) → detection hợp lệ.
+      const r1 = await post(app, `/api/ho-so-thuong-hieu/${th.id}/thuat-ngu`, terms, "PUT");
+      expect(r1.status).toBe(200);
+      // Lần hai y hệt: thayThuatNgu xóa+chèn lại với id/timestamp mới — diff
+      // phải bỏ khóa volatile → không detection thứ hai.
+      const r2 = await post(app, `/api/ho-so-thuong-hieu/${th.id}/thuat-ngu`, terms, "PUT");
+      expect(r2.status).toBe(200);
+      const { json: ds } = await getJson(app, `/api/thay-doi?entity_id=${th.id}`);
+      expect(ds.du_lieu).toHaveLength(1);
+    } finally {
+      await app.dong();
+    }
+  });
+
+  test("đề xuất task khong_chac đối tượng: job hút đúng hồ sơ, task tự đóng", async () => {
+    const app = await taoServerTam();
+    try {
+      const rDt = await post(app, "/api/ho-so-doi-tuong", { ten: "Độc giả trẻ" });
+      const dt = (await rDt.json()).du_lieu;
+      const nguon = await taoNguonFact(app);
+      // Revision head không có context_sinh → task khong_chac; đề xuất sửa
+      // phải fallback hồ sơ của detection để job không bỏ quên đối tượng.
+      const { bth } = await taoDauRa(app, nguon.id, "caption", "Độc giả trẻ");
+      const rPut = await post(
+        app,
+        `/api/ho-so-doi-tuong/${dt.id}`,
+        { ten: "Độc giả trẻ", moi_quan_tam: "Giảm giá" },
+        "PUT",
+      );
+      const ph = (await rPut.json()).du_lieu.phat_hien;
+      const task = ph.ds_task.find(
+        (t: { ban_the_hien_id: string }) => t.ban_the_hien_id === bth.id,
+      );
+      expect(task.do_tin).toBe("khong_chac");
+
+      const dx = await post(app, `/api/task-sua/${task.id}/de-xuat`, {});
+      expect(dx.status).toBe(200);
+      const d = (await dx.json()).du_lieu;
+      const job = await choJob(app, d.job.id);
+      expect(job.trang_thai).toBe("xong");
+
+      // Head mới ghim context có đối tượng revision ≥ đích → task tự đóng.
+      const { json: jt } = await getJson(app, `/api/task-sua/${task.id}`);
+      expect(jt.du_lieu.trang_thai).toBe("xong");
+    } finally {
+      await app.dong();
+    }
+  });
 });
