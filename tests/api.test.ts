@@ -138,18 +138,22 @@ describe("trạng thái review", () => {
 describe("assets", () => {
   moApp();
 
-  test("upload → GET trả đúng nội dung", async () => {
-    const res = await fetch(`${app.url}/api/assets?ten=ghi-chu.txt`, {
+  test("upload ảnh → GET noi-dung trả đúng byte", async () => {
+    const res = await fetch(`${app.url}/api/assets?ten=anh.png`, {
       method: "POST",
-      body: "nội dung asset test",
+      body: new Uint8Array([137, 80, 78, 71, 1, 2, 3]),
     });
     expect(res.status).toBe(201);
     const { du_lieu } = await res.json();
-    expect(du_lieu.file.endsWith(".txt")).toBe(true);
+    expect(du_lieu.loai).toBe("hinh_anh");
+    expect(du_lieu.kich_thuoc).toBe(7);
 
-    const tai = await fetch(`${app.url}/api/assets/${du_lieu.file}`);
+    const tai = await fetch(`${app.url}/api/assets/${du_lieu.id}/noi-dung`);
     expect(tai.status).toBe(200);
-    expect(await tai.text()).toBe("nội dung asset test");
+    expect(tai.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(new Uint8Array(await tai.arrayBuffer())).toEqual(
+      new Uint8Array([137, 80, 78, 71, 1, 2, 3]),
+    );
   });
 
   test("đuôi file lạ → 400; asset không có → 404", async () => {
@@ -159,7 +163,7 @@ describe("assets", () => {
     });
     expect(res.status).toBe(400);
 
-    const miss = await fetch(`${app.url}/api/assets/khong-co.txt`);
+    const miss = await fetch(`${app.url}/api/assets/khong-co/noi-dung`);
     expect(miss.status).toBe(404);
   });
 });

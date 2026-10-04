@@ -32,6 +32,8 @@ test("migration chạy được và idempotent", () => {
     "duyet",
     "xuat_ban",
     "su_kien",
+    "asset",
+    "ban_the_hien_asset",
     "job",
     "job_log",
     "schema_migrations",

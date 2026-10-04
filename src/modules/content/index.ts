@@ -54,6 +54,7 @@ export type NguonRevision = {
   noi_dung: string;
   cac_muc: MucNguon[];
   dua_tren_revision_id: string | null;
+  khoa_idem: string | null;
   tao_luc: string;
   tao_boi: string;
 };
@@ -136,6 +137,9 @@ export type XuatBan = {
   revision_id: string;
   dich_den: string;
   ghi_chu: string;
+  // Snapshot id asset được chọn tại thời điểm đăng (export chỉ gồm phần
+  // được chọn tường minh — #17).
+  asset_ids: string[];
   tao_luc: string;
   tao_boi: string;
 };
@@ -290,11 +294,25 @@ export function danhSachNguonRevision(db: Database, nguonId: string): NguonRevis
   ).map(docNguonRevision);
 }
 
+// Tra cứu idempotency của ingest: request nạp retry cùng khoa_idem nhận lại
+// đúng revision đã ghi, không tạo trùng (#17).
+export function timNguonRevisionTheoKhoaIdem(
+  db: Database,
+  khoaIdem: string,
+): NguonRevision | null {
+  const row = db
+    .query("SELECT * FROM nguon_revision WHERE khoa_idem = ?")
+    .get(khoaIdem) as DongNguonRevision | null;
+  return row ? docNguonRevision(row) : null;
+}
+
 export type NhapNguon = {
   tieu_de: string;
   noi_dung: string;
   loai?: string;
   cac_muc?: MucNguon[];
+  // Khóa idempotency của request nạp (#17); ghi lên revision tạo ra.
+  khoa_idem?: string;
 };
 
 export type TuyChonTaoNguon = { id?: string };
@@ -304,7 +322,13 @@ export type TuyChonTaoNguon = { id?: string };
 function ghiNguonRevisionTrongTxn(
   db: Database,
   nguonId: string,
-  snapshot: { tieu_de: string; loai: string; noi_dung: string; cac_muc: MucNguon[] },
+  snapshot: {
+    tieu_de: string;
+    loai: string;
+    noi_dung: string;
+    cac_muc: MucNguon[];
+    khoa_idem?: string;
+  },
   duaTren: string | null,
   tacGia: string,
 ): NguonRevision {
@@ -320,8 +344,8 @@ function ghiNguonRevisionTrongTxn(
   const ts = bayGio();
   db.query(
     `INSERT INTO nguon_revision
-       (id, nguon_id, so_thu_tu, tieu_de, loai, noi_dung, cac_muc, dua_tren_revision_id, tao_luc, tao_boi)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, nguon_id, so_thu_tu, tieu_de, loai, noi_dung, cac_muc, dua_tren_revision_id, khoa_idem, tao_luc, tao_boi)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     nguonId,
@@ -331,6 +355,7 @@ function ghiNguonRevisionTrongTxn(
     snapshot.noi_dung,
     JSON.stringify(snapshot.cac_muc),
     duaTren,
+    snapshot.khoa_idem ?? null,
     ts,
     tacGia,
   );
@@ -378,6 +403,7 @@ export function taoNguon(
         loai: input.loai ?? "van_ban",
         noi_dung: input.noi_dung,
         cac_muc: input.cac_muc ?? [],
+        khoa_idem: input.khoa_idem,
       },
       null,
       tacGia,
@@ -393,7 +419,7 @@ export function capNhatNguon(
   db: Database,
   id: string,
   input: NhapNguon,
-  duaTrenRevisionId: string,
+  duaTrenRevisionId: string | null,
   tacGia: string,
 ): Nguon {
   return txn(db, () => {
@@ -407,6 +433,7 @@ export function capNhatNguon(
         loai: input.loai ?? "van_ban",
         noi_dung: input.noi_dung,
         cac_muc: input.cac_muc ?? [],
+        khoa_idem: input.khoa_idem,
       },
       duaTrenRevisionId,
       tacGia,
@@ -870,12 +897,26 @@ export function themRevision(db: Database, input: NhapRevision, tacGia: string):
 
 // --- Xuất bản ---
 
-// Record xuất bản: append-only, ghim revision nội dung được đăng. Tách khỏi
-// trạng thái review — bản thể hiện không tự "đã đăng" vì được sinh.
+type DongXuatBan = Omit<XuatBan, "asset_ids"> & { asset_ids: string };
+
+const docXuatBan = (row: DongXuatBan): XuatBan => {
+  let ids: string[] = [];
+  try {
+    const j = JSON.parse(row.asset_ids) as unknown;
+    if (Array.isArray(j)) ids = j.map(String);
+  } catch {
+    // JSON hỏng → coi như không asset nào được chọn lúc đăng.
+  }
+  return { ...row, asset_ids: ids };
+};
+
+// Record xuất bản: append-only, ghim revision nội dung được đăng + snapshot
+// asset được chọn (route truyền ds asset hiện tại từ ban_the_hien_asset).
+// Tách khỏi trạng thái review — bản thể hiện không tự "đã đăng" vì được sinh.
 export function xuatBanBanTheHien(
   db: Database,
   banTheHienId: string,
-  input: { dich_den?: string; ghi_chu?: string },
+  input: { dich_den?: string; ghi_chu?: string; asset_ids?: string[] },
   tacGia: string,
 ): XuatBan {
   return txn(db, () => {
@@ -890,26 +931,42 @@ export function xuatBanBanTheHien(
     }
     const id = crypto.randomUUID();
     const ts = bayGio();
+    const assetIds = input.asset_ids ?? [];
     db.query(
-      `INSERT INTO xuat_ban (id, ban_the_hien_id, revision_id, dich_den, ghi_chu, tao_luc, tao_boi)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    ).run(id, banTheHienId, bth.head_revision_id, input.dich_den ?? bth.dich_den, input.ghi_chu ?? "", ts, tacGia);
+      `INSERT INTO xuat_ban (id, ban_the_hien_id, revision_id, dich_den, ghi_chu, asset_ids, tao_luc, tao_boi)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      id,
+      banTheHienId,
+      bth.head_revision_id,
+      input.dich_den ?? bth.dich_den,
+      input.ghi_chu ?? "",
+      JSON.stringify(assetIds),
+      ts,
+      tacGia,
+    );
     ghiSuKien(
       db,
       "ban_the_hien",
       banTheHienId,
       "xuat_ban",
-      { revision_id: bth.head_revision_id, dich_den: input.dich_den ?? bth.dich_den },
+      {
+        revision_id: bth.head_revision_id,
+        dich_den: input.dich_den ?? bth.dich_den,
+        asset_ids: assetIds,
+      },
       tacGia,
     );
-    return db.query("SELECT * FROM xuat_ban WHERE id = ?").get(id) as XuatBan;
+    return docXuatBan(db.query("SELECT * FROM xuat_ban WHERE id = ?").get(id) as DongXuatBan);
   });
 }
 
 export function danhSachXuatBan(db: Database, banTheHienId: string): XuatBan[] {
-  return db
-    .query("SELECT * FROM xuat_ban WHERE ban_the_hien_id = ? ORDER BY tao_luc DESC, id DESC")
-    .all(banTheHienId) as XuatBan[];
+  return (
+    db
+      .query("SELECT * FROM xuat_ban WHERE ban_the_hien_id = ? ORDER BY tao_luc DESC, id DESC")
+      .all(banTheHienId) as DongXuatBan[]
+  ).map(docXuatBan);
 }
 
 // --- Nhập bài: service dùng chung ---
