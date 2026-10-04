@@ -20,18 +20,26 @@ export function loi(e: unknown): Response {
 }
 
 // Giới hạn kích thước body cho mọi endpoint đọc body.
-const GIOI_HAN_BODY = 50 * 1024 * 1024;
+export const GIOI_HAN_BODY = 50 * 1024 * 1024;
+
+function loiQuaLon(): LoiApi {
+  return new LoiApi(413, "PAYLOAD_QUA_LON", `Body vượt giới hạn ${GIOI_HAN_BODY} byte.`);
+}
 
 export function kiemTraGioiHanBody(req: Request): void {
   const n = Number(req.headers.get("content-length") ?? "0");
-  if (Number.isFinite(n) && n > GIOI_HAN_BODY) {
-    throw new LoiApi(413, "PAYLOAD_QUA_LON", `Body vượt giới hạn ${GIOI_HAN_BODY} byte.`);
-  }
+  if (Number.isFinite(n) && n > GIOI_HAN_BODY) throw loiQuaLon();
+}
+
+// content-length có thể thiếu/giả (chunked) → kiểm lại kích thước thực sau khi đọc.
+export function kiemTraByteDaDoc(soByte: number): void {
+  if (soByte > GIOI_HAN_BODY) throw loiQuaLon();
 }
 
 export async function docBody(req: Request): Promise<Record<string, unknown>> {
   kiemTraGioiHanBody(req);
   const text = await req.text();
+  kiemTraByteDaDoc(Buffer.byteLength(text));
   if (!text.trim()) return {};
   try {
     const body = JSON.parse(text) as unknown;

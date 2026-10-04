@@ -18,7 +18,7 @@ import { DANH_SACH_DINH_DANG, laDinhDang } from "../modules/formats/index.ts";
 import { DANH_SACH_TRANG_THAI, laTrangThai, chuyenHopLe } from "../modules/review/index.ts";
 import { danhSachJob, taoJob } from "../modules/jobs/index.ts";
 import { LOAI_JOB_HO_TRO } from "../modules/jobs/handlers.ts";
-import { docBody, kiemTraGioiHanBody, loi, ok } from "./http.ts";
+import { docBody, kiemTraByteDaDoc, kiemTraGioiHanBody, loi, ok } from "./http.ts";
 
 export type ApiCtx = {
   db: Database;
@@ -181,6 +181,7 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       }
       kiemTraGioiHanBody(req);
       const buf = await req.arrayBuffer();
+      kiemTraByteDaDoc(buf.byteLength);
       if (buf.byteLength === 0) loiRequest(400, "VALIDATION", "Body rỗng.");
       const file = `${crypto.randomUUID()}${ext}`;
       await Bun.write(join(c.dataDir, "assets", file), buf);
