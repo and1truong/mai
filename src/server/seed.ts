@@ -5,15 +5,18 @@ import { taiCauHinh } from "../config.ts";
 import { log } from "../log.ts";
 import { taoDoiTuong, taoThuongHieu, thayThuatNgu } from "../modules/context/index.ts";
 import {
+  capNhatCampaign,
   chuyenTrangThai,
   ghiSuKien,
   layBanTheHien,
   taoBanTheHien,
+  taoCampaign,
   taoNguon,
   taoThongDiep,
   themRevision,
   xuatBanBanTheHien,
 } from "../modules/content/index.ts";
+import { deXuatMucLuc } from "../modules/so_bao/index.ts";
 import {
   datAssetBanTheHien,
   duongDanTepAsset,
@@ -509,6 +512,211 @@ export function seed(
     daSeed.push("story_tiem_banh");
   }
 
+  // --- Story #8: nhà xuất bản Phúc Âm — lên kế hoạch số 002 ---
+  // Campaign số báo đầy đủ field (số thứ tự, ngày phát hành, chủ đề, lập
+  // trường biên tập, chủ biên, hồ sơ dùng lại); mục lục 8 khay từ mẫu đề
+  // xuất; tham chiếu Khải Huyền 7 và 14 có văn bản nguồn thật (Bản dịch
+  // truyền thống) + ghi chú biên tập đã duyệt, tham chiếu Khải Huyền 5 cố ý
+  // chưa nạp văn bản → cờ + gợi ý khoảng trống. Đầu ra rải đủ vòng đời:
+  // bài chính đã duyệt + đã xuất (phục vụ /p/…), bài học chờ duyệt, bài
+  // giải thích thiếu niên bị từ chối nhưng giữ nguyên diễn giải/bằng chứng
+  // đã duyệt, hỏi-đáp + bản website còn nháp.
+  if (!db.query("SELECT id FROM campaign WHERE id = 'seed-cp-so-002'").get()) {
+    themDoiTuong(
+      db,
+      "seed-dt-doc-gia-phuc-am",
+      {
+        ten: "Độc giả Phúc Âm (fixture)",
+        ngon_ngu: "vi",
+        dia_diem: "Bạn đọc báo Phúc Âm ở Việt Nam và hải ngoại.",
+        kien_thuc_nen: "Đọc Kinh Thánh thường kỳ; quen thuật ngữ thần học cơ bản.",
+        moi_quan_tam: "Hiểu đoạn kinh văn theo bối cảnh; áp dụng vào đời sống.",
+        do_sau: "vua_phai",
+        tu_vung: "Thuật ngữ thần học đã duyệt; giải thích từ hiếm khi cần.",
+        quan_he_to_chuc: "Hội thánh, nhóm học tài liệu nền, độc giả báo.",
+        nhu_cau_giao_tiep: "Bài dài có dẫn chứng; tham chiếu sách/chương/câu rõ.",
+        nhan_khau_hoc: "Người lớn, đa số trong hội thánh.",
+      },
+      tacGia,
+    );
+    themDoiTuong(
+      db,
+      "seed-dt-thieu-nien",
+      {
+        ten: "Thiếu niên (fixture)",
+        ngon_ngu: "vi",
+        dia_diem: "Thiếu niên trong hội thánh và gia đình độc giả.",
+        kien_thuc_nen: "Chưa đọc nhiều kinh văn; cần giải thích bối cảnh từ đầu.",
+        moi_quan_tam: "Câu hỏi thẳng, ví dụ đời thường, hình ảnh dễ nhớ.",
+        do_sau: "so_luoc",
+        tu_vung: "Đời thường; hạn chế thuật ngữ thần học, giải thích khi bắt buộc.",
+        quan_he_to_chuc: "Nhóm thanh thiếu niên, lớp tân tín, cha mẹ đọc báo.",
+        nhu_cau_giao_tiep: "Bài ngắn, câu ngắn, ví dụ gần; có chỗ hỏi-thảo luận.",
+        nhan_khau_hoc: "13–17 tuổi, học sinh.",
+      },
+      tacGia,
+    );
+
+    // Số 001 tối thiểu: chứng minh số 002 không tái dùng tiêu đề/chủ đề
+    // số trước — mỗi số là một campaign độc lập.
+    taoCampaign(
+      db,
+      {
+        ten: "Phúc Âm — Số 001",
+        mo_ta: "Số báo đầu tiên của quý.",
+        so_thu_tu: 1,
+        ngay_phat_hanh: "2026-10-01",
+        chu_de: "Đức tin trong đời sống thường ngày",
+        lap_truong: "Trình bày đức tin gần gũi, tránh tranh luận học thuật.",
+        chu_bien: "Bt. Ngọc Lan",
+        thuong_hieu_id: "seed-th-nxb-phuc-am",
+        doi_tuong_id: "seed-dt-doc-gia-phuc-am",
+      },
+      tacGia,
+      { id: "seed-cp-so-001" },
+    );
+
+    // Nguồn kinh văn thật (Bản dịch truyền thống) cho các tham chiếu số 002
+    // — trích dẫn và tham chiếu câu đối chiếu được với nguồn này.
+    const nguonKh7 = taoNguon(
+      db,
+      {
+        tieu_de: "Khải Huyền 7:9-17 (Bản dịch truyền thống)",
+        noi_dung: NOI_DUNG_KH7,
+        loai: "van_ban",
+      },
+      tacGia,
+      { id: "seed-nguon-kh7-002" },
+    );
+    const nguonKh14 = taoNguon(
+      db,
+      {
+        tieu_de: "Khải Huyền 14:1-5 (Bản dịch truyền thống)",
+        noi_dung: NOI_DUNG_KH14,
+        loai: "van_ban",
+      },
+      tacGia,
+      { id: "seed-nguon-kh14-002" },
+    );
+    // Ghi chú biên tập đã duyệt: diễn giải + bằng chứng của số — mọi đầu ra
+    // phái sinh phải giữ đúng phần này, chỉ đổi từ vựng/ví dụ.
+    const nguonGhiChu = taoNguon(
+      db,
+      {
+        tieu_de: "Ghi chú biên tập số 002: diễn giải và bằng chứng đã duyệt",
+        noi_dung: NOI_DUNG_GHI_CHU_002,
+        loai: "van_ban",
+      },
+      tacGia,
+      { id: "seed-nguon-ghichu-002" },
+    );
+
+    // Campaign số 002: mục lục từ mẫu đề xuất của module số báo — biên tập
+    // sửa tự do sau, không tự động sinh mọi tổ hợp.
+    const cp002 = taoCampaign(
+      db,
+      {
+        ten: "Phúc Âm — Số 002",
+        mo_ta:
+          "Số này tập trung vào Khải Huyền 7 và 14, Chiên Con và 144.000 người.",
+        so_thu_tu: 2,
+        ngay_phat_hanh: "2026-11-15",
+        chu_de: "Chiên Con và 144.000 người",
+        lap_truong:
+          "Diễn giải biểu tượng: 144.000 là hình ảnh đầy đủ của dân Chúa trong mọi thời đại. Trình bày theo lập trường này, không đọc con số theo nghĩa đen. Trích dẫn kinh văn dùng Bản dịch truyền thống, kèm tham chiếu.",
+        chu_bien: "Bt. Ngọc Lan",
+        thuong_hieu_id: "seed-th-nxb-phuc-am",
+        doi_tuong_id: "seed-dt-doc-gia-phuc-am",
+        tham_chieu: [
+          {
+            id: "tc-kh7",
+            tham_chieu: "Khải Huyền 7:9-17",
+            ban_dich: "Bản dịch truyền thống",
+            nguon_id: "seed-nguon-kh7-002",
+            ghi_chu: "Đám đông vô số trước ngai và Chiên Con.",
+          },
+          {
+            id: "tc-kh14",
+            tham_chieu: "Khải Huyền 14:1-5",
+            ban_dich: "Bản dịch truyền thống",
+            nguon_id: "seed-nguon-kh14-002",
+            ghi_chu: "144.000 người cùng Chiên Con trên núi Si-ôn.",
+          },
+          {
+            id: "tc-kh5",
+            tham_chieu: "Khải Huyền 5:5-12",
+            ban_dich: "Bản dịch truyền thống",
+            nguon_id: null, // cố ý chưa nạp văn bản → cờ thiếu + gợi ý nạp nguồn
+            ghi_chu: "Chiên Con bị sát tế đứng giữa ngai — chưa có văn bản nguồn.",
+          },
+        ],
+      },
+      tacGia,
+      { id: "seed-cp-so-002" },
+    );
+    capNhatCampaign(
+      db,
+      cp002.id,
+      { ten: cp002.ten, muc_luc: deXuatMucLuc(db, cp002) },
+      tacGia,
+    );
+
+    // Thông điệp chủ đề của số gắn các nguồn đã nạp — mọi đầu ra của số
+    // sinh dưới thông điệp này, nên provenance/trích dẫn resolve về đúng
+    // văn bản nguồn thật và diễn giải đã duyệt.
+    const td002 = taoThongDiep(
+      db,
+      {
+        tieu_de: "Số 002 — Chiên Con và 144.000 người",
+        noi_dung:
+          "Số này tập trung vào Khải Huyền 7 và 14, Chiên Con và 144.000 người. Trình bày theo lập trường biên tập diễn giải biểu tượng của tòa soạn.",
+        campaign_id: cp002.id,
+        nguon_ids: [nguonKh7.id, nguonKh14.id, nguonGhiChu.id],
+      },
+      tacGia,
+      { id: "seed-td-so-002" },
+    );
+    const tdRevId002 = td002.head_revision_id;
+
+    for (const o of NOI_DUNG_DAU_RA_SO_002) {
+      taoBanTheHien(
+        db,
+        {
+          thong_diep_id: td002.id,
+          dinh_dang: o.dinh_dang,
+          ngon_ngu: "vi",
+          doi_tuong: o.doi_tuong,
+          dich_den: o.dich_den,
+        },
+        tacGia,
+        { id: o.id },
+      );
+      themRevision(
+        db,
+        {
+          ban_the_hien_id: o.id,
+          noi_dung: o.noi_dung,
+          dua_tren_revision_id: null,
+          thong_diep_revision_id: tdRevId002,
+        },
+        tacGia,
+      );
+      if (o.trang_thai === "nhap") continue;
+      chuyenTrangThai(db, o.id, "cho_duyet", "seed: gửi duyệt", tacGia);
+      if (o.trang_thai === "cho_duyet") continue;
+      const head = layBanTheHien(db, o.id)?.head_revision_id ?? undefined;
+      if (o.trang_thai === "tu_choi") {
+        chuyenTrangThai(db, o.id, "tu_choi", o.ghi_chu ?? "seed: từ chối", tacGia, head);
+        continue;
+      }
+      chuyenTrangThai(db, o.id, "da_duyet", "seed: duyệt", tacGia, head);
+      if (o.xuat_ban) {
+        xuatBanBanTheHien(db, o.id, { dich_den: o.dich_den || undefined }, tacGia);
+      }
+    }
+    daSeed.push("story_so_bao_002");
+  }
+
   return { da_seed: daSeed };
 }
 
@@ -892,6 +1100,158 @@ Vỏ giòn nhiều lớp, nhân hạt dẻ rang xay. Tiệm ở 123 Đường L�
       tom_tat: "Ra mắt sáng thứ Bảy — đặt trước để giữ phần.",
       lich_gui: "Gửi trước ra mắt một ngày: 2026-10-09T18:00 (Asia/Ho_Chi_Minh)",
       noi_dung: `Chào bạn,\n\n${TB_DONG_CHUAN}\n\nCroissant hạt dẻ có vỏ giòn nhiều lớp và nhân hạt dẻ rang xay — nướng trong ngày, không để qua đêm.\n\nHẹn bạn sáng thứ Bảy tại 123 Đường Láng.`,
+    }),
+  },
+];
+
+// --- Nội dung story #8: nguồn kinh văn + ghi chú biên tập + đầu ra số 002 ---
+// Văn bản Khải Huyền theo Bản dịch truyền thống — trích dẫn/tham chiếu câu
+// của số báo đối chiếu được với nguồn này.
+
+const NOI_DUNG_KH7 = `Khải Huyền 7:9-17 — Bản dịch truyền thống
+
+9. Sau những việc ấy, tôi nhìn xem, thấy vô số người, đông đến nỗi không ai đếm được, bởi mọi nước, mọi chi phái, mọi dân tộc và mọi tiếng mà ra, đứng trước ngai và trước Chiên Con; mình mặc áo dài trắng, tay cầm nhành cọ,
+10. và lớn tiếng kêu lên rằng: Sự cứu rỗi thuộc về Đức Chúa Trời chúng ta, Đấng ngự trên ngai, và thuộc về Chiên Con!
+11. Hết thảy các thiên sứ đều đứng vây ngai, các trưởng lão và bốn con sinh vật, sấp mình trước ngai, thờ phượng Đức Chúa Trời,
+12. mà rằng: A-men! Nguyện sự ngợi khen, vinh hiển, khôn ngoan, cảm tạ, tôn quý, quyền năng và sức mạnh thuộc về Đức Chúa Trời chúng ta đời đời vô cùng! A-men.
+13. Một trong những trưởng lão lên tiếng hỏi tôi rằng: Những người mặc áo dài trắng này là ai, và từ đâu mà đến?
+14. Tôi thưa rằng: Lạy ngài, ngài biết điều đó. Ngài nói với tôi rằng: Đó là những kẻ đến từ cảnh đại nạn, đã giặt áo mình và làm trắng áo ấy trong huyết Chiên Con.
+15. Vì vậy họ ở trước ngai Đức Chúa Trời, và ngày đêm hầu việc Ngài trong đền Ngài. Đấng ngự trên ngai sẽ trải lều của Ngài trên họ.
+16. Họ sẽ không đói khát nữa; mặt trời hay sức nóng nào cũng chẳng hại đến họ.
+17. Vì Chiên Con ở giữa ngai sẽ chăn giữ họ, dẫn họ đến các suối nước sống; và Đức Chúa Trời sẽ lau mọi giọt lệ trên mắt họ.`;
+
+const NOI_DUNG_KH14 = `Khải Huyền 14:1-5 — Bản dịch truyền thống
+
+1. Tôi nhìn xem, thấy Chiên Con đứng trên núi Si-ôn, và với Ngài có mười bốn vạn bốn ngàn người, đều mang danh Ngài và danh Cha Ngài viết trên trán mình.
+2. Tôi nghe có tiếng từ trời như tiếng nước lớn, như tiếng sấm vang dội; tiếng tôi nghe được còn như tiếng người đàn hát gảy đàn của mình.
+3. Họ hát một bài hát mới trước ngai, trước bốn con sinh vật và các trưởng lão; ngoài mười bốn vạn bốn ngàn người đã được chuộc từ đất ra, chẳng ai có thể học được bài hát ấy.
+4. Những người này chưa hề bị uế với đờn bà nào, vì họ là gái trinh. Họ theo Chiên Con bất cứ đi đâu. Những người ấy đã được chuộc từ giữa loài người để làm trái đầu mùa cho Đức Chúa Trời và Chiên Con.
+5. Trong miệng họ không thấy điều dối; họ không tì vết.`;
+
+// Diễn giải + bằng chứng đã duyệt của số — hằng số dùng lại ở ghi chú
+// biên tập và nguyên văn trong bài giải thích thiếu niên (tiêu chí chấp
+// nhận: đổi từ vựng/ví dụ nhưng giữ diễn giải và bằng chứng đã duyệt).
+const DIEN_GIAI_DUYET_002 =
+  "144.000 là con số biểu tượng chỉ sự đầy đủ của dân Chúa trong mọi thời đại. Chiên Con là hình ảnh Đấng Christ đã chịu sát tế và sống lại. Số báo trình bày theo diễn giải biểu tượng; không đọc con số theo nghĩa đen và không gán danh hiệu cho một nhóm riêng.";
+const BANG_CHUNG_DUYET_002 = [
+  "Khải Huyền 7:9 — đám đông vô số từ mọi dân tộc đứng trước ngai và Chiên Con.",
+  "Khải Huyền 14:1 — 144.000 người đứng với Chiên Con trên núi Si-ôn, mang danh Ngài và danh Cha.",
+  "Khải Huyền 14:4 — nhóm này theo Chiên Con và được chuộc làm trái đầu mùa.",
+];
+
+const NOI_DUNG_GHI_CHU_002 = `Ghi chú biên tập — Số 002 "Chiên Con và 144.000 người"
+
+Diễn giải đã duyệt (giữ nguyên văn ở mọi đầu ra phái sinh):
+${DIEN_GIAI_DUYET_002}
+
+Bằng chứng đã duyệt:
+${BANG_CHUNG_DUYET_002.map((b) => `- ${b}`).join("\n")}
+
+Thuật ngữ giữ nguyên: Chiên Con, Si-ôn, trái đầu mùa, đại nạn.`;
+
+const NOI_DUNG_DAU_RA_SO_002: {
+  id: string;
+  dinh_dang: string;
+  doi_tuong: string;
+  dich_den: string;
+  trang_thai: "nhap" | "cho_duyet" | "da_duyet" | "tu_choi";
+  xuat_ban: boolean;
+  noi_dung: string;
+  ghi_chu?: string;
+}[] = [
+  {
+    // Bài chính: đã duyệt + đã xuất → trang nội bộ /p/<id> phục vụ được.
+    id: "seed-bth-so002-bai-chinh",
+    dinh_dang: "bai-viet",
+    doi_tuong: "Độc giả Phúc Âm (fixture)",
+    dich_den: "",
+    trang_thai: "da_duyet",
+    xuat_ban: true,
+    noi_dung: JSON.stringify({
+      tieu_de: "Chiên Con và 144.000 người — hình ảnh đầy đủ của dân Chúa",
+      noi_dung: `Số này tập trung vào Khải Huyền 7 và 14: hình ảnh Chiên Con và đoàn người mang danh Ngài.
+
+"Thấy vô số người, đông đến nỗi không ai đếm được... đứng trước ngai và trước Chiên Con" (Khải Huyền 7:9, Bản dịch truyền thống). Đám đông ấy "đến từ cảnh đại nạn, đã giặt áo mình và làm trắng áo ấy trong huyết Chiên Con" (7:14).
+
+Tại Khải Huyền 14:1, Chiên Con đứng trên núi Si-ôn cùng "mười bốn vạn bốn ngàn người" mang danh Ngài và danh Cha Ngài trên trán. ${DIEN_GIAI_DUYET_002}
+
+Bạn đọc được mời đọc hai đoạn kinh văn nguyên cảnh trước khi quay lại các bài trong số.`,
+    }),
+  },
+  {
+    // Bài học tài liệu nền đi sát đoạn tham chiếu — chờ duyệt, nằm trong
+    // hàng chờ review cấp số.
+    id: "seed-bth-so002-hoc-kt",
+    dinh_dang: "hoc-kinh-thanh",
+    doi_tuong: "Độc giả Phúc Âm (fixture)",
+    dich_den: "",
+    trang_thai: "cho_duyet",
+    xuat_ban: false,
+    noi_dung: JSON.stringify({
+      tieu_de: "Học Khải Huyền 7:9-17 và 14:1-5",
+      tham_chieu: ["Khải Huyền 7:9-17", "Khải Huyền 14:1-5"],
+      noi_dung:
+        "Đọc hai đoạn nối tiếp nhau: 7:9-17 nhìn đám đông vô số từ phía người đứng trước ngai; 14:1-5 nhìn 144.000 người đứng với Chiên Con trên Si-ôn. Hai hình ảnh bổ sung cho nhau — sự đầy đủ của dân Chúa được cứu.",
+      cau_hoi_thao_luan: [
+        "Văn 7:14 nói áo trắng 'trong huyết Chiên Con' — hình ảnh đó nói gì về sự cứu rỗi?",
+        "Vì sao số 144.000 ở 14:1 nên đọc là biểu tượng đầy đủ thay vì nghĩa đen?",
+      ],
+      ung_dung:
+        "Nhờ Chiên Con, người tin được đếm vào đoàn dân đầy đủ của Chúa — niềm tin mang lại an ủi trong nạn khó.",
+    }),
+  },
+  {
+    // Bài giải thích cho thiếu niên: bản nháp đổi từ vựng/ví dụ cho độc giả
+    // trẻ nhưng GIỮ NGUYÊN diễn giải và bằng chứng đã duyệt — biên tập đã
+    // từ chối bản này vì văn phong, không phải vì nội dung đã duyệt.
+    id: "seed-bth-so002-giai-thich-tn",
+    dinh_dang: "giai-thich-thieu-nien",
+    doi_tuong: "Thiếu niên (fixture)",
+    dich_den: "",
+    trang_thai: "tu_choi",
+    xuat_ban: false,
+    ghi_chu: "Từ vựng còn khó và ví dụ còn trừu tượng — viết lại cho gần thiếu niên, giữ nguyên diễn giải/bằng chứng đã duyệt.",
+    noi_dung: JSON.stringify({
+      tieu_de: "Chiên Con và 144.000 người — giải thích cho thiếu niên",
+      noi_dung:
+        "Kinh văn tả một đám đông khổng lồ đứng trước ngai Chúa và trước Chiên Con (Khải Huyền 7:9-10). Ở chương 14 có một nhóm 144.000 người đứng cùng Chiên Con trên núi Si-ôn (14:1). Con số này nghe lạ — nhưng nó là hình ảnh, không phải bảng điểm.",
+      dien_giai: DIEN_GIAI_DUYET_002,
+      bang_chung: BANG_CHUNG_DUYET_002,
+      vi_du: [
+        "Giống như nói 'cả triệu người đến xem concert' — nghĩa là rất đông, không ai ngồi đếm từng người.",
+        "144.000 = 12 × 12 × 1000 — cách viết 'đủ cả đội, không thiếu một ai' trong văn kinh điển.",
+      ],
+    }),
+  },
+  {
+    // Hỏi-đáp độc giả — còn nháp.
+    id: "seed-bth-so002-hoi-dap",
+    dinh_dang: "hoi-dap-doc-gia",
+    doi_tuong: "Độc giả Phúc Âm (fixture)",
+    dich_den: "",
+    trang_thai: "nhap",
+    xuat_ban: false,
+    noi_dung: JSON.stringify({
+      tieu_de: "Hỏi-đáp: Chiên Con và 144.000 người",
+      gioi_thieu: "Câu hỏi độc giả gửi về sau số trước, trả lời theo lập trường biên tập của số này.",
+      hoi_dap: [
+        "H: 144.000 có phải là số người được cứu tối đa không? Đ: Không — con số là biểu tượng đầy đủ; 7:9 đã tả 'vô số người' trước ngai.",
+        "H: 'Chiên Con' ở đây là ai? Đ: Hình ảnh Đấng Christ — 'như đã bị sát tế' mà đứng sống giữa ngai (xem Khải Huyền 5:6).",
+      ],
+    }),
+  },
+  {
+    // Bản website của bài chính — còn nháp, chưa gửi duyệt.
+    id: "seed-bth-so002-web",
+    dinh_dang: "bai-viet",
+    doi_tuong: "Độc giả Phúc Âm (fixture)",
+    dich_den: "website",
+    trang_thai: "nhap",
+    xuat_ban: false,
+    noi_dung: JSON.stringify({
+      tieu_de: "Chiên Con và 144.000 người — bản website",
+      noi_dung:
+        "Bản web của bài chính số 002, định dạng lại cho đọc trên trang: đoạn mở, hai đoạn thân bài trích Khải Huyền 7:9-14 và 14:1-5, khối tham chiếu cuối bài.",
     }),
   },
 ];

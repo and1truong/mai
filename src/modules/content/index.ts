@@ -563,9 +563,14 @@ export type NhapCampaign = {
 const COT_SO_BAO =
   "so_thu_tu, ngay_phat_hanh, chu_de, lap_truong, chu_bien, thuong_hieu_id, doi_tuong_id, tham_chieu, muc_luc";
 
-export function taoCampaign(db: Database, input: NhapCampaign, tacGia: string): Campaign {
+export function taoCampaign(
+  db: Database,
+  input: NhapCampaign,
+  tacGia: string,
+  tuyChon: { id?: string } = {},
+): Campaign {
   return txn(db, () => {
-    const id = crypto.randomUUID();
+    const id = tuyChon.id ?? crypto.randomUUID();
     const ts = bayGio();
     db.query(
       `INSERT INTO campaign (id, ten, mo_ta, ghi_de, ${COT_SO_BAO}, tao_luc, tao_boi, cap_nhat_luc, cap_nhat_boi)
