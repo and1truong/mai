@@ -42,11 +42,16 @@ export function catGon(vanBan: string, toiDa: number): { text: string; daCat: bo
 // Chứng cứ còn thiếu trong input — heuristic deterministic, không phải suy
 // đoán AI: provider dùng danh sách này để để câu hỏi/khoảng trống thay vì bịa
 // giá/ngày/số liệu tác động.
+// Chứng cứ giá: cụm từ giá/khuyến mãi có biên chữ (không khớp "giáo dục",
+// "đồng nghiệp") hoặc số tiền kèm đơn vị ("25.000đ", "100 USD").
+const RE_GIA =
+  /(?<![\p{L}\p{M}])(giá cả|giá bán|giá thành|miễn phí|khuyến mãi|cước phí|chi phí|phí|hoàn tiền)(?![\p{L}\p{M}])|\d[\d.,]*\s*(đ|₫|vnđ|đồng|usd|\$|eur)/iu;
+
 export function thieuChungCu(vanBanNguon: string): string[] {
   const ds: string[] = [];
   if (!/\d/.test(vanBanNguon)) ds.push("so_lieu");
   if (!/ngày|tháng|năm|tuần|quý|\b(19|20)\d{2}\b/i.test(vanBanNguon)) ds.push("moc_thoi_gian");
-  if (!/giá|cước phí|miễn phí|khuyến mãi|đồng|vnđ|usd|\d[\d.,]*\s*(đ|₫|\$)/i.test(vanBanNguon)) ds.push("gia_ca");
+  if (!RE_GIA.test(vanBanNguon)) ds.push("gia_ca");
   return ds;
 }
 

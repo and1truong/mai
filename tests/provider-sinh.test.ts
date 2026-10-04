@@ -13,6 +13,7 @@ import {
   fixture,
   kiemTraDauRa,
   lapContextNoiDung,
+  LoiProvider,
   TASK,
   type ContextTask,
   type KetQuaTask,
@@ -475,6 +476,85 @@ describe("API: usage endpoint + fan-out giới hạn", () => {
         }),
       });
       expect(resQua.status).toBe(400);
+    } finally {
+      await app.dong();
+    }
+  });
+});
+
+describe("sửa findings review (vòng 1)", () => {
+  test("fixture tôn trọng giới hạn trường của schema — input dài vẫn hợp lệ", async () => {
+    const { db } = moDbTam();
+    // Tiêu đề 250 ký tự + câu nguồn 3000 ký tự → từng trường phải cắt về
+    // do_dai_toi_da của schema, không để fixture tự sinh output vi phạm.
+    const td = taoThongDiep(db, { tieu_de: "T".repeat(250), noi_dung: "N" + ". ".repeat(200), nguon_ids: [] }, "test");
+    const nguon = taoNguon(db, { tieu_de: "N1", noi_dung: "S".repeat(3000) + ". câu hai.", loai: "van_ban" }, "test");
+    const revNguon = db.query("SELECT id FROM nguon_revision WHERE nguon_id = ?").get(nguon.id) as { id: string };
+    db.exec("UPDATE thong_diep_revision SET nguon_revision_ids = ? WHERE thong_diep_id = ?", [
+      JSON.stringify([revNguon.id]),
+      td.id,
+    ]);
+    for (const dinhDang of ["bai-viet", "caption", "thread", "script-ngan"]) {
+      const bth = taoBanTheHien(db, { thong_diep_id: td.id, dinh_dang: dinhDang, doi_tuong: "chung" }, "test");
+      const ctx = lapContextNoiDung(db, { bth, task: TASK.nhap_ban_the_hien, context_sinh: null, doi_tuong: "chung" });
+      const kq = await fixture.sinh(ctx);
+      const loi = kiemTraNoiDung(layDinhDang(dinhDang)!, kq.noi_dung);
+      expect(loi).toEqual([]);
+    }
+    db.close();
+  });
+
+  test("thieuChungCu có biên chữ: 'giáo dục'/'đồng nghiệp' không nuốt cờ giá cả", () => {
+    const { db } = moDbTam();
+    const td = taoThongDiep(db, { tieu_de: "t", noi_dung: "Chương trình giáo dục trẻ em, cộng đồng nghiệp năm 2026.", nguon_ids: [] }, "test");
+    const bth = taoBanTheHien(db, { thong_diep_id: td.id, dinh_dang: "bai-viet" }, "test");
+    const ctx = lapContextNoiDung(db, { bth, task: TASK.nhap_ban_the_hien, context_sinh: null, doi_tuong: "chung" });
+    // Không số liệu, không chứng cứ giá thật (giáo/đồng không tính).
+    expect(ctx.thieu_chung_cu).toContain("gia_ca");
+    expect(ctx.thieu_chung_cu).not.toContain("moc_thoi_gian");
+    db.close();
+  });
+
+  test("provider trả lỗi sửa được dồn dập → hết budget sửa = 'loi' vĩnh viễn, không đốt attempt", async () => {
+    const { db } = moDbTam(true);
+    const { bth } = dayChuyen(db);
+    let soLan = 0;
+    const provider = providerStub(async () => {
+      soLan++;
+      throw new LoiProvider("JSON hỏng", false, true); // sua_duoc
+    });
+    runner(db, taoHandlers(db, provider));
+    const { job } = enqueueJob(db, {
+      loai: "sinh_ban_the_hien",
+      payload: { ban_the_hien_id: bth.id },
+      entityLoai: "ban_the_hien",
+      entityId: bth.id,
+      revisionId: bth.head_revision_id,
+      soLanThuToiDa: 5,
+    });
+    expect(await choTrangThai(db, job.id, ["xong", "loi"])).toBe("loi");
+    expect(soLan).toBe(2); // sinh 1 + sửa 1 rồi vĩnh viễn — không retry cấp attempt
+    expect(layJob(db, job.id)!.so_lan_thu).toBe(1);
+    db.close();
+  });
+
+  test("fan_out với doi_tuong_id không tồn tại → 400 (nhất quán main path)", async () => {
+    const app = await taoServerTam();
+    try {
+      seed(app.db);
+      const res = await fetch(`${app.url}/api/job`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          loai: "sinh_ban_the_hien",
+          payload: {
+            thong_diep_id: "seed-td-1",
+            dinh_dang: "bai-viet",
+            fan_out: [{ dinh_dang: "caption", doi_tuong_id: "dt-khong-ton-tai" }],
+          },
+        }),
+      });
+      expect(res.status).toBe(400);
     } finally {
       await app.dong();
     }

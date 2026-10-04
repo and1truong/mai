@@ -3,7 +3,6 @@ import { LoiApi } from "../../loi.ts";
 import {
   layBanTheHien,
   layThongDiep,
-  layThongDiepRevision,
   themRevisionTrongTxn,
 } from "../content/index.ts";
 import type { GhiDeCampaign } from "../context/index.ts";
@@ -128,14 +127,21 @@ export function taoHandlers(
 
       // Bộ dựng context nội dung: chọn đúng revision nguồn đã ghim qua chuỗi
       // thông điệp, ép giới hạn đầu vào, báo chứng cứ thiếu — ghi lại phần
-      // đã đưa vào để trích dẫn resolve được.
-      const ctxTask = lapContextNoiDung(ctx.db, {
-        bth,
-        task: TASK.nhap_ban_the_hien,
-        context_sinh: snapshot,
-        doi_tuong: String(payload.doi_tuong ?? bth.doi_tuong),
-        gioi_han: tuyChon.gioi_han,
-      });
+      // đã đưa vào để trích dẫn resolve được. Entity biến mất giữa chừng →
+      // lỗi vĩnh viễn như ở bước lắp context sinh.
+      let ctxTask;
+      try {
+        ctxTask = lapContextNoiDung(ctx.db, {
+          bth,
+          task: TASK.nhap_ban_the_hien,
+          context_sinh: snapshot,
+          doi_tuong: String(payload.doi_tuong ?? bth.doi_tuong),
+          gioi_han: tuyChon.gioi_han,
+        });
+      } catch (e) {
+        if (e instanceof LoiApi) throw new LoiVinhVien(e.message);
+        throw e;
+      }
       if (ctxTask.ds_nguon.length === 0) {
         ctx.baoTienDo({ buoc: "lap_context_sinh", canh_bao: "khong_co_nguon" });
       }
@@ -152,9 +158,11 @@ export function taoHandlers(
         try {
           kq = await goiProvider(ctx, provider, ctxGoi, tuyChon.gia);
         } catch (e) {
-          if (e instanceof LoiProvider && e.sua_duoc && lan < SO_LAN_SUA_TOI_DA) {
+          if (e instanceof LoiProvider && e.sua_duoc) {
+            // Hết budget sửa → thống nhất fail vĩnh viễn, không đốt attempt.
             dsLoiTruoc = [e.message];
-            continue;
+            if (lan < SO_LAN_SUA_TOI_DA) continue;
+            break;
           }
           throw e;
         }
@@ -175,9 +183,9 @@ export function taoHandlers(
         throw new LoiVinhVien("Revision đích đã đổi trong lúc sinh.");
       }
       ctx.assertConHan(); // chặn zombie commit revision sau khi job 'loi'
-      const tdRev = thongDiep.head_revision_id
-        ? layThongDiepRevision(ctx.db, thongDiep.head_revision_id)
-        : null;
+      // Provenance ghi đúng revision mà context thực sự dùng (không đọc lại
+      // head — head thông điệp có thể đã trôi kể từ lúc lắp context).
+      const tdRevId = ctxTask.thong_diep.revision_id;
       // context_sinh + revision cùng một transaction: snapshot chỉ tồn tại khi
       // revision được ghi — không row mồ côi khi job fail hay retry attempt.
       ctx.db.exec("BEGIN IMMEDIATE");
@@ -190,7 +198,7 @@ export function taoHandlers(
             noi_dung: kq.noi_dung,
             dua_tren_revision_id: mongDoi,
             context_sinh_id: cs.id,
-            thong_diep_revision_id: tdRev?.id ?? null,
+            thong_diep_revision_id: tdRevId,
           },
           "job",
         );
@@ -199,7 +207,7 @@ export function taoHandlers(
           ban_the_hien_id: bthId,
           revision_id: rev.id,
           context_sinh_id: cs.id,
-          thong_diep_revision_id: tdRev?.id ?? null,
+          thong_diep_revision_id: tdRevId,
           provider: provider.ten,
           model: kq.model ?? provider.model ?? "",
           task: { id: ctxTask.task.id, phien_ban: ctxTask.task.phien_ban },

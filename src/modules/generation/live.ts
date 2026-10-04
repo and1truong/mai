@@ -149,6 +149,8 @@ export function taoAdapterOpenAI(c: CauHinhAi): NhaCungCap {
       const ctl = new AbortController();
       const timer = setTimeout(() => ctl.abort(), timeoutMs);
       tinHieu?.addEventListener("abort", () => ctl.abort(), { once: true });
+      // Signal có thể đã cháy trước khi vào sinh (cửa sổ giữa assertConHan).
+      if (tinHieu?.aborted) ctl.abort();
       let res: Response;
       try {
         res = await fetch(`${baseUrl}/chat/completions`, {

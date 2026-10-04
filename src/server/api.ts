@@ -1116,7 +1116,13 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
             const defBt = layDinhDang(ddBt);
             const loiNgBt = defBt ? kiemTraNgonNgu(defBt, nnBt) : `payload.fan_out[].dinh_dang '${ddBt}' không hợp lệ.`;
             if (loiNgBt) throw new LoiApi(400, "VALIDATION", loiNgBt);
-            const dtBtId = tuyChonChuoi(bienThe.doi_tuong_id) || tuyChonChuoi(payload.doi_tuong_id);
+            // Validate như main path: id đối tượng phải tồn tại, không để id
+            // rác lọt vào payload job → job fail vĩnh viễn sau khi đã tạo bth.
+            const dtBtId0 = tuyChonChuoi(bienThe.doi_tuong_id);
+            if (dtBtId0 && !layDoiTuong(c.db, dtBtId0)) {
+              throw new LoiApi(400, "VALIDATION", `payload.fan_out[].doi_tuong_id '${dtBtId0}' không tồn tại.`);
+            }
+            const dtBtId = dtBtId0 || tuyChonChuoi(payload.doi_tuong_id);
             const tenDtBt =
               (dtBtId ? layDoiTuong(c.db, dtBtId)?.ten : undefined) ??
               tuyChonChuoi(bienThe.doi_tuong) ??

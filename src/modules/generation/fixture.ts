@@ -34,6 +34,13 @@ function dongThieuChungCu(ctx: ContextTask): string[] {
   );
 }
 
+// Cắt có chủ đích: giữ đuôi "…" để output vẫn validate hợp lệ schema khi
+// input dài — fixture tự sinh vi phạm thì repair không bao giờ cứu được.
+function catChuoi(s: string, toiDa?: number): string {
+  if (!toiDa || s.length <= toiDa) return s;
+  return `${s.slice(0, toiDa - 1)}…`;
+}
+
 // Gán nội dung cho một trường theo kiểu — deterministic từ context.
 function noiDungTruong(t: DinhNghiaTruong, ctx: ContextTask): string | string[] {
   const dongMeta = [
@@ -47,16 +54,14 @@ function noiDungTruong(t: DinhNghiaTruong, ctx: ContextTask): string | string[] 
 
   switch (t.loai) {
     case "van_ban": {
-      if (t.ten === "tieu_de") return ctx.thong_diep.tieu_de;
-      if (t.ten === "tom_tat" || t.ten === "gioi_thieu") {
-        return cauDau(ctx.thong_diep.noi_dung || ctx.ds_nguon[0]?.noi_dung || ctx.thong_diep.tieu_de);
-      }
-      if (t.ten === "hook") {
-        return cauDau(ctx.thong_diep.noi_dung || ctx.ds_nguon[0]?.noi_dung || ctx.thong_diep.tieu_de).slice(0, 300);
-      }
-      if (t.ten === "cta") return `Tìm hiểu thêm: ${ctx.thong_diep.tieu_de}`;
-      if (t.ten === "hashtag") return `#mai #${ctx.dinh_dang?.id ?? "noi-dung"}`;
-      return ctx.thong_diep.tieu_de;
+      let s: string;
+      if (t.ten === "tieu_de") s = ctx.thong_diep.tieu_de;
+      else if (t.ten === "tom_tat" || t.ten === "gioi_thieu" || t.ten === "hook") {
+        s = cauDau(ctx.thong_diep.noi_dung || ctx.ds_nguon[0]?.noi_dung || ctx.thong_diep.tieu_de);
+      } else if (t.ten === "cta") s = `Tìm hiểu thêm: ${ctx.thong_diep.tieu_de}`;
+      else if (t.ten === "hashtag") s = `#mai #${ctx.dinh_dang?.id ?? "noi-dung"}`;
+      else s = ctx.thong_diep.tieu_de;
+      return catChuoi(s, t.do_dai_toi_da);
     }
     case "markdown": {
       const dong: string[] = [];
@@ -68,15 +73,17 @@ function noiDungTruong(t: DinhNghiaTruong, ctx: ContextTask): string | string[] 
       }
       if (dongThieu.length > 0) dong.push("", ...dongThieu);
       dong.push("", `— ${dongMeta.join(" · ")}`);
-      return dong.join("\n");
+      return catChuoi(dong.join("\n"), t.do_dai_toi_da);
     }
     case "danh_sach": {
       // Một mục cho mỗi nguồn (có đánh số để khớp trích dẫn); thiếu nguồn →
       // một mục từ thông điệp. CTA/cảnh gợi ý vẫn là mục văn bản fixture.
-      if (ctx.ds_nguon.length === 0) {
-        return [cauDau(ctx.thong_diep.noi_dung) || ctx.thong_diep.tieu_de];
-      }
-      return ctx.ds_nguon.map((n, i) => `${n.tieu_de}: ${cauDau(n.noi_dung)} [src${i + 1}]`);
+      const goc =
+        ctx.ds_nguon.length === 0
+          ? [cauDau(ctx.thong_diep.noi_dung) || ctx.thong_diep.tieu_de]
+          : ctx.ds_nguon.map((n, i) => `${n.tieu_de}: ${cauDau(n.noi_dung)} [src${i + 1}]`);
+      const dsMuc = t.so_muc_toi_da ? goc.slice(0, t.so_muc_toi_da) : goc;
+      return dsMuc.map((m) => catChuoi(m, t.do_dai_toi_da));
     }
   }
 }
@@ -123,14 +130,15 @@ export const fixture = {
         };
       case "localize":
         // Fixture không dịch thật: giữ nguyên trường, đánh dấu ngôn ngữ đích.
+        // Contract noi_dung luôn là canonical JSON như adapter live.
         return {
-          noi_dung: ctx.thong_diep.noi_dung,
+          noi_dung: JSON.stringify({ noi_dung: ctx.thong_diep.noi_dung }),
           trich_dan: trichTatCa(ctx.ds_nguon),
           canh_bao: [`fixture không dịch thật — trả nguyên văn (đích: ${ctx.ngon_ngu}).`],
         };
       case "de_xuat_revision":
         return {
-          noi_dung: ctx.thong_diep.noi_dung,
+          noi_dung: JSON.stringify({ noi_dung: ctx.thong_diep.noi_dung }),
           trich_dan: trichTatCa(ctx.ds_nguon),
           canh_bao: ["fixture giữ nguyên nội dung gốc — đề xuất cần review người."],
         };
