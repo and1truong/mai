@@ -26,6 +26,7 @@ import type {
 } from "../../modules/content/index.ts";
 import type { HoSoDoiTuong, HoSoThuongHieu } from "../../modules/context/index.ts";
 import type { GoiYKhoangTrong, ThamChieuView, TienDoSoBao } from "../../modules/so_bao/index.ts";
+import type { GoiYPhatHanh } from "../../modules/phat_hanh/index.ts";
 
 // Trang Bản phát hành (#9): campaign loại 'phat_hanh' — field release
 // (phiên bản, ngày, định vị, giới hạn gói/vùng/khả dụng, CTA, fact có
@@ -38,7 +39,7 @@ type ChiTietPhatHanh = Campaign & {
   thong_diep_chu_de: { id: string; tieu_de: string } | null;
   tham_chieu_view: ThamChieuView[];
   de_xuat_muc_luc: MucLuc[];
-  goi_y: GoiYKhoangTrong[];
+  goi_y: (GoiYKhoangTrong | GoiYPhatHanh)[];
   tien_do: TienDoSoBao;
   hang_cho: BanTheHien[];
   phat_hanh: {
@@ -1162,7 +1163,7 @@ function ChiTietPhatHanhView({ id }: { id: string }) {
                       </Flex>
                       <Text size="1">{g.ly_do}</Text>
                       <Flex direction="column">
-                        {g.bang_chung.map((b, i) => (
+                        {(g.bang_chung ?? []).map((b, i) => (
                           <Text key={i} size="1" color="gray">
                             • {b}
                           </Text>

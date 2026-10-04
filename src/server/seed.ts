@@ -3,7 +3,12 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { extname, join, resolve } from "node:path";
 import { taiCauHinh } from "../config.ts";
 import { log } from "../log.ts";
-import { taoDoiTuong, taoThuongHieu, thayThuatNgu } from "../modules/context/index.ts";
+import {
+  layDoiTuong,
+  taoDoiTuong,
+  taoThuongHieu,
+  thayThuatNgu,
+} from "../modules/context/index.ts";
 import {
   capNhatCampaign,
   chuyenTrangThai,
@@ -1090,14 +1095,22 @@ export function seed(
     // phục vụ), khách hàng (chờ duyệt — vào hàng chờ review), sales (đã
     // duyệt). Nội dung theo contract [F:<fact_id>]/[GH:<gioi_han_id>];
     // claim hiệu năng chưa xác nhận chỉ để [CÂU HỎI].
+    // Định danh đầu ra gồm chuỗi doi_tuong = tên hồ sơ của mục — derive
+    // từ mục lục để đầu ra seed luôn khớp khoaDauRaMuc (tiến độ mục).
+    const mucTheoDauRa = new Map(
+      layCampaign(db, cpPh.id)!.muc_luc.map((m) => [`${m.dinh_dang}|${m.dich_den}`, m]),
+    );
     for (const o of NOI_DUNG_DAU_RA_PHAT_HANH) {
+      const muc = mucTheoDauRa.get(`${o.dinh_dang}|${o.dich_den}`);
+      const doiTuongTen =
+        (muc?.doi_tuong_id ? layDoiTuong(db, muc.doi_tuong_id)?.ten : null) ?? o.doi_tuong;
       taoBanTheHien(
         db,
         {
           thong_diep_id: tdPh.id,
           dinh_dang: o.dinh_dang,
           ngon_ngu: "vi",
-          doi_tuong: o.doi_tuong,
+          doi_tuong: doiTuongTen,
           dich_den: o.dich_den,
         },
         tacGia,

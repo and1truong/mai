@@ -537,6 +537,11 @@ export type GoiYPhatHanh = {
   loai: "fact_chua_xac_nhan" | "thieu_tai_lieu" | "thieu_dau_ra" | "thieu_cta";
   tieu_de: string;
   ly_do: string;
+  // Chứng cứ đi kèm để người đọc đối chiếu nhanh (cùng vai trò
+  // GoiYKhoangTrong.bang_chung của số báo).
+  bang_chung: string[];
+  // Mục đề xuất để thêm vào mục lục — chỉ có khi gợi ý là 'thieu_dau_ra'.
+  de_xuat_muc?: MucLuc;
 };
 
 // Gợi ý khoảng trống của bản phát hành — tính lại mỗi lần đọc:
@@ -553,6 +558,7 @@ export function goiYPhatHanh(db: Database, cp: Campaign): GoiYPhatHanh[] {
       loai: "fact_chua_xac_nhan",
       tieu_de: `Fact '${f.tinh_nang}' chưa có bằng chứng nguồn`,
       ly_do: `Fact '${f.tinh_nang}' chưa trỏ nguồn/mục nào đã nạp — đầu ra nhắc nó sẽ phải để [CÂU HỎI] thay vì trình bày như sự thật. Gán nguon_id + muc_id sau khi nạp tài liệu.`,
+      bang_chung: [`tinh_nang: ${f.tinh_nang}`, `noi_dung: ${f.noi_dung || "—"}`],
     });
   }
   for (const t of cp.tham_chieu) {
@@ -562,6 +568,7 @@ export function goiYPhatHanh(db: Database, cp: Campaign): GoiYPhatHanh[] {
       loai: "thieu_tai_lieu",
       tieu_de: `Thiếu tài liệu cho '${t.tham_chieu}'`,
       ly_do: `Bản phát hành khai báo tài liệu '${t.tham_chieu}' nhưng chưa nạp văn bản — claim trích từ đó không đối chiếu được. Nạp nguồn rồi liên kết.`,
+      bang_chung: [`tham_chieu: ${t.tham_chieu}`, `ban_dich: ${t.ban_dich || "—"}`],
     });
   }
   const deXuat = deXuatDauRaPhatHanh(db, cp);
@@ -569,12 +576,14 @@ export function goiYPhatHanh(db: Database, cp: Campaign): GoiYPhatHanh[] {
   const thieu = deXuat.filter(
     (d) => !daCo.has(`${d.dinh_dang}|${d.doi_tuong_id ?? ""}|${d.dich_den}`),
   );
-  if (cp.muc_luc.length === 0 && thieu.length > 0) {
+  for (const d of thieu) {
     ds.push({
-      id: "goi-y-muc-luc-rong",
+      id: `goi-y-dau-ra-${d.id}`,
       loai: "thieu_dau_ra",
-      tieu_de: "Chưa đặt đầu ra nào",
-      ly_do: `Bản phát hành có ${thieu.length} đầu ra đề xuất theo đối tượng — áp đề xuất hoặc tự đặt mục lục trước khi nháp.`,
+      tieu_de: `Thiếu đầu ra '${d.tieu_de}'`,
+      ly_do: d.ly_do || `Đầu ra đề xuất cho đối tượng này chưa có trong mục lục — thêm để nháp.`,
+      bang_chung: [`dinh_dang: ${d.dinh_dang}`, `dich_den: ${d.dich_den || "—"}`],
+      de_xuat_muc: d,
     });
   }
   if (cp.cta.length === 0) {
@@ -583,6 +592,7 @@ export function goiYPhatHanh(db: Database, cp: Campaign): GoiYPhatHanh[] {
       loai: "thieu_cta",
       tieu_de: "Chưa khai báo link CTA",
       ly_do: "Đầu ra cần link trỏ đúng trang tài liệu/nâng cấp/hỗ trợ — khai báo ít nhất một CTA.",
+      bang_chung: [],
     });
   }
   return ds;
