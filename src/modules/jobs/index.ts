@@ -178,6 +178,35 @@ export function enqueueJob(db: Database, t: TuyChonEnqueue): { job: Job; da_tao:
     return { job, da_tao: true };
   }
   if (job.trang_thai === "cho" || job.trang_thai === "dang_chay") {
+    // Dedupe trúng job 'cho' đã lên lịch tương lai trong khi yêu cầu mới
+    // muốn chạy sớm hơn (chay_som_nhat rỗng hoặc trước lịch cũ): kéo lịch
+    // về sớm + ghim revision/payload mới — vẫn cùng một job logic, không
+    // tạo dòng thứ hai. Không kéo lịch thì caller bind vào job không bao
+    // giờ chạy (task sửa kẹt 'dang_lam' — bug E2E bắt trên #11).
+    const somNhatCu = job.chay_som_nhat;
+    const somNhatMoi = t.chaySomNhat ?? null;
+    if (
+      job.trang_thai === "cho" &&
+      somNhatCu &&
+      (somNhatMoi === null || somNhatMoi < somNhatCu)
+    ) {
+      db.query(
+        `UPDATE job SET chay_som_nhat = ?, mui_gio = ?, revision_id = ?, payload = ? WHERE id = ?`,
+      ).run(
+        somNhatMoi,
+        t.muiGio ?? "",
+        t.revisionId ?? null,
+        JSON.stringify(t.payload ?? {}),
+        job.id,
+      );
+      ghiNhatKy(db, job.id, "keo_lich_som", {
+        tu: somNhatCu,
+        den: somNhatMoi,
+        khoa_idem: khoa,
+      });
+      log.info("job.keo_lich_som", { id: job.id, loai: t.loai, khoa_idem: khoa });
+      return { job: layJob(db, job.id)!, da_tao: false };
+    }
     return { job, da_tao: false };
   }
   // Job đã kết thúc: reset về 'cho' — cùng một job logic chạy lần mới.
