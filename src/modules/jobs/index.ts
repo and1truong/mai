@@ -16,6 +16,8 @@ import { log } from "../../log.ts";
 //   ('xong'/'loi'/'huy') → reset về 'cho' và chạy lại cùng dòng đó.
 // - Attempt chạy dưới timeout + lease; lỗi tạm retry với backoff có biên;
 //   lỗi vĩnh viễn (LoiVinhVien) hoặc hết lượt → 'loi', inspect/retry được.
+// - Attempt quá timeout (Promise.race đã bỏ) vẫn có thể chạy nền — handler
+//   gọi ctx.assertConHan() trước mỗi ghi side-effect để zombie không commit.
 
 export type TrangThaiJob = "cho" | "dang_chay" | "xong" | "loi" | "huy";
 
@@ -60,6 +62,10 @@ export type JobCtx = {
   lanThu: number;
   // Ghi tiến độ (JSON) vào dòng job — inspect/UI đọc được. Không ném lỗi.
   baoTienDo: (tienDo: Record<string, unknown>) => void;
+  // Ném LoiHetHan khi attempt đã hết hạn/bị hủy/thu hồi. Handler GỌI trước
+  // mỗi ghi side-effect (revision, publish…) — attempt zombie (quá timeout
+  // nhưng promise vẫn chạy) bị chặn tại đây thay vì commit sau khi job 'loi'.
+  assertConHan: () => void;
 };
 
 export type JobHandler = (
@@ -80,6 +86,14 @@ class LoiTimeout extends Error {
   constructor() {
     super("Job vượt timeout_ms.");
     this.name = "LoiTimeout";
+  }
+}
+
+// Attempt không còn là chủ hợp lệ (job đổi trạng thái hoặc quá timeout).
+class LoiHetHan extends Error {
+  constructor() {
+    super("Attempt đã hết hạn — hủy ghi side-effect.");
+    this.name = "LoiHetHan";
   }
 }
 
@@ -412,21 +426,53 @@ async function chayAttempt(
 ): Promise<void> {
   ghiNhatKy(db, job.id, "bat_dau", { lan_thu: job.so_lan_thu, lease_den: job.lease_den });
   log.info("job.bat_dau", { id: job.id, loai: job.loai, lan_thu: job.so_lan_thu });
+  // quaHan=true khi timeout đã thắng race: handler còn lại là "zombie" —
+  // assertConHan chặn mọi ghi side-effect của nó kể cả khi job vẫn 'dang_chay'.
+  let quaHan = false;
   const ctx: JobCtx = {
     db,
     job,
     lanThu: job.so_lan_thu,
     baoTienDo: (t) => capNhatTienDo(db, job, t),
+    assertConHan: () => {
+      if (quaHan) throw new LoiHetHan();
+      const cur = db
+        .query("SELECT trang_thai, lease_token FROM job WHERE id = ?")
+        .get(job.id) as { trang_thai: string; lease_token: string | null } | null;
+      if (!cur || cur.trang_thai !== "dang_chay" || cur.lease_token !== job.lease_token) {
+        throw new LoiHetHan();
+      }
+    },
   };
   try {
     const handler = handlers[job.loai];
     if (!handler) throw new LoiVinhVien(`Không có handler cho loại job: ${job.loai}`);
     const payload = JSON.parse(job.payload) as Record<string, unknown>;
+    const handlerP = Promise.resolve().then(() => handler(payload, ctx));
+    // Nuốt kết quả/lỗi của zombie (resolve hay reject sau timeout đều không
+    // commit được nữa) — chỉ ghi nhật ký best-effort, tránh unhandled rejection.
+    const ghiZombie = (suKien: string, duLieu: Record<string, unknown>) => {
+      if (!quaHan) return;
+      try {
+        ghiNhatKy(db, job.id, suKien, duLieu);
+      } catch {
+        // db có thể đã đóng (teardown) — nhật ký zombie là best-effort.
+      }
+      log.warn(`job.${suKien}`, { id: job.id, loai: job.loai, ...duLieu });
+    };
+    handlerP.then(
+      () => ghiZombie("zombie_xong_muon", {}),
+      (e: unknown) =>
+        ghiZombie("zombie_loi_muon", { loi: e instanceof Error ? e.message : String(e) }),
+    );
     let timer: ReturnType<typeof setTimeout> | undefined;
     const ketQua = await Promise.race([
-      Promise.resolve().then(() => handler(payload, ctx)),
+      handlerP,
       new Promise<never>((_res, rej) => {
-        timer = setTimeout(() => rej(new LoiTimeout()), job.timeout_ms);
+        timer = setTimeout(() => {
+          quaHan = true;
+          rej(new LoiTimeout());
+        }, job.timeout_ms);
         timer.unref?.();
       }),
     ]).finally(() => clearTimeout(timer));

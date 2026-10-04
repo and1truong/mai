@@ -219,6 +219,35 @@ describe("retry + backoff + timeout", () => {
     expect(j.loi).toContain("timeout");
     db.close();
   });
+
+  test("attempt quá timeout: ctx.assertConHan chặn zombie ghi side-effect", async () => {
+    const { db } = moDbTam();
+    let ghiSideEffect = 0;
+    runner(db, {
+      gia: async (_payload, ctx) => {
+        await Bun.sleep(150); // quá timeout 50ms → job đã 'loi'
+        ctx.assertConHan(); // phải ném — zombie không được ghi side-effect
+        ghiSideEffect++;
+        ctx.db
+          .query("INSERT INTO job_log (job_id, ts, su_kien) VALUES (?, ?, 'side_effect_ma')")
+          .run(ctx.job.id, new Date().toISOString());
+        return {};
+      },
+    });
+    const { job } = enqueueJob(db, {
+      loai: "gia",
+      khoaIdem: "zombie-1",
+      timeoutMs: 50,
+      soLanThuToiDa: 1,
+    });
+    expect(await choTrangThai(db, job.id, ["loi"])).toBe("loi");
+    await Bun.sleep(250); // chờ zombie chạy hết đường
+    expect(ghiSideEffect).toBe(0);
+    const suKien = nhatKyJob(db, job.id).map((d) => d.su_kien);
+    expect(suKien).not.toContain("side_effect_ma");
+    expect(suKien).toContain("zombie_loi_muon");
+    db.close();
+  });
 });
 
 describe("lên lịch + hủy", () => {
