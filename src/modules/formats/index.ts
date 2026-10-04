@@ -681,6 +681,164 @@ const DANG_CAP_NHAT_TINH_NGUYEN: DinhNghiaDinhDang = {
   ],
 };
 
+// --- Định dạng công quyền (#11) ---
+// Đầu ra giải thích chính sách cho các nhóm đối tượng của một cơ quan.
+// Bốn trường ràng buộc dùng chung trong mọi định dạng: `yeu_cau` (yêu
+// cầu bắt buộc/giải thích đã xác nhận), `ngoai_le` (ngoại lệ liên kết
+// yêu cầu), `pham_vi` (phạm vi quyền hạn), `ngay_hieu_luc` (ngày có
+// hiệu lực) — đơn giản hóa/dịch phải giữ nguyên bốn phần đó. Điều
+// khoản nguồn mơ hồ đổ thành dòng [CÂU HỎI], không phải luật bịa.
+
+const TRUONG_YEU_CAU: DinhNghiaTruong = {
+  ten: "yeu_cau",
+  nhan: "Yêu cầu áp dụng",
+  loai: "danh_sach",
+  bat_buoc: true,
+  so_muc_toi_da: 20,
+  do_dai_toi_da: 500,
+};
+const TRUONG_NGOAI_LE: DinhNghiaTruong = {
+  ten: "ngoai_le",
+  nhan: "Ngoại lệ áp dụng",
+  loai: "danh_sach",
+  so_muc_toi_da: 20,
+  do_dai_toi_da: 500,
+};
+const TRUONG_PHAM_VI: DinhNghiaTruong = {
+  ten: "pham_vi",
+  nhan: "Phạm vi áp dụng",
+  loai: "van_ban",
+  bat_buoc: true,
+  do_dai_toi_da: 500,
+};
+const TRUONG_NGAY_HIEU_LUC: DinhNghiaTruong = {
+  ten: "ngay_hieu_luc",
+  nhan: "Ngày hiệu lực",
+  loai: "van_ban",
+  bat_buoc: true,
+  do_dai_toi_da: 60,
+};
+
+const DANG_FAQ_CONG_DAN: DinhNghiaDinhDang = {
+  id: "faq-cong-dan",
+  phien_ban: 1,
+  nhan: "FAQ công dân",
+  mo_ta: "Hỏi đáp cho hộ gia đình/cư dân — câu trả lời ngắn, yêu cầu và ngoại lệ ràng buộc nêu riêng.",
+  ngon_ngu: NGON_NGU,
+  truong: [
+    { ten: "tieu_de", nhan: "Tiêu đề", loai: "van_ban", bat_buoc: true, do_dai_toi_da: 200 },
+    { ten: "gioi_thieu", nhan: "Giới thiệu", loai: "markdown" },
+    {
+      ten: "hoi_dap",
+      nhan: "Hỏi đáp",
+      loai: "danh_sach",
+      bat_buoc: true,
+      so_muc_toi_da: 15,
+      do_dai_toi_da: 500,
+    },
+    TRUONG_YEU_CAU,
+    TRUONG_NGOAI_LE,
+    TRUONG_PHAM_VI,
+    TRUONG_NGAY_HIEU_LUC,
+    { ten: "hoi_them", nhan: "Hỏi thêm", loai: "van_ban", do_dai_toi_da: 300 },
+  ],
+};
+
+const DANG_CHECKLIST_DOANH_NGHIEP: DinhNghiaDinhDang = {
+  id: "checklist-doanh-nghiep",
+  phien_ban: 1,
+  nhan: "Checklist tuân thủ doanh nghiệp",
+  mo_ta: "Các bước doanh nghiệp phải làm để tuân thủ — yêu cầu bắt buộc thành việc cụ thể, ngoại lệ nêu riêng.",
+  ngon_ngu: NGON_NGU,
+  truong: [
+    { ten: "tieu_de", nhan: "Tiêu đề", loai: "van_ban", bat_buoc: true, do_dai_toi_da: 200 },
+    { ten: "gioi_thieu", nhan: "Giới thiệu", loai: "markdown" },
+    {
+      ten: "cac_buoc",
+      nhan: "Các bước phải làm",
+      loai: "danh_sach",
+      bat_buoc: true,
+      so_muc_toi_da: 15,
+      do_dai_toi_da: 500,
+    },
+    TRUONG_YEU_CAU,
+    TRUONG_NGOAI_LE,
+    TRUONG_PHAM_VI,
+    TRUONG_NGAY_HIEU_LUC,
+    { ten: "lien_ket", nhan: "Link tài liệu", loai: "van_ban", do_dai_toi_da: 500 },
+  ],
+};
+
+const DANG_GIAI_THICH_TRUONG_HOC: DinhNghiaDinhDang = {
+  id: "giai-thich-truong-hoc",
+  phien_ban: 1,
+  nhan: "Bài giải thích cho trường học",
+  mo_ta: "Bài giải thích dạy được cho trường học — văn đơn giản, phần phải làm tách phần nên làm.",
+  ngon_ngu: NGON_NGU,
+  truong: [
+    { ten: "tieu_de", nhan: "Tiêu đề", loai: "van_ban", bat_buoc: true, do_dai_toi_da: 200 },
+    { ten: "noi_dung", nhan: "Nội dung", loai: "markdown", bat_buoc: true },
+    TRUONG_YEU_CAU,
+    TRUONG_NGOAI_LE,
+    {
+      ten: "goi_y_hoat_dong",
+      nhan: "Hoạt động gợi ý",
+      loai: "danh_sach",
+      so_muc_toi_da: 10,
+      do_dai_toi_da: 500,
+    },
+    TRUONG_PHAM_VI,
+    TRUONG_NGAY_HIEU_LUC,
+  ],
+};
+
+const DANG_TOM_TAT_NHA_THAU: DinhNghiaDinhDang = {
+  id: "tom-tat-nha-thau",
+  phien_ban: 1,
+  nhan: "Tóm tắt cho nhà thầu",
+  mo_ta: "Nghĩa vụ hợp đồng ngắn gọn cho nhà thầu — tóm tắt + yêu cầu bắt buộc + ngoại lệ áp dụng.",
+  ngon_ngu: NGON_NGU,
+  truong: [
+    { ten: "tieu_de", nhan: "Tiêu đề", loai: "van_ban", bat_buoc: true, do_dai_toi_da: 200 },
+    { ten: "tom_tat", nhan: "Tóm tắt", loai: "van_ban", bat_buoc: true, do_dai_toi_da: 500 },
+    {
+      ten: "nghia_vu",
+      nhan: "Nghĩa vụ hợp đồng",
+      loai: "danh_sach",
+      bat_buoc: true,
+      so_muc_toi_da: 15,
+      do_dai_toi_da: 500,
+    },
+    TRUONG_YEU_CAU,
+    TRUONG_NGOAI_LE,
+    TRUONG_PHAM_VI,
+    TRUONG_NGAY_HIEU_LUC,
+  ],
+};
+
+const DANG_BAN_DICH_GIAN_DI: DinhNghiaDinhDang = {
+  id: "ban-dich-gian-di",
+  phien_ban: 1,
+  nhan: "Bản dịch ngôn ngữ giản dị",
+  mo_ta: "Bản dịch cho người nhập cư/ngôn ngữ thứ hai — giữ nguyên nghĩa vụ, ngoại lệ, phạm vi và ngày hiệu lực.",
+  ngon_ngu: NGON_NGU,
+  truong: [
+    { ten: "tieu_de", nhan: "Tiêu đề", loai: "van_ban", bat_buoc: true, do_dai_toi_da: 200 },
+    { ten: "noi_dung", nhan: "Nội dung", loai: "markdown", bat_buoc: true },
+    TRUONG_YEU_CAU,
+    TRUONG_NGOAI_LE,
+    TRUONG_PHAM_VI,
+    TRUONG_NGAY_HIEU_LUC,
+    {
+      ten: "ghi_chu",
+      nhan: "Ghi chú biên dịch",
+      loai: "danh_sach",
+      so_muc_toi_da: 10,
+      do_dai_toi_da: 500,
+    },
+  ],
+};
+
 const REGISTRY: Record<string, DinhNghiaDinhDang> = Object.fromEntries(
   [
     DANG_BAI_VIET,
@@ -708,6 +866,11 @@ const REGISTRY: Record<string, DinhNghiaDinhDang> = Object.fromEntries(
     DANG_EMAIL_TAI_TRO,
     DANG_TRANG_CAMPAIGN,
     DANG_CAP_NHAT_TINH_NGUYEN,
+    DANG_FAQ_CONG_DAN,
+    DANG_CHECKLIST_DOANH_NGHIEP,
+    DANG_GIAI_THICH_TRUONG_HOC,
+    DANG_TOM_TAT_NHA_THAU,
+    DANG_BAN_DICH_GIAN_DI,
   ].map((d) => [d.id, d]),
 );
 

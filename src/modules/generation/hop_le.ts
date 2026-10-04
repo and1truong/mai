@@ -269,5 +269,156 @@ export function kiemTraDauRa(ctx: ContextTask, kq: KetQuaTask): KetQuaKiemTra {
     }
   }
 
+  // Chiến dịch công quyền (#11): yêu cầu bắt buộc phân biệt với ngôn
+  // ngữ giải thích; ngoại lệ/phạm vi quyền hạn/ngày hiệu lực giữ nguyên
+  // qua đơn giản hóa và dịch; marker bằng chứng phải trỏ mục có trong
+  // context — không bịa nguồn; điều khoản mơ hồ chỉ là câu hỏi review.
+  const cq = ctx.cong_quyen;
+  if (cq) {
+    // Giá trị trường sau parse — giống khối gây quỹ: kiểm trên giá trị,
+    // không trên JSON serialize.
+    let giaTriTruong: string[] = [kq.noi_dung];
+    let fields: Record<string, unknown> = {};
+    try {
+      const j: unknown = JSON.parse(kq.noi_dung);
+      if (j !== null && typeof j === "object" && !Array.isArray(j)) {
+        fields = j as Record<string, unknown>;
+        const ds: string[] = [];
+        for (const v of Object.values(fields)) {
+          if (typeof v === "string") ds.push(v);
+          else if (Array.isArray(v)) {
+            for (const m of v) if (typeof m === "string") ds.push(m);
+          }
+        }
+        if (ds.length > 0) giaTriTruong = ds;
+      }
+    } catch {
+      // Không phải JSON — kiểm trên nguyên văn.
+    }
+    const giaTri = giaTriTruong.join("\n");
+    const dsDong = giaTri.split(/\n/);
+
+    // Marker bằng chứng phải trỏ yêu cầu/ngoại lệ/fact có trong context.
+    const idYc = new Set(cq.ds_yeu_cau.map((t) => t.id));
+    const idNl = new Set(cq.ds_ngoai_le.map((t) => t.id));
+    const idFv = new Set(cq.ds_fact_van_hanh.map((t) => t.id));
+    for (const m of kq.noi_dung.matchAll(/\[YC:([a-z0-9_-]+)\]/gi)) {
+      if (!idYc.has(m[1]!)) {
+        canhBao.push(`Đầu ra tham chiếu yêu cầu '${m[1]}' không có trong chính sách.`);
+      }
+    }
+    for (const m of kq.noi_dung.matchAll(/\[NL:([a-z0-9_-]+)\]/gi)) {
+      if (!idNl.has(m[1]!)) {
+        canhBao.push(`Đầu ra tham chiếu ngoại lệ '${m[1]}' không có trong chính sách.`);
+      }
+    }
+    for (const m of kq.noi_dung.matchAll(/\[FV:([a-z0-9_-]+)\]/gi)) {
+      if (!idFv.has(m[1]!)) {
+        canhBao.push(`Đầu ra tham chiếu fact vận hành '${m[1]}' không có trong chiến dịch.`);
+      }
+    }
+
+    // Mục chưa xác nhận không được trình bày ngoài dòng câu hỏi — khớp
+    // 40 ký tự đầu nội dung đủ phân biệt mà không đòi trùng toàn văn.
+    const dongNhamNgoaiHoi = (doan: string): boolean => {
+      const mau = doan.slice(0, 40).toLowerCase();
+      if (mau.length < 12) return false;
+      return dsDong.some(
+        (d) => d.toLowerCase().includes(mau) && !/câu\s*hỏi/i.test(d),
+      );
+    };
+    for (const y of cq.ds_yeu_cau) {
+      if (y.xac_nhan || !y.noi_dung) continue;
+      if (dongNhamNgoaiHoi(y.noi_dung)) {
+        canhBao.push(
+          `Yêu cầu ${y.id} chưa có bằng chứng nguồn — đầu ra đang nhắc nó ngoài câu hỏi, cần thẩm quyền xác nhận trước khi công bố.`,
+        );
+      }
+    }
+    for (const nl of cq.ds_ngoai_le) {
+      if (nl.xac_nhan || !nl.noi_dung) continue;
+      if (dongNhamNgoaiHoi(nl.noi_dung)) {
+        canhBao.push(
+          `Ngoại lệ ${nl.id} chưa có bằng chứng nguồn — đầu ra đang nhắc nó ngoài câu hỏi.`,
+        );
+      }
+    }
+    for (const f of cq.ds_fact_van_hanh) {
+      if (f.xac_nhan || !f.tieu_de) continue;
+      if (dongNhamNgoaiHoi(f.tieu_de)) {
+        canhBao.push(
+          `Fact vận hành ${f.id} '${f.tieu_de}' chưa có nguồn — đầu ra đang nhắc nó ngoài câu hỏi.`,
+        );
+      }
+    }
+
+    // Điểm giải thích không trình bày như nghĩa vụ bắt buộc.
+    for (const y of cq.ds_yeu_cau) {
+      if (!y.xac_nhan || y.loai !== "giai_thich" || !y.noi_dung) continue;
+      const mau = y.noi_dung.slice(0, 40).toLowerCase();
+      if (mau.length < 12) continue;
+      const nham = dsDong.some(
+        (d) => d.toLowerCase().includes(mau) && /bắt\s*buộc/i.test(d),
+      );
+      if (nham) {
+        canhBao.push(
+          `Điểm giải thích ${y.id} đang trình bày như nghĩa vụ bắt buộc — phân biệt ngôn ngữ giải thích với yêu cầu bắt buộc.`,
+        );
+      }
+    }
+
+    // Ngoại lệ liên kết yêu cầu không bị bỏ: đầu ra nhắc yêu cầu phải
+    // nhắc ngoại lệ của nó (ngoại lệ sống qua đơn giản hóa/dịch).
+    for (const nl of cq.ds_ngoai_le) {
+      if (!nl.xac_nhan || !nl.yeu_cau_id || !nl.noi_dung) continue;
+      const yc = cq.ds_yeu_cau.find((x) => x.id === nl.yeu_cau_id);
+      if (!yc?.xac_nhan || !yc.noi_dung) continue;
+      const mauYc = yc.noi_dung.slice(0, 40).toLowerCase();
+      const mauNl = nl.noi_dung.slice(0, 40).toLowerCase();
+      if (mauYc.length < 12 || mauNl.length < 12) continue;
+      const coYc = dsDong.some((d) => d.toLowerCase().includes(mauYc));
+      const coNl = dsDong.some((d) => d.toLowerCase().includes(mauNl));
+      if (coYc && !coNl) {
+        canhBao.push(
+          `Đầu ra nhắc yêu cầu '${yc.id}' mà bỏ ngoại lệ '${nl.id}' liên kết — ngoại lệ phải sống qua đơn giản hóa/dịch.`,
+        );
+      }
+    }
+
+    // Ngày hiệu lực giữ nguyên ở mọi ngôn ngữ (ISO date không dịch);
+    // phạm vi quyền hạn giữ nguyên trong bản tiếng Việt — bản dịch được
+    // dịch câu nhưng không được bớt phạm vi.
+    if (cq.ngay_hieu_luc && !giaTri.includes(cq.ngay_hieu_luc)) {
+      canhBao.push(
+        `Đầu ra không giữ nguyên ngày hiệu lực '${cq.ngay_hieu_luc}' của chính sách.`,
+      );
+    }
+    if (
+      cq.pham_vi_quyen_han &&
+      ctx.ngon_ngu === "vi" &&
+      !giaTri.includes(cq.pham_vi_quyen_han)
+    ) {
+      canhBao.push(
+        `Đầu ra không giữ nguyên phạm vi quyền hạn '${cq.pham_vi_quyen_han}' của chính sách.`,
+      );
+    }
+
+    // Trường ngoai_le phải có đủ mục cho ngoại lệ đã xác nhận — dịch được
+    // phép dịch câu nhưng không được bỏ mục.
+    const nlXacNhan = cq.ds_ngoai_le.filter((x) => x.xac_nhan).length;
+    const coTruongNgoaiLe = ctx.dinh_dang?.truong.some((t) => t.ten === "ngoai_le");
+    if (nlXacNhan > 0 && coTruongNgoaiLe) {
+      const v = fields["ngoai_le"];
+      const soMuc = Array.isArray(v)
+        ? v.filter((m) => typeof m === "string" && m.trim() !== "").length
+        : 0;
+      if (soMuc < nlXacNhan) {
+        canhBao.push(
+          `Trường ngoai_le có ${soMuc} mục trong khi chính sách khai báo ${nlXacNhan} ngoại lệ đã xác nhận — đơn giản hóa/dịch phải giữ ngoại lệ.`,
+        );
+      }
+    }
+  }
+
   return { hop_le: loiCung.length === 0, loi_cung: loiCung, canh_bao: canhBao };
 }

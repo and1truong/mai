@@ -4,9 +4,12 @@ import type { ContextSinhSnapshot } from "../context/index.ts";
 import type {
   CtaLienKet,
   FactPhatHanh,
+  FactVanHanh,
   GioiHanPhatHanh,
+  NgoaiLeCongQuyen,
   TacDongGayQuy,
   TrichDanGayQuy,
+  YeuCauCongQuyen,
 } from "../content/index.ts";
 import type { DinhNghiaDinhDang } from "../formats/index.ts";
 import { fixture } from "./fixture.ts";
@@ -90,6 +93,43 @@ export type GayQuyContext = {
   ds_trich_dan: TrichDanContext[];
 };
 
+// Yêu cầu/ngoại lệ/fact vận hành đưa vào context (#11): xac_nhan=false
+// khi mục không trỏ nguồn đã nạp hoặc nguồn đó không vào chuỗi
+// provenance của lần sinh — provider phải để [CÂU HỎI], không trình
+// bày như quy định. loai 'bat_buoc' | 'giai_thich' đi kèm để đầu ra
+// không viết điểm giải thích thành nghĩa vụ.
+export type YeuCauContext = YeuCauCongQuyen & {
+  xac_nhan: boolean;
+  nguon_tieu_de?: string;
+};
+export type NgoaiLeContext = NgoaiLeCongQuyen & {
+  xac_nhan: boolean;
+  nguon_tieu_de?: string;
+};
+export type FactVanHanhContext = FactVanHanh & {
+  xac_nhan: boolean;
+  nguon_tieu_de?: string;
+};
+
+// Context chiến dịch công quyền (#11) — chỉ có khi thông điệp thuộc
+// campaign loai 'cong_quyen': phiên bản/phạm vi/ngày hiệu lực của
+// chính sách, danh sách yêu cầu + ngoại lệ + fact vận hành kèm cờ xác
+// nhận, và điều khoản nguồn mơ hồ → câu hỏi review, không phải luật bịa.
+export type CongQuyenContext = {
+  ten: string;
+  phien_ban: string;
+  pham_vi_quyen_han: string;
+  ngay_hieu_luc: string;
+  ngon_ngu_phu: string;
+  cta: CtaLienKet[];
+  ds_yeu_cau: YeuCauContext[];
+  ds_ngoai_le: NgoaiLeContext[];
+  ds_fact_van_hanh: FactVanHanhContext[];
+  // Mệnh đề nguồn chứa từ ngữ mơ hồ/mâu thuẫn — provider để câu hỏi
+  // review cho thẩm quyền, không diễn giải thay luật.
+  dieu_khoan_mo_ho: string[];
+};
+
 // Context một lần sinh — provider nhận nguyên object này, không tự truy DB.
 export type ContextTask = {
   task: TaskDinhNghia;
@@ -108,6 +148,9 @@ export type ContextTask = {
   // Chiến dịch gây quỹ (#10) — có khi campaign loai 'gay_quy': provider
   // lấy mục tiêu/tác động/trích dẫn/CTA quyên góp từ đây.
   gay_quy?: GayQuyContext;
+  // Chiến dịch công quyền (#11) — có khi campaign loai 'cong_quyen':
+  // provider lấy yêu cầu/ngoại lệ/fact/phạm vi/ngày hiệu lực từ đây.
+  cong_quyen?: CongQuyenContext;
   // Chứng cứ còn thiếu trong input (số liệu/mốc thời gian/văn bản tham
   // chiếu) — provider phải để câu hỏi/khoảng trống tường minh thay vì bịa.
   thieu_chung_cu: string[];

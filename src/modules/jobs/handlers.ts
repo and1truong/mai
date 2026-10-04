@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { LoiApi } from "../../loi.ts";
 import {
   layBanTheHien,
+  layRevision,
   layThongDiep,
   themRevisionTrongTxn,
 } from "../content/index.ts";
@@ -108,6 +109,23 @@ export function taoHandlers(
       if (!thongDiep) throw new LoiVinhVien(`Không tìm thấy thông điệp: ${bth.thong_diep_id}`);
       if ((bth.head_revision_id ?? null) !== mongDoi) {
         throw new LoiVinhVien("Revision đích đã đổi trong lúc job xếp hàng. Thử lại để ghim head mới.");
+      }
+      // #11: job ĐÃ LÊN LỊCH mà revision đích ghim thong_diep revision cũ
+      // (nguồn đã đổi — vd ngày hiệu lực của chính sách) không được chạy
+      // tiếp trước khi review lại — nội dung được sinh sẽ nói về nguồn
+      // cũ. Job ad-hoc/repair (không lịch) không bị chặn; sau khi review
+      // + retry job ghim head mới và chạy bình thường.
+      if (ctx.job.chay_som_nhat !== null && bth.head_revision_id) {
+        const revDich = layRevision(ctx.db, bth.head_revision_id);
+        if (
+          revDich?.thong_diep_revision_id &&
+          thongDiep.head_revision_id &&
+          revDich.thong_diep_revision_id !== thongDiep.head_revision_id
+        ) {
+          throw new LoiVinhVien(
+            "Nội dung đã lên lịch đang ghim nguồn cũ — review lại đầu ra trước khi chạy.",
+          );
+        }
       }
 
       ctx.baoTienDo({ buoc: "lap_context_sinh" });
