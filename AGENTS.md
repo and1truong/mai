@@ -32,6 +32,11 @@ Quy trình:
 - Coverage threshold, e2e test bắt buộc — chỉ test cho logic cốt lõi.
 - Tài liệu đầy đủ — README/AGENTS.md ở mức tối thiểu là đủ.
 
+Reviewer agent:
+
+- **Không cần quét sâu** — không audit ngoài phạm vi của PR.
+- Chỉ cần xác nhận **tính năng có hoạt động đúng trong defined scope hay không**.
+
 ## Quy tắc ngôn ngữ: tiếng Việt
 
 Để giảm sự dòm ngó, **toàn bộ nội dung public trên GitHub phải viết bằng tiếng Việt**:
