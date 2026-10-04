@@ -8,6 +8,8 @@ const procs = [
   Bun.spawn(["bun", "--hot", "src/server/index.ts"], {
     stdout: "inherit",
     stderr: "inherit",
+    // MAI_HOT=1 → server tự dọn runner/db/port của lần chạy trước khi reload.
+    env: { ...Bun.env, MAI_HOT: "1" },
   }),
 ];
 

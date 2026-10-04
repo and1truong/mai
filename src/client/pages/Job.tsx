@@ -15,9 +15,14 @@ const MAU_JOB: Record<string, "gray" | "blue" | "green" | "red"> = {
 export default function JobPage() {
   const jobs = useApi<Job[]>("/api/job");
   const nguons = useApi<Nguon[]>("/api/nguon");
+  const dinhDangs = useApi<string[]>("/api/dinh-dang");
   const [nguonId, setNguonId] = useState("");
-  const [dinhDang, setDinhDang] = useState("web");
+  const [dinhDang, setDinhDang] = useState("");
   const [loi, setLoi] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!dinhDang && dinhDangs.data?.[0]) setDinhDang(dinhDangs.data[0]);
+  }, [dinhDangs.data, dinhDang]);
 
   // Tự reload khi còn job đang chờ/chạy.
   useEffect(() => {
@@ -63,12 +68,14 @@ export default function JobPage() {
           <Select.Root value={dinhDang} onValueChange={setDinhDang}>
             <Select.Trigger placeholder="Định dạng" />
             <Select.Content>
-              <Select.Item value="web">web</Select.Item>
-              <Select.Item value="newsletter">newsletter</Select.Item>
-              <Select.Item value="mang-xa-hoi">mang-xa-hoi</Select.Item>
+              {dinhDangs.data?.map((d) => (
+                <Select.Item key={d} value={d}>
+                  {d}
+                </Select.Item>
+              ))}
             </Select.Content>
           </Select.Root>
-          <Button onClick={taoJob} disabled={!nguonId}>
+          <Button onClick={taoJob} disabled={!nguonId || !dinhDang}>
             Tạo job sinh bản thể hiện
           </Button>
         </Flex>

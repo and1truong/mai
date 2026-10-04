@@ -1,7 +1,7 @@
-// Backup: checkpoint WAL rồi copy toàn bộ thư mục data → backups/<timestamp>/.
-// Quy trình an toàn khi server đang chạy, nhưng khuyến nghị backup khi server dừng.
+// Backup: VACUUM INTO cho database (copy nhất quán, atomic phía SQLite),
+// cpSync cho thư mục assets. Output: backups/<timestamp>/.
 
-import { cpSync, existsSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { taiCauHinh } from "../src/config.ts";
 import { log } from "../src/log.ts";
@@ -16,14 +16,20 @@ if (!existsSync(join(dataDir, TEN_DB))) {
   process.exit(1);
 }
 
-// Checkpoint WAL để file .sqlite chứa đầy đủ dữ liệu trước khi copy.
-const db = moDb(dataDir);
-db.exec("PRAGMA wal_checkpoint(TRUNCATE);");
-db.close();
-
 const ten = new Date().toISOString().replace(/[:.]/g, "-");
 const den = resolve("backups", ten);
-cpSync(dataDir, den, { recursive: true });
+mkdirSync(den, { recursive: true });
+
+// VACUUM INTO tạo bản copy nhất quán của db kể cả khi server đang chạy.
+const db = moDb(dataDir);
+const tepDb = join(den, TEN_DB).replace(/'/g, "''");
+db.exec(`VACUUM INTO '${tepDb}'`);
+db.close();
+
+const assets = join(dataDir, "assets");
+if (existsSync(assets)) {
+  cpSync(assets, join(den, "assets"), { recursive: true });
+}
 
 log.info("backup.xong", { tu: dataDir, den });
 console.log(`Backup xong: ${den}`);
