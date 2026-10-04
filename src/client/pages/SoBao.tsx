@@ -296,7 +296,10 @@ function ChiTietSoBaoView({ id }: { id: string }) {
   }
 
   async function sinhChon() {
-    if (chon.size === 0) {
+    // `chon` có thể giữ id mục mới chưa lưu hay mục đã xóa — chỉ gửi id
+    // còn trong mục lục đã lưu (server validate theo bản lưu, không theo
+    // nháp cục bộ) để tránh 400 'không có trong mục lục'.
+    if (chonHopLe.size === 0) {
       setDsLoi(["Tick ít nhất một mục trong mục lục để nháp."]);
       return;
     }
@@ -306,7 +309,7 @@ function ChiTietSoBaoView({ id }: { id: string }) {
       await api(`/api/campaign/${id}/chon`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ds_muc_id: [...chon] }),
+        body: JSON.stringify({ ds_muc_id: [...chonHopLe] }),
       });
       setChon(new Set());
       chiTiet.reload();
@@ -409,6 +412,10 @@ function ChiTietSoBaoView({ id }: { id: string }) {
   for (const m of cp?.tien_do.muc ?? []) {
     if (m.ban_the_hien) bthCuaMuc.set(m.muc.id, { bth: m.ban_the_hien, daXuat: m.da_xuat_ban });
   }
+  // Tick hợp lệ = id còn trong mục lục đã lưu trên server — mục mới thêm
+  // cục bộ chưa lưu hay mục đã xóa (kể cả server bỏ) không được gửi nháp.
+  const idDaLuu = new Set((cp?.muc_luc ?? []).map((m) => m.id));
+  const chonHopLe = new Set([...chon].filter((x) => idDaLuu.has(x)));
 
   return (
     <>
@@ -677,9 +684,9 @@ function ChiTietSoBaoView({ id }: { id: string }) {
                     <Button
                       size="1"
                       onClick={sinhChon}
-                      disabled={dangSinh || chon.size === 0}
+                      disabled={dangSinh || mucLucDirty || chonHopLe.size === 0}
                     >
-                      Nháp {chon.size > 0 ? `${chon.size} ` : ""}mục đã chọn
+                      Nháp {chonHopLe.size > 0 ? `${chonHopLe.size} ` : ""}mục đã chọn
                     </Button>
                   </Flex>
                 </Flex>
@@ -687,6 +694,12 @@ function ChiTietSoBaoView({ id }: { id: string }) {
                   Tick các mục cần nháp rồi bấm "Nháp mục đã chọn" — chỉ mục được chọn mới
                   sinh, không tự động sinh mọi tổ hợp.
                 </Text>
+                {mucLucDirty && (
+                  <Text size="1" color="amber">
+                    Mục lục có sửa chưa lưu — bấm "Lưu mục lục" trước khi nháp các mục đã
+                    chọn.
+                  </Text>
+                )}
                 {mucLuc.length === 0 && (
                   <Text size="2" color="gray">
                     Chưa có mục nào — bấm "Áp dụng mẫu đề xuất" để lấy 8 khay mẫu, hoặc thêm
