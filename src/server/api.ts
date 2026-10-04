@@ -482,7 +482,8 @@ function docTaskView(db: Database, task: TaskSua) {
       ? {
           ...bth,
           thong_diep_tieu_de: td?.tieu_de ?? "",
-          url_trang: `/p/${bth.id}`,
+          // /p chỉ phục vụ bản đã xuất — bản chưa xuất không có trang.
+          url_trang: danhSachXuatBan(db, bth.id).length > 0 ? `/p/${bth.id}` : null,
           so_xuat_ban: danhSachXuatBan(db, bth.id).length,
         }
       : null,
