@@ -497,6 +497,12 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       if (body.tieu_de !== undefined && typeof body.tieu_de !== "string") {
         dsLoi.push("tieu_de phải là chuỗi.");
       }
+      if (body.cta !== undefined && typeof body.cta !== "string") {
+        dsLoi.push("cta phải là chuỗi.");
+      }
+      if (body.dua_tren_revision_id !== undefined && typeof body.dua_tren_revision_id !== "string") {
+        dsLoi.push("dua_tren_revision_id phải là chuỗi.");
+      }
       nemLoiValidation(dsLoi);
       const kh = capNhatKeHoach(
         c.db,
@@ -505,6 +511,7 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
           van_ban: body.van_ban as string | undefined,
           tieu_de: body.tieu_de as string | undefined,
           cta: body.cta as string | undefined,
+          dua_tren_revision_id: body.dua_tren_revision_id as string | undefined,
         },
         c.actor,
       );

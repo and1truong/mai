@@ -43,13 +43,13 @@ export default function App() {
         </Flex>
       </Box>
       <Box px="4" py="4" style={{ maxWidth: 1100, margin: "0 auto" }}>
-        {path === "/" && <TongQuanPage />}
-        {path === "/nguon" && <NguonPage />}
-        {path === "/asset" && <AssetsPage />}
+        {goc === "/" && <TongQuanPage />}
+        {goc === "/nguon" && <NguonPage />}
+        {goc === "/asset" && <AssetsPage />}
         {goc === "/ban-the-hien" && <BanTheHienPage />}
         {goc === "/ke-hoach" && <KeHoachPage />}
         {goc === "/job" && <JobPage />}
-        {path === "/ho-so" && <HoSoPage />}
+        {goc === "/ho-so" && <HoSoPage />}
         {!hopLe && (
           <Flex justify="center" py="8">
             <Text color="gray">Không tìm thấy trang.</Text>

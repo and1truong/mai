@@ -173,6 +173,7 @@ describe("chọn đầu ra → sinh", () => {
 
     const { json: tr1 } = await getJson(app, `/api/ban-the-hien/${bth.id}`);
     const head1 = tr1.du_lieu.head_revision_id;
+    const soRev1 = tr1.du_lieu.revisions.length;
     expect(head1).toBeTruthy();
 
     // Người dùng soạn nháp tay + lưu một revision tay (ghi đè head).
@@ -182,20 +183,26 @@ describe("chọn đầu ra → sinh", () => {
       dua_tren_revision_id: head1,
     });
 
-    // Sinh lại cùng đầu ra → job mới → revision mới trên head tay.
+    // Sinh lại cùng đầu ra → job mới → revision 'job' mới trên head tay.
     const r2 = await post(app, `/api/ke-hoach/${ds.ke_hoach.id}/chon`, {
       ds_chon: [{ doi_tuong_id: null, dinh_dang: "bai-viet" }],
     });
     expect(r2.status).toBe(200);
+    const job2 = (await r2.json()).du_lieu.ds_job[0];
     await Bun.sleep(400);
+
+    const { json: jobJson } = await getJson(app, `/api/job/${job2.id}`);
+    expect(jobJson.du_lieu.trang_thai).toBe("xong");
 
     const { json: tr2 } = await getJson(app, `/api/ban-the-hien/${bth.id}`);
     const head2 = tr2.du_lieu.head_revision_id;
-    expect(head2).not.toBe(head1);
-    const dsRev = tr2.du_lieu.revisions;
-    const revHead = (dsRev as { id: string; noi_dung: string }[]).find((x) => x.id === head2);
-    // Revision mới do job sinh — nội dung khác bản tay.
+    const dsRev = tr2.du_lieu.revisions as { id: string; noi_dung: string; tao_boi: string }[];
+    // Job sinh được revision MỚI trên revision tay — không ghi đè sửa tay.
+    expect(dsRev.length).toBe(soRev1 + 2);
+    const revHead = dsRev.find((x) => x.id === head2);
     expect(revHead).toBeTruthy();
+    expect(revHead!.tao_boi).toBe("job");
+    expect(revHead!.noi_dung).not.toBe("## Bài sửa tay");
 
     // Nháp tay khác (nhap_soan của actor) không bị job đụng: PUT lại nháp mới
     // rồi GET — nội dung soạn dở vẫn còn nguyên.

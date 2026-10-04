@@ -11,6 +11,7 @@ CREATE TABLE ke_hoach (
   trang_thai TEXT NOT NULL DEFAULT 'nhap',
   tao_luc TEXT NOT NULL,
   tao_boi TEXT NOT NULL,
-  cap_nhat_luc TEXT NOT NULL
+  cap_nhat_luc TEXT NOT NULL,
+  cap_nhat_boi TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX idx_ke_hoach_td ON ke_hoach(thong_diep_id);

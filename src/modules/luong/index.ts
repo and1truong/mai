@@ -5,7 +5,6 @@
 import type { Database } from "bun:sqlite";
 import {
   capNhatThongDiep,
-  danhSachBanTheHien,
   ghiSuKien,
   layNguon,
   layThongDiep,
@@ -56,6 +55,7 @@ export type KeHoach = {
   tao_luc: string;
   tao_boi: string;
   cap_nhat_luc: string;
+  cap_nhat_boi: string;
 };
 
 export type NhapKeHoach = {
@@ -98,14 +98,17 @@ export function deXuatDauRaChoDoiTuong(dt: HoSoDoiTuong): string[] {
 // một nhóm cho mỗi hồ sơ đối tượng. Lọc theo ngôn ngữ định dạng hỗ trợ.
 export function deXuatDauRa(db: Database, ngonNgu: string): DauRaDeXuat[] {
   const ds: DauRaDeXuat[] = [];
-  const hopLe = (dd: string) => layDinhDang(dd) && !kiemTraNgonNgu(layDinhDang(dd)!, ngonNgu);
+  // Lọc theo ngôn ngữ của chính entry đề xuất — hồ sơ đối tượng ngôn ngữ khác
+  // vẫn sinh được đề xuất chọn được.
+  const hopLe = (dd: string, nn: string) =>
+    layDinhDang(dd) && !kiemTraNgonNgu(layDinhDang(dd)!, nn);
   for (const dd of DINH_DANG_MAC_DINH_CHUNG) {
-    if (hopLe(dd)) ds.push({ doi_tuong_id: null, dinh_dang: dd, ngon_ngu: ngonNgu });
+    if (hopLe(dd, ngonNgu)) ds.push({ doi_tuong_id: null, dinh_dang: dd, ngon_ngu: ngonNgu });
   }
   for (const dt of danhSachDoiTuong(db)) {
     const nn = dt.ngon_ngu || ngonNgu;
     for (const dd of deXuatDauRaChoDoiTuong(dt)) {
-      if (hopLe(dd) && !ds.some((d) => d.doi_tuong_id === dt.id && d.dinh_dang === dd)) {
+      if (hopLe(dd, nn) && !ds.some((d) => d.doi_tuong_id === dt.id && d.dinh_dang === dd)) {
         ds.push({ doi_tuong_id: dt.id, dinh_dang: dd, ngon_ngu: nn });
       }
     }
@@ -147,9 +150,9 @@ export function taoKeHoach(db: Database, input: NhapKeHoach, tacGia: string): Ke
     const ts = bayGio();
     const deXuat = JSON.stringify(deXuatDauRa(db, "vi"));
     db.query(
-      `INSERT INTO ke_hoach (id, thong_diep_id, nguon_id, intake, cta, de_xuat_dau_ra, ds_chon, trang_thai, tao_luc, tao_boi, cap_nhat_luc)
-       VALUES (?, ?, ?, ?, ?, ?, '[]', 'nhap', ?, ?, ?)`,
-    ).run(id, td.id, input.nguon_id ?? null, vanBan, (input.cta ?? "").trim(), deXuat, ts, tacGia, ts);
+      `INSERT INTO ke_hoach (id, thong_diep_id, nguon_id, intake, cta, de_xuat_dau_ra, ds_chon, trang_thai, tao_luc, tao_boi, cap_nhat_luc, cap_nhat_boi)
+       VALUES (?, ?, ?, ?, ?, ?, '[]', 'nhap', ?, ?, ?, ?)`,
+    ).run(id, td.id, input.nguon_id ?? null, vanBan, (input.cta ?? "").trim(), deXuat, ts, tacGia, ts, tacGia);
     ghiSuKien(db, "ke_hoach", id, "tao", { thong_diep_id: td.id }, tacGia);
     return layKeHoach(db, id)!;
   });
@@ -170,31 +173,44 @@ export function danhSachKeHoach(db: Database, gioiHan = 50): (KeHoach & { tieu_d
 }
 
 // Cập nhật intake chưa xong: ghi revision thông điệp mới (lịch sử giữ) và
-// intake mới — "lưu intake chưa xong và tiếp tục sau". dua_tren ghim head
-// hiện tại → trôi head → 409, đúng convention.
+// intake mới — "lưu intake chưa xong và tiếp tục sau". Client có thể ghim
+// `dua_tren_revision_id` của head thông điệp nó đang sửa → trôi head → 409
+// đúng convention (bỏ trống = lấy head hiện tại, last-write-wins một actor).
+// PUT y hệt nội dung cũ = no-op (không đẩy bản thể hiện sang bth_cu giả).
 export function capNhatKeHoach(
   db: Database,
   id: string,
-  input: { van_ban?: string; tieu_de?: string; cta?: string },
+  input: {
+    van_ban?: string;
+    tieu_de?: string;
+    cta?: string;
+    dua_tren_revision_id?: string;
+  },
   tacGia: string,
 ): KeHoach {
   return txn(db, () => {
     const kh = layKeHoach(db, id);
     if (!kh) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy kế hoạch.");
     const td = layThongDiep(db, kh.thong_diep_id)!;
+    if (input.van_ban !== undefined && !input.van_ban.trim()) {
+      loiRequest(400, "VALIDATION", "van_ban không được rỗng — intake không thể hủy lặng.");
+    }
     const vanBan = input.van_ban !== undefined ? input.van_ban : kh.intake;
     const tieuDe = input.tieu_de !== undefined ? input.tieu_de : td.tieu_de;
     const cta = input.cta !== undefined ? input.cta : kh.cta;
-    capNhatThongDiep(
-      db,
-      td.id,
-      { tieu_de: tieuDe, noi_dung: vanBan, nguon_ids: kh.nguon_id ? [kh.nguon_id] : [] },
-      td.head_revision_id ?? "",
-      tacGia,
-    );
+    const noiDungDoi = vanBan !== kh.intake || tieuDe !== td.tieu_de;
+    if (noiDungDoi) {
+      capNhatThongDiep(
+        db,
+        td.id,
+        { tieu_de: tieuDe, noi_dung: vanBan, nguon_ids: kh.nguon_id ? [kh.nguon_id] : [] },
+        input.dua_tren_revision_id ?? td.head_revision_id ?? "",
+        tacGia,
+      );
+    }
     db.query(
-      "UPDATE ke_hoach SET intake = ?, cta = ?, de_xuat_dau_ra = ?, cap_nhat_luc = ? WHERE id = ?",
-    ).run(vanBan, cta, JSON.stringify(deXuatDauRa(db, "vi")), bayGio(), id);
+      "UPDATE ke_hoach SET intake = ?, cta = ?, de_xuat_dau_ra = ?, cap_nhat_luc = ?, cap_nhat_boi = ? WHERE id = ?",
+    ).run(vanBan, cta, JSON.stringify(deXuatDauRa(db, "vi")), bayGio(), tacGia, id);
     return layKeHoach(db, id)!;
   });
 }
@@ -215,6 +231,14 @@ export function chonDauRa(
       loiRequest(400, "VALIDATION", "ds_chon phải là mảng lựa chọn không rỗng.");
     }
     const dsLoi: string[] = [];
+    // Lọc lựa chọn trùng ngay đầu — response không đếm hai lần cùng đầu ra.
+    const daCo = new Set<string>();
+    dsChon = dsChon.filter((c) => {
+      const k = `${c.doi_tuong_id ?? ""}|${c.dinh_dang}|${c.ngon_ngu ?? ""}`;
+      if (daCo.has(k)) return false;
+      daCo.add(k);
+      return true;
+    });
     for (const [i, chon] of dsChon.entries()) {
       const dd = layDinhDang(chon.dinh_dang);
       if (!dd) {
@@ -243,6 +267,8 @@ export function chonDauRa(
       };
       const bth = timBanTheHien(db, khoa) ?? taoBanTheHien(db, khoa, tacGia);
       dsBth.push(bth);
+      // Ghim head lúc enqueue + khoa_idem theo bản — giống route POST /job:
+      // sửa tay trước khi job chạy → job vinh_vien thay vì ghi đè sửa tay.
       const { job } = enqueueJob(db, {
         loai: "sinh_ban_the_hien",
         payload: {
@@ -253,6 +279,8 @@ export function chonDauRa(
         },
         entityLoai: "ban_the_hien",
         entityId: bth.id,
+        revisionId: bth.head_revision_id ?? null,
+        khoaIdem: `sinh_ban_the_hien:${bth.id}`,
       });
       dsJob.push(job);
     }
@@ -279,12 +307,8 @@ export function danhSachBanTheHienCu(db: Database, gioiHan = 20): BanTheHien[] {
     .all(gioiHan) as BanTheHien[];
 }
 
-// "Nháp chờ review" cho home — dùng chung hàng chờ của #21.
-export function danhSachChoDuyet(db: Database, gioiHan = 20): BanTheHien[] {
-  return danhSachBanTheHien(db, { trangThai: "cho_duyet" }).slice(0, gioiHan);
-}
-
-// Việc gần đây trên home: kế hoạch + bản thể hiện mới cập nhật/tạo.
+// Việc gần đây trên home: kế hoạch + bản thể hiện xếp theo revision mới
+// nhất (sinh lại/sửa cũng đưa bản lên đầu, không chỉ bản mới tạo).
 export function viecGanDay(db: Database, gioiHan = 10): {
   ke_hoach: (KeHoach & { tieu_de: string })[];
   ban_the_hien: BanTheHien[];
@@ -292,7 +316,13 @@ export function viecGanDay(db: Database, gioiHan = 10): {
   return {
     ke_hoach: danhSachKeHoach(db, gioiHan),
     ban_the_hien: db
-      .query("SELECT * FROM ban_the_hien ORDER BY tao_luc DESC LIMIT ?")
+      .query(
+        `SELECT bth.* FROM ban_the_hien bth
+         LEFT JOIN revision r ON r.ban_the_hien_id = bth.id
+         GROUP BY bth.id
+         ORDER BY COALESCE(MAX(r.tao_luc), bth.tao_luc) DESC
+         LIMIT ?`,
+      )
       .all(gioiHan) as BanTheHien[],
   };
 }
