@@ -9,6 +9,7 @@ import {
   chuyenTrangThai,
   ghiSuKien,
   layBanTheHien,
+  layCampaign,
   taoBanTheHien,
   taoCampaign,
   taoNguon,
@@ -17,6 +18,11 @@ import {
   xuatBanBanTheHien,
 } from "../modules/content/index.ts";
 import { deXuatMucLuc } from "../modules/so_bao/index.ts";
+import {
+  damBaoThongDiepPhatHanh,
+  deXuatDauRaPhatHanh,
+  dongBoNguonPhatHanh,
+} from "../modules/phat_hanh/index.ts";
 import {
   datAssetBanTheHien,
   duongDanTepAsset,
@@ -717,6 +723,408 @@ export function seed(
     daSeed.push("story_so_bao_002");
   }
 
+  // --- Story #9: MaiSuite — bản phát hành B2B 4.0 ---
+  // Campaign loại 'phat_hanh' gắn phiên bản, ngày, định vị đã duyệt, giới
+  // hạn gói/vùng/khả dụng, CTA và fact tính năng có con trỏ bằng chứng
+  // vào nguồn đã nạp. Nguồn fact tự động chiếu field release thành mục
+  // nguồn → đầu ra pin fact trong provenance; sửa field đánh dấu đầu ra
+  // phụ thuộc (#14). Fact 'Hiệu năng' cố ý không nguồn → chưa xác nhận,
+  // chỉ được để dạng câu hỏi, không được trình bày như sự thật.
+  if (!db.query("SELECT id FROM campaign WHERE id = 'seed-cp-phat-hanh-40'").get()) {
+    // 6 hồ sơ đối tượng cho đầu ra theo persona của story.
+    themDoiTuong(
+      db,
+      "seed-dt-dev-40",
+      {
+        ten: "Lập trình viên tích hợp (fixture)",
+        ngon_ngu: "vi",
+        dia_diem: "Developer tích hợp MaiSuite vào hệ thống của khách hàng.",
+        kien_thuc_nen: "Biết REST API, OAuth 2.0, WebAuthn ở mức dùng được.",
+        moi_quan_tam: "Bước tích hợp cụ thể, yêu cầu trước, giới hạn API.",
+        do_sau: "chuyen_sau",
+        tu_vung: "Thuật ngữ kỹ thuật; không giải thích khái niệm nền.",
+        quan_he_to_chuc: "Đội platform/integration của khách hàng.",
+        nhu_cau_giao_tiep: "Hướng dẫn từng bước, liệt kê điều kiện trước, link tài liệu.",
+        nhan_khau_hoc: "Backend engineer 3+ năm.",
+      },
+      tacGia,
+    );
+    themDoiTuong(
+      db,
+      "seed-dt-khach-hang-40",
+      {
+        ten: "Khách hàng doanh nghiệp (fixture)",
+        ngon_ngu: "vi",
+        dia_diem: "Quản trị viên và người dùng cuối của khách hàng hiện tại.",
+        kien_thuc_nen: "Dùng MaiSuite hàng ngày; không cần biết chi tiết bên trong.",
+        moi_quan_tam: "Thay đổi ảnh hưởng công việc hàng ngày, việc cần làm khi nâng cấp.",
+        do_sau: "vua_phai",
+        tu_vung: "Đơn giản; tránh thuật ngữ kỹ thuật khi có thể.",
+        quan_he_to_chuc: "Admin IT và end user của tenant hiện tại.",
+        nhu_cau_giao_tiep: "Danh sách thay đổi rõ ràng, bước cần làm, giới hạn gói.",
+        nhan_khau_hoc: "Nhân viên văn phòng và admin IT của khách hàng.",
+      },
+      tacGia,
+    );
+    themDoiTuong(
+      db,
+      "seed-dt-tiem-nang-40",
+      {
+        ten: "Khách hàng tiềm năng (fixture)",
+        ngon_ngu: "vi",
+        dia_diem: "Doanh nghiệp đang đánh giá MaiSuite so với đối thủ.",
+        kien_thuc_nen: "Biết bài toán IAM/SSO phổ thông; chưa dùng sản phẩm.",
+        moi_quan_tam: "Lợi ích nghiệp vụ, khác biệt so với giải pháp cũ.",
+        do_sau: "so_luoc",
+        tu_vung: "Ngôn ngữ kinh doanh; ít chi tiết API.",
+        quan_he_to_chuc: "Ban lãnh đạo IT và procurement của prospect.",
+        nhu_cau_giao_tiep: "Ngắn gọn, nhấn giá trị; link tài liệu chi tiết khi cần.",
+        nhan_khau_hoc: "Quyết định mua ở doanh nghiệp 200–2000 người.",
+      },
+      tacGia,
+    );
+    themDoiTuong(
+      db,
+      "seed-dt-bao-mat-40",
+      {
+        ten: "Người mua bảo mật — CISO (fixture)",
+        ngon_ngu: "vi",
+        dia_diem: "CISO/đội security đánh giá kiểm soát trước khi duyệt mua.",
+        kien_thuc_nen: "Hiểu kiểm soát xác thực, logging, phân quyền ở mức audit.",
+        moi_quan_tam: "Kiểm soát thật sự có và giới hạn của nó; không chấp nhận claim chung chung.",
+        do_sau: "chuyen_sau",
+        tu_vung: "Thuật ngữ bảo mật; yêu cầu bằng chứng cho mọi claim.",
+        quan_he_to_chuc: "CISO, security architect, compliance.",
+        nhu_cau_giao_tiep: "Bảng kiểm soát + giới hạn song song; nêu thẳng chỗ chưa có chứng nhận.",
+        nhan_khau_hoc: "CISO / security lead doanh nghiệp.",
+      },
+      tacGia,
+    );
+    themDoiTuong(
+      db,
+      "seed-dt-sales-40",
+      {
+        ten: "Đội bán hàng nội bộ (fixture)",
+        ngon_ngu: "vi",
+        dia_diem: "Sales và account executive của MaiSuite.",
+        kien_thuc_nen: "Biết sản phẩm ở mức bán hàng; cần điểm nói và câu trả lời cho phản đối.",
+        moi_quan_tam: "Thông điệp chính, điểm bán, câu hỏi khách hay hỏi, giới hạn gói.",
+        do_sau: "vua_phai",
+        tu_vung: "Ngôn ngữ bán hàng; có thể kèm thuật ngữ sản phẩm cần thiết.",
+        quan_he_to_chuc: "Đội sales/AM nội bộ.",
+        nhu_cau_giao_tiep: "Brief một trang: điểm bán, xử lý phản đối, bước tiếp theo.",
+        nhan_khau_hoc: "Nhân viên sales/AM.",
+      },
+      tacGia,
+    );
+    themDoiTuong(
+      db,
+      "seed-dt-support-40",
+      {
+        ten: "Đội hỗ trợ khách hàng (fixture)",
+        ngon_ngu: "vi",
+        dia_diem: "Support trả lời ticket sau ngày phát hành.",
+        kien_thuc_nen: "Biết quy trình hỗ trợ; cần câu trả lời sẵn cho câu hỏi phổ biến.",
+        moi_quan_tam: "Khách sẽ hỏi gì, trả lời ra sao, giới hạn nào cần nói trước.",
+        do_sau: "vua_phai",
+        tu_vung: "Đơn giản, lịch sự; tránh thuật ngữ nội bộ.",
+        quan_he_to_chuc: "Đội support/CS nội bộ.",
+        nhu_cau_giao_tiep: "Hỏi-đáp ngắn, dùng trực tiếp cho ticket.",
+        nhan_khau_hoc: "Nhân viên support.",
+      },
+      tacGia,
+    );
+
+    themThuongHieu(
+      db,
+      "seed-th-saas-40",
+      {
+        ten: "SaaS B2B doanh nghiệp (fixture)",
+        nhan_dien: "Nền tảng quản lý định danh và truy cập cho doanh nghiệp. Viết kỹ thuật, có bằng chứng, không hype.",
+        ngon_ngu_uu_tien: ["vi", "en"],
+        vi_du_giong_van: "Phiên bản 4.0 thêm passkeys và audit log. Đây là phạm vi áp dụng từng tính năng.",
+        nguyen_tac: "Chính xác. Luôn nêu giới hạn gói/vùng khi nhắc tính năng bị giới hạn.",
+        claim_duyet: [
+          "Tính năng nói đúng phạm vi tài liệu đã nạp.",
+          "Giới hạn gói/vùng hiển thị khi tính năng bị giới hạn được nhắc.",
+        ],
+        claim_cam: [
+          "An toàn tuyệt đối",
+          "Tuân thủ mọi tiêu chuẩn",
+          "Nhanh nhất thị trường",
+        ],
+        assets: [],
+      },
+      tacGia,
+    );
+
+    // Nguồn đã nạp: changelog + tài liệu tích hợp + tài liệu kiểm soát
+    // bảo mật. Mỗi tính năng một mục loại 'fact' để fact của release trỏ
+    // bằng chứng đến đúng mục, không phải cả tài liệu chung.
+    const nguonChangelog = taoNguon(
+      db,
+      {
+        tieu_de: "Changelog MaiSuite 4.0",
+        noi_dung:
+          "MaiSuite 4.0 (phát hành 2026-11-01) thêm ba thay đổi chính: passkeys, audit log và cải tiến SSO SAML.",
+        loai: "van_ban",
+        cac_muc: [
+          {
+            id: "cl-passkeys",
+            loai: "fact",
+            tieu_de: "Passkeys",
+            noi_dung:
+              "Phiên bản 4.0 hỗ trợ đăng nhập bằng passkeys (WebAuthn) thay mật khẩu cho tất cả tài khoản.",
+            assets: [],
+          },
+          {
+            id: "cl-audit-log",
+            loai: "fact",
+            tieu_de: "Audit log",
+            noi_dung:
+              "Phiên bản 4.0 ghi audit log toàn bộ sự kiện đăng nhập và thay đổi quyền; dữ liệu giữ 365 ngày.",
+            assets: [],
+          },
+          {
+            id: "cl-sso",
+            loai: "fact",
+            tieu_de: "SSO SAML",
+            noi_dung:
+              "Phiên bản 4.0 cho phép đăng ký nhiều IdP đồng thời và bật JIT provisioning.",
+            assets: [],
+          },
+        ],
+      },
+      tacGia,
+      { id: "seed-nguon-changelog-40" },
+    );
+    const nguonTichHop = taoNguon(
+      db,
+      {
+        tieu_de: "Tài liệu tích hợp API 4.0",
+        noi_dung: "Tài liệu cho developer tích hợp MaiSuite 4.0: xác thực và webhook.",
+        loai: "van_ban",
+        cac_muc: [
+          {
+            id: "tl-xac-thuc",
+            loai: "section",
+            tieu_de: "Xác thực",
+            noi_dung:
+              "API xác thực bằng OAuth 2.0 client credentials; token lấy từ POST /oauth/token.",
+            assets: [],
+          },
+          {
+            id: "tl-webhook",
+            loai: "section",
+            tieu_de: "Webhook",
+            noi_dung:
+              "Webhook đăng ký qua POST /api/webhooks; payload JSON ký bằng HMAC-SHA256.",
+            assets: [],
+          },
+        ],
+      },
+      tacGia,
+      { id: "seed-nguon-tl-tich-hop-40" },
+    );
+    const nguonBaoMat = taoNguon(
+      db,
+      {
+        tieu_de: "Tài liệu kiểm soát bảo mật 4.0",
+        noi_dung: "Kiểm soát xác thực và ghi log của MaiSuite cho đánh giá bảo mật.",
+        loai: "van_ban",
+        cac_muc: [
+          {
+            id: "bm-dang-nhap",
+            loai: "fact",
+            tieu_de: "Kiểm soát đăng nhập",
+            noi_dung:
+              "MaiSuite hỗ trợ passkeys, TOTP và SSO SAML; quản trị bắt buộc được theo tài khoản.",
+            assets: [],
+          },
+          {
+            id: "bm-ghi-log",
+            loai: "fact",
+            tieu_de: "Ghi log kiểm toán",
+            noi_dung: "Audit log export CSV/JSON qua API; dữ liệu giữ 365 ngày.",
+            assets: [],
+          },
+        ],
+      },
+      tacGia,
+      { id: "seed-nguon-bao-mat-40" },
+    );
+
+    const cpPh = taoCampaign(
+      db,
+      {
+        loai: "phat_hanh",
+        ten: "MaiSuite 4.0",
+        mo_ta: "Bản phát hành 4.0: passkeys, audit log và cải tiến SSO.",
+        phien_ban: "4.0",
+        ngay_phat_hanh: "2026-11-01",
+        dinh_vi:
+          "4.0 đưa xác thực không mật khẩu và kiểm soát truy cập lên chuẩn doanh nghiệp — nhấn bảo mật và kiểm toán, không nhấn tốc độ.",
+        thuong_hieu_id: "seed-th-saas-40",
+        doi_tuong_id: "seed-dt-khach-hang-40",
+        gioi_han: [
+          {
+            id: "gh-sso-goi",
+            tinh_nang: "SSO SAML",
+            loai: "goi",
+            mo_ta: "chỉ có ở gói Enterprise",
+          },
+          {
+            id: "gh-audit-log",
+            tinh_nang: "audit log",
+            loai: "goi",
+            mo_ta: "gói Starter chỉ giữ 90 ngày — gói Enterprise giữ 365 ngày",
+          },
+          {
+            id: "gh-passkeys-vung",
+            tinh_nang: "passkeys",
+            loai: "vung",
+            mo_ta: "chưa mở cho tenant region EU cũ — lộ trình nâng hạ tầng trước 2027-Q1",
+          },
+        ],
+        cta: [
+          {
+            id: "cta-docs",
+            nhan: "Tài liệu tích hợp 4.0",
+            loai: "tai_lieu",
+            url: "https://docs.maisuite.example.com/v4",
+          },
+          {
+            id: "cta-nang-cap",
+            nhan: "Nâng cấp lên 4.0",
+            loai: "nang_cap",
+            url: "https://app.maisuite.example.com/nang-cap",
+          },
+          {
+            id: "cta-ho-tro",
+            nhan: "Liên hệ hỗ trợ",
+            loai: "ho_tro",
+            url: "https://support.maisuite.example.com",
+          },
+        ],
+        ds_fact: [
+          {
+            id: "fact-passkeys",
+            tinh_nang: "Passkeys",
+            noi_dung:
+              "Đăng nhập bằng passkeys (WebAuthn) thay mật khẩu cho tất cả tài khoản.",
+            nguon_id: nguonChangelog.id,
+            muc_id: "cl-passkeys",
+          },
+          {
+            id: "fact-audit-log",
+            tinh_nang: "Audit log",
+            noi_dung:
+              "Ghi toàn bộ sự kiện đăng nhập và đổi quyền; dữ liệu giữ 365 ngày.",
+            nguon_id: nguonChangelog.id,
+            muc_id: "cl-audit-log",
+          },
+          {
+            id: "fact-sso",
+            tinh_nang: "SSO SAML",
+            noi_dung: "Đăng ký nhiều IdP đồng thời và JIT provisioning.",
+            nguon_id: nguonChangelog.id,
+            muc_id: "cl-sso",
+          },
+          {
+            id: "fact-webhook",
+            tinh_nang: "Webhook",
+            noi_dung: "Webhook đăng ký qua POST /api/webhooks; payload JSON ký HMAC-SHA256.",
+            nguon_id: nguonTichHop.id,
+            muc_id: "tl-webhook",
+          },
+          {
+            // Cố ý không trỏ nguồn: claim benchmark chưa xác nhận — đầu ra
+            // chỉ được để [CÂU HỎI], không được viết như sự thật.
+            id: "fact-hieu-nang",
+            tinh_nang: "Hiệu năng",
+            noi_dung: "Xử lý nhanh hơn 10 lần so với 3.x.",
+            nguon_id: null,
+            muc_id: null,
+          },
+        ],
+        tham_chieu: [
+          {
+            id: "tc-changelog",
+            tham_chieu: "Changelog 4.0",
+            ban_dich: "",
+            nguon_id: nguonChangelog.id,
+            ghi_chu: "Danh sách thay đổi chính thức của bản 4.0.",
+          },
+          {
+            id: "tc-tich-hop",
+            tham_chieu: "Tài liệu tích hợp API 4.0",
+            ban_dich: "",
+            nguon_id: nguonTichHop.id,
+            ghi_chu: "Xác thực + webhook cho hướng dẫn developer.",
+          },
+          {
+            id: "tc-bao-mat",
+            tham_chieu: "Tài liệu kiểm soát bảo mật",
+            ban_dich: "",
+            nguon_id: nguonBaoMat.id,
+            ghi_chu: "Kiểm soát cho đầu ra bên mua bảo mật.",
+          },
+        ],
+      },
+      tacGia,
+      { id: "seed-cp-phat-hanh-40" },
+    );
+    capNhatCampaign(
+      db,
+      cpPh.id,
+      { ten: cpPh.ten, muc_luc: deXuatDauRaPhatHanh(db, cpPh) },
+      tacGia,
+    );
+    // Nguồn fact tự động + thông điệp chủ đề pin nguồn — đầu ra demo dưới
+    // đây pin đúng chuỗi provenance.
+    dongBoNguonPhatHanh(db, cpPh, tacGia);
+    const tdPh = damBaoThongDiepPhatHanh(db, layCampaign(db, cpPh.id)!, tacGia);
+    const tdRevPh = tdPh.head_revision_id;
+
+    // Đầu ra demo lưu bền: developer (đã duyệt + đã xuất → trang /p/<id>
+    // phục vụ), khách hàng (chờ duyệt — vào hàng chờ review), sales (đã
+    // duyệt). Nội dung theo contract [F:<fact_id>]/[GH:<gioi_han_id>];
+    // claim hiệu năng chưa xác nhận chỉ để [CÂU HỎI].
+    for (const o of NOI_DUNG_DAU_RA_PHAT_HANH) {
+      taoBanTheHien(
+        db,
+        {
+          thong_diep_id: tdPh.id,
+          dinh_dang: o.dinh_dang,
+          ngon_ngu: "vi",
+          doi_tuong: o.doi_tuong,
+          dich_den: o.dich_den,
+        },
+        tacGia,
+        { id: o.id },
+      );
+      themRevision(
+        db,
+        {
+          ban_the_hien_id: o.id,
+          noi_dung: o.noi_dung,
+          dua_tren_revision_id: null,
+          thong_diep_revision_id: tdRevPh,
+        },
+        tacGia,
+      );
+      if (o.trang_thai === "nhap") continue;
+      chuyenTrangThai(db, o.id, "cho_duyet", "seed: gửi duyệt", tacGia);
+      if (o.trang_thai === "cho_duyet") continue;
+      const head = layBanTheHien(db, o.id)?.head_revision_id ?? undefined;
+      chuyenTrangThai(db, o.id, "da_duyet", "seed: duyệt", tacGia, head);
+      if (o.xuat_ban) {
+        xuatBanBanTheHien(db, o.id, { dich_den: o.dich_den || undefined }, tacGia);
+      }
+    }
+    daSeed.push("story_phat_hanh_40");
+  }
+
   return { da_seed: daSeed };
 }
 
@@ -1252,6 +1660,107 @@ Bạn đọc được mời đọc hai đoạn kinh văn nguyên cảnh trước
       tieu_de: "Chiên Con và 144.000 người — bản website",
       noi_dung:
         "Bản web của bài chính số 002, định dạng lại cho đọc trên trang: đoạn mở, hai đoạn thân bài trích Khải Huyền 7:9-14 và 14:1-5, khối tham chiếu cuối bài.",
+    }),
+  },
+];
+
+// Đầu ra demo bản phát hành 4.0 (#9) — nội dung viết theo contract của
+// bộ sinh: claim kèm marker [F:<fact_id>], giới hạn kèm [GH:<id>], fact
+// chưa xác nhận chỉ xuất hiện dạng [CÂU HỎI]. Ba trạng thái rải đủ vòng
+// đời: dev đã duyệt + đã xuất (trang /p/<id> phục vụ), khách hàng chờ
+// duyệt, sales đã duyệt.
+const NOI_DUNG_DAU_RA_PHAT_HANH: {
+  id: string;
+  dinh_dang: string;
+  doi_tuong: string;
+  dich_den: string;
+  trang_thai: "nhap" | "cho_duyet" | "da_duyet" | "tu_choi";
+  xuat_ban: boolean;
+  noi_dung: string;
+}[] = [
+  {
+    id: "seed-bth-ph-dev",
+    dinh_dang: "huong-dan-tich-hop",
+    doi_tuong: "Lập trình viên tích hợp (fixture)",
+    dich_den: "",
+    trang_thai: "da_duyet",
+    xuat_ban: true,
+    noi_dung: JSON.stringify({
+      tieu_de: "Hướng dẫn tích hợp MaiSuite 4.0",
+      gioi_thieu:
+        "## Giới thiệu\n\nMaiSuite 4.0 (phát hành 2026-11-01) thêm passkeys, audit log và SSO nhiều IdP.\n\nTài liệu này liệt kê các bước tích hợp cho developer.\n\nNguồn: [src1]",
+      yeu_cau_truoc: [
+        "Tài khoản có OAuth 2.0 client credentials — token lấy từ POST /oauth/token [src2]",
+        "Tenant đã nâng gói phù hợp cho tính năng bị giới hạn (xem mục Giới hạn).",
+      ],
+      cac_buoc: [
+        "Bật passkeys cho tài khoản: chạy luồng đăng ký WebAuthn trong console quản trị — 4.0 hỗ trợ đăng nhập bằng passkeys thay mật khẩu cho tất cả tài khoản [F:fact-passkeys]",
+        "Đọc audit log qua API: sự kiện đăng nhập và đổi quyền được ghi; dữ liệu giữ 365 ngày [F:fact-audit-log]",
+        "Cấu hình SSO SAML: đăng ký nhiều IdP đồng thời và bật JIT provisioning [F:fact-sso]",
+        "Đăng ký webhook: POST /api/webhooks; payload JSON ký HMAC-SHA256 [F:fact-webhook]",
+        "[CÂU HỎI: 'Hiệu năng' chưa có bằng chứng nguồn — cần xác nhận trước khi công bố.]",
+      ],
+      gioi_han: [
+        "SSO SAML: chỉ có ở gói Enterprise [GH:gh-sso-goi]",
+        "audit log: gói Starter chỉ giữ 90 ngày — gói Enterprise giữ 365 ngày [GH:gh-audit-log]",
+        "passkeys: chưa mở cho tenant region EU cũ — lộ trình nâng hạ tầng trước 2027-Q1 [GH:gh-passkeys-vung]",
+      ],
+      lien_ket: "https://docs.maisuite.example.com/v4",
+    }),
+  },
+  {
+    id: "seed-bth-ph-khach",
+    dinh_dang: "thay-doi-khach-hang",
+    doi_tuong: "Khách hàng doanh nghiệp (fixture)",
+    dich_den: "",
+    trang_thai: "cho_duyet",
+    xuat_ban: false,
+    noi_dung: JSON.stringify({
+      tieu_de: "MaiSuite 4.0 — những thay đổi cho khách hàng",
+      gioi_thieu:
+        "## Tổng quan\n\nMaiSuite 4.0 phát hành 2026-11-01.\n\nBản này đưa xác thực không mật khẩu và kiểm soát truy cập lên chuẩn doanh nghiệp.\n\nNguồn: [src1]",
+      cac_thay_doi: [
+        "Đăng nhập bằng passkeys thay mật khẩu cho tất cả tài khoản [F:fact-passkeys]",
+        "Audit log ghi toàn bộ sự kiện đăng nhập và đổi quyền; giữ 365 ngày [F:fact-audit-log]",
+        "SSO SAML đăng ký nhiều IdP đồng thời và JIT provisioning [F:fact-sso]",
+        "[CÂU HỎI: 'Hiệu năng' chưa có bằng chứng nguồn — cần xác nhận trước khi công bố.]",
+      ],
+      gioi_han: [
+        "SSO SAML: chỉ có ở gói Enterprise [GH:gh-sso-goi]",
+        "audit log: gói Starter chỉ giữ 90 ngày [GH:gh-audit-log]",
+        "passkeys: chưa mở cho tenant region EU cũ [GH:gh-passkeys-vung]",
+      ],
+      hanh_dong: "Nâng cấp lên 4.0 — https://app.maisuite.example.com/nang-cap",
+      lien_ket: "https://app.maisuite.example.com/nang-cap",
+    }),
+  },
+  {
+    id: "seed-bth-ph-sales",
+    dinh_dang: "brief-ban-hang",
+    doi_tuong: "Đội bán hàng nội bộ (fixture)",
+    dich_den: "",
+    trang_thai: "da_duyet",
+    xuat_ban: false,
+    noi_dung: JSON.stringify({
+      tieu_de: "Brief sales — MaiSuite 4.0",
+      thong_diep_chinh:
+        "4.0 đưa xác thực không mật khẩu và kiểm soát truy cập lên chuẩn doanh nghiệp.",
+      diem_ban: [
+        "Passkeys thay mật khẩu cho tất cả tài khoản — giảm rủi ro lộ credential [F:fact-passkeys]",
+        "Audit log 365 ngày cho yêu cầu kiểm toán của doanh nghiệp [F:fact-audit-log]",
+        "SSO nhiều IdP + JIT provisioning cho org phức tạp [F:fact-sso]",
+      ],
+      doi_pho: [
+        "'Tôi đang dùng gói Starter' → SSO SAML chỉ ở Enterprise; audit log Starter giữ 90 ngày [GH:gh-sso-goi]",
+        "'Tenant EU của tôi chưa có passkeys' → đúng, region EU cũ mở sau 2027-Q1 [GH:gh-passkeys-vung]",
+        "[CÂU HỎI: 'Hiệu năng' chưa có bằng chứng nguồn — không claim benchmark khi nói chuyện khách.]",
+      ],
+      gioi_han: [
+        "SSO SAML: chỉ có ở gói Enterprise [GH:gh-sso-goi]",
+        "audit log: gói Starter chỉ giữ 90 ngày [GH:gh-audit-log]",
+        "passkeys: chưa mở cho tenant region EU cũ [GH:gh-passkeys-vung]",
+      ],
+      tiep_theo: "Gửi khách link nâng cấp — https://app.maisuite.example.com/nang-cap",
     }),
   },
 ];

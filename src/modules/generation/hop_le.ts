@@ -65,7 +65,7 @@ export function kiemTraDauRa(ctx: ContextTask, kq: KetQuaTask): KetQuaKiemTra {
         !dauRa.includes(g.mo_ta.toLowerCase())
       ) {
         canhBao.push(
-          `Giới hạn '${g.mo_ta}' của '${g.tinh_nang}' chưa hiển thị trên đầu ra dù tính năng được nhắc.`,
+          `Giới hạn ${g.id} ('${g.mo_ta}') của '${g.tinh_nang}' chưa hiển thị trên đầu ra dù tính năng được nhắc.`,
         );
       }
     }
@@ -80,7 +80,7 @@ export function kiemTraDauRa(ctx: ContextTask, kq: KetQuaTask): KetQuaKiemTra {
         );
       if (dongNham) {
         canhBao.push(
-          `Fact '${f.tinh_nang}' chưa có bằng chứng nguồn — đầu ra đang nhắc nó ngoài câu hỏi, cần xác nhận trước khi công bố.`,
+          `Fact ${f.id} '${f.tinh_nang}' chưa có bằng chứng nguồn — đầu ra đang nhắc nó ngoài câu hỏi, cần xác nhận trước khi công bố.`,
         );
       }
     }
