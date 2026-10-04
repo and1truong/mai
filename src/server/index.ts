@@ -9,6 +9,7 @@ import { taoApi } from "./api.ts";
 import { chayMigration, moDb } from "./db.ts";
 import { loi } from "./http.ts";
 import { phucVuTinh } from "./static.ts";
+import { phucVuTrang } from "./trang.ts";
 
 // POC chạy local tin cậy với actor demo cố định. Access control instance: #16 (P1).
 export const ACTOR_DEMO = "demo";
@@ -86,6 +87,7 @@ export async function startServer(tuyChon: TuyChonServer = {}) {
         res = await api(req);
       } else {
         res =
+          phucVuTrang(db, url.pathname) ??
           phucVuTinh(distDir, url.pathname) ??
           Response.json(
             {

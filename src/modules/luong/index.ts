@@ -40,7 +40,11 @@ function txn<T>(db: Database, fn: () => T): T {
 export type DauRaDeXuat = {
   doi_tuong_id: string | null;
   dinh_dang: string;
-  ngon_ngu: string;
+  // Tùy chọn — API và chonDauRa mặc định "vi" khi vắng mặt.
+  ngon_ngu?: string;
+  // Kênh đích tự do (vd "linkedin", "youtube") — hai đầu ra cùng định
+  // dạng vẫn tách nhau khi đích khác nhau (#6: ba script video ngắn).
+  dich_den?: string;
 };
 
 export type KeHoach = {
@@ -77,6 +81,9 @@ export const CAU_HOI_THIEU: Record<string, string> = {
 // tượng (moi_quan_tam + nhu_cau_giao_tiep + kien_thuc_nen). Không gọi AI —
 // gợi ý phải lặp lại được và giải thích được.
 const LUAT_DE_XUAT: { re: RegExp; ds_dinh_dang: string[] }[] = [
+  // Lãnh đạo trước: hồ sơ "lãnh đạo kỹ thuật" cũng chứa "kỹ thuật" — khớp
+  // sai luật sẽ đề xuất bài chuyên sâu cho đối tượng cần bản tóm tắt (#6).
+  { re: /lãnh đạo|quản lý|giám đốc|sếp|leadership/i, ds_dinh_dang: ["caption", "thread"] },
   { re: /kỹ thuật|kỹ sư|developer|lập trình|chi tiết kỹ thuật/i, ds_dinh_dang: ["bai-viet", "thread"] },
   { re: /mạng xã hội|ngắn|lan truyền|trẻ|gen ?z/i, ds_dinh_dang: ["caption", "thread"] },
   { re: /email|bản tin|newsletter|cập nhật/i, ds_dinh_dang: ["newsletter"] },
@@ -232,14 +239,6 @@ export function chonDauRa(
       loiRequest(400, "VALIDATION", "ds_chon phải là mảng lựa chọn không rỗng.");
     }
     const dsLoi: string[] = [];
-    // Lọc lựa chọn trùng ngay đầu — response không đếm hai lần cùng đầu ra.
-    const daCo = new Set<string>();
-    dsChon = dsChon.filter((c) => {
-      const k = `${c.doi_tuong_id ?? ""}|${c.dinh_dang}|${c.ngon_ngu ?? ""}`;
-      if (daCo.has(k)) return false;
-      daCo.add(k);
-      return true;
-    });
     for (const [i, chon] of dsChon.entries()) {
       const dd = layDinhDang(chon.dinh_dang);
       if (!dd) {
@@ -252,8 +251,24 @@ export function chonDauRa(
       if (chon.doi_tuong_id && !layDoiTuong(db, chon.doi_tuong_id)) {
         dsLoi.push(`ds_chon[${i}].doi_tuong_id '${chon.doi_tuong_id}' không tồn tại.`);
       }
+      if (chon.dich_den !== undefined && typeof chon.dich_den !== "string") {
+        dsLoi.push(`ds_chon[${i}].dich_den phải là chuỗi.`);
+      } else if ((chon.dich_den ?? "").length > 120) {
+        dsLoi.push(`ds_chon[${i}].dich_den quá dài (tối đa 120 ký tự).`);
+      }
     }
     if (dsLoi.length > 0) throw new LoiApi(400, "VALIDATION", "ds_chon không hợp lệ.", dsLoi);
+
+    // Lọc lựa chọn trùng sau validate — dich_den đã chắc là chuỗi ở đây.
+    // Khóa chuẩn hóa giống khóa bản thể hiện (dich_den trim): "linkedin"
+    // và " linkedin " tính trùng, response không đếm hai lần.
+    const daCo = new Set<string>();
+    dsChon = dsChon.filter((c) => {
+      const k = `${c.doi_tuong_id ?? ""}|${c.dinh_dang}|${c.ngon_ngu ?? ""}|${(c.dich_den ?? "").trim()}`;
+      if (daCo.has(k)) return false;
+      daCo.add(k);
+      return true;
+    });
 
     const dtTen = (dtId: string | null) =>
       dtId ? (layDoiTuong(db, dtId)?.ten ?? dtId) : "";
@@ -265,6 +280,7 @@ export function chonDauRa(
         dinh_dang: chon.dinh_dang,
         ngon_ngu: chon.ngon_ngu || "vi",
         doi_tuong: dtTen(chon.doi_tuong_id),
+        dich_den: (chon.dich_den ?? "").trim(),
       };
       const bth = timBanTheHien(db, khoa) ?? taoBanTheHien(db, khoa, tacGia);
       dsBth.push(bth);
@@ -277,6 +293,11 @@ export function chonDauRa(
           dinh_dang: chon.dinh_dang,
           ngon_ngu: khoa.ngon_ngu,
           doi_tuong: dtTen(chon.doi_tuong_id) || undefined,
+          // Hồ sơ đối tượng đi vào context sinh (#6) — bản kỹ sư/lãnh đạo
+          // khác nhau ở hồ sơ, không chỉ ở nhãn. dich_den giữ cho job và
+          // bản thể hiện cùng một kênh đích (vd ba script video ngắn).
+          doi_tuong_id: chon.doi_tuong_id ?? undefined,
+          dich_den: khoa.dich_den || undefined,
         },
         entityLoai: "ban_the_hien",
         entityId: bth.id,

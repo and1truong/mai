@@ -6,6 +6,7 @@ import { HoSoPage } from "./pages/HoSo.tsx";
 import KeHoachPage from "./pages/KeHoach.tsx";
 import JobPage from "./pages/Job.tsx";
 import NguonPage from "./pages/Nguon.tsx";
+import ThongDiepPage from "./pages/ThongDiep.tsx";
 import TongQuanPage from "./pages/TongQuan.tsx";
 
 const NAV = [
@@ -21,7 +22,7 @@ export default function App() {
   const path = useHashRoute();
   // Cắt phần query (?id=...) để so route — các trang tự đọc query trong hash.
   const goc = path.split("?")[0] ?? "/";
-  const hopLe = [...NAV.map((n) => n.path), "/ke-hoach"].includes(goc);
+  const hopLe = [...NAV.map((n) => n.path), "/ke-hoach", "/thong-diep"].includes(goc);
 
   return (
     <Box>
@@ -48,6 +49,7 @@ export default function App() {
         {goc === "/asset" && <AssetsPage />}
         {goc === "/ban-the-hien" && <BanTheHienPage />}
         {goc === "/ke-hoach" && <KeHoachPage />}
+        {goc === "/thong-diep" && <ThongDiepPage />}
         {goc === "/job" && <JobPage />}
         {goc === "/ho-so" && <HoSoPage />}
         {!hopLe && (

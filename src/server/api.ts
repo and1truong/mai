@@ -538,6 +538,9 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
           if (x.ngon_ngu !== undefined && typeof x.ngon_ngu !== "string") {
             dsLoi.push(`ds_chon[${i}].ngon_ngu phải là chuỗi.`);
           }
+          if (x.dich_den !== undefined && typeof x.dich_den !== "string") {
+            dsLoi.push(`ds_chon[${i}].dich_den phải là chuỗi.`);
+          }
         }
       }
       nemLoiValidation(dsLoi);
@@ -708,10 +711,61 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
     route("GET", "/api/thong-diep/:id", (_req, p, c) => {
       const td = layThongDiep(c.db, p.id!);
       if (!td) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy thông điệp.");
+      const nguonIds = danhSachNguonCuaThongDiep(c.db, td.id);
+      const dsNguon = nguonIds
+        .map((id) => layNguon(c.db, id))
+        .filter((n): n is NonNullable<typeof n> => n !== null)
+        .map((n) => ({ id: n.id, tieu_de: n.tieu_de }));
+      // Kế hoạch gắn thông điệp này (nếu đi qua luồng #5) — link quay lại.
+      const kh = c.db
+        .query(
+          "SELECT id, trang_thai FROM ke_hoach WHERE thong_diep_id = ? ORDER BY cap_nhat_luc DESC LIMIT 1",
+        )
+        .get(td.id) as { id: string; trang_thai: string } | null;
+      // Mọi đầu ra dưới một thông điệp (#6): nhãn định dạng, trạng thái
+      // review, cờ "đã cũ" (revision ghim thông điệp lệch head), nháp tay,
+      // record xuất bản mới nhất → URL trang do server phục vụ + dòng
+      // nguồn đã ghim theo chuỗi revision.
+      const dsDt = danhSachDoiTuong(c.db);
+      const dsDauRa = danhSachBanTheHien(c.db, { thongDiepId: td.id }).map((b) => {
+        const def = layDinhDang(b.dinh_dang);
+        // Bản thể hiện chỉ giữ tên đối tượng — resolve ngược hồ sơ để
+        // action "sinh lại" gửi đúng doi_tuong_id vào context sinh.
+        const doiTuongId = dsDt.find((d) => d.ten === b.doi_tuong)?.id ?? null;
+        const headRev = b.head_revision_id ? layRevision(c.db, b.head_revision_id) : null;
+        const tdRev = headRev?.thong_diep_revision_id
+          ? layThongDiepRevision(c.db, headRev.thong_diep_revision_id)
+          : null;
+        const dsNguonRev = (tdRev?.nguon_revision_ids ?? [])
+          .map((id) => layNguonRevision(c.db, id))
+          .filter((n): n is NonNullable<typeof n> => n !== null)
+          .map((n) => ({ id: n.id, nguon_id: n.nguon_id, tieu_de: n.tieu_de, so_thu_tu: n.so_thu_tu }));
+        const dsXb = danhSachXuatBan(c.db, b.id);
+        const xbMoi = dsXb[0] ?? null;
+        return {
+          ...b,
+          dinh_dang_nhan: def?.nhan ?? b.dinh_dang,
+          doi_tuong_id: doiTuongId,
+          head_revision_so: headRev?.so_thu_tu ?? null,
+          la_cu:
+            headRev?.thong_diep_revision_id != null &&
+            headRev.thong_diep_revision_id !== td.head_revision_id,
+          co_nhap: layNhapSoan(c.db, b.id, c.actor) !== null,
+          so_xuat_ban: dsXb.length,
+          xuat_ban_moi_nhat: xbMoi
+            ? { id: xbMoi.id, dich_den: xbMoi.dich_den, tao_luc: xbMoi.tao_luc }
+            : null,
+          url_trang: xbMoi ? `/p/${b.id}` : null,
+          nguon: dsNguonRev,
+        };
+      });
       return ok({
         ...td,
         campaign: td.campaign_id ? layCampaign(c.db, td.campaign_id) : null,
-        nguon_ids: danhSachNguonCuaThongDiep(c.db, td.id),
+        nguon_ids: nguonIds,
+        ds_nguon: dsNguon,
+        ke_hoach: kh,
+        ds_dau_ra: dsDauRa,
         revisions: danhSachThongDiepRevision(c.db, td.id),
       });
     }),
@@ -1190,6 +1244,10 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
         const loiNg = def ? kiemTraNgonNgu(def, ngonNgu) : null;
         if (loiNg) dsLoi.push(loiNg);
         dichDen = tuyChonChuoi(payload.dich_den);
+        // Cùng giới hạn với ds_chon của kế hoạch (#6): đích đến ≤120 ký tự.
+        if (dichDen.length > 120) {
+          dsLoi.push("payload.dich_den quá dài (tối đa 120 ký tự).");
+        }
         if (thongDiepId && !layThongDiep(c.db, thongDiepId)) {
           dsLoi.push("payload.thong_diep_id không tồn tại.");
         }
@@ -1279,12 +1337,16 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
               (dtBtId ? layDoiTuong(c.db, dtBtId)?.ten : undefined) ??
               tuyChonChuoi(bienThe.doi_tuong) ??
               tuyChonChuoi(payload.doi_tuong);
+            const dichDenBt = tuyChonChuoi(bienThe.dich_den) || dichDen;
+            if (dichDenBt.length > 120) {
+              throw new LoiApi(400, "VALIDATION", "payload.fan_out[].dich_den quá dài (tối đa 120 ký tự).");
+            }
             const khoaBt = {
               thong_diep_id: thongDiepId,
               dinh_dang: ddBt,
               ngon_ngu: nnBt,
               doi_tuong: tenDtBt,
-              dich_den: tuyChonChuoi(bienThe.dich_den) || dichDen,
+              dich_den: dichDenBt,
             };
             const bthBt = timBanTheHien(c.db, khoaBt) ?? taoBanTheHien(c.db, khoaBt, c.actor);
             const { fan_out: _bo, ...payloadCha } = payload;
