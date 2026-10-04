@@ -109,9 +109,16 @@ function inlineHtml(escaped: string): string {
   s = s.replace(/(\*\*|__)(.+?)\1/g, "<strong>$2</strong>");
   s = s.replace(/(\*|_)([^*_]+?)\1/g, "<em>$2</em>");
   s = s.replace(/`([^`]+)`/g, "<code>$1</code>");
+  // Trong chuỗi đã escape, '&' chỉ tồn tại dạng entity — cho phép '&amp;'
+  // và '&#NN;' trong URL để query 'a=1&b=2' không bị cắt. Entity khác
+  // (&lt; &gt; &quot;) ngắt URL như ký tự gốc tương ứng.
   s = s.replace(
-    /(^|[\s(])(https?:\/\/[^\s<)&]+[^\s<>&.,;:'")!\]])/g,
-    (_m, p: string, u: string) => `${p}<a href="${u}">${u}</a>`,
+    /(^|[\s(])(https?:\/\/(?:[^\s<>&]|&amp;|&#\d+;)+)/g,
+    (_m, p: string, u: string) => {
+      // Cắt dấu câu/entity bám đuôi ("url.", "url)", "&amp;" lẻ).
+      u = u.replace(/(?:[.,:'")!;\]]|&amp;|&#\d+;)+$/, "");
+      return `${p}<a href="${u}">${u}</a>`;
+    },
   );
   return s;
 }

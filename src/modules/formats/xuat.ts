@@ -76,7 +76,7 @@ export async function taoBundleXuatBan(
       continue;
     }
     const byte = await kho.doc(asset.duong_dan);
-    let tenAnToan = sachTenFile(asset.ten_file) || `${asset.id}.bin`;
+    let tenAnToan = sachTenFile(asset.ten_file);
     // Hai asset cùng tên hiển thị → trùng đường dẫn zip: gắn hậu tố id.
     if (tenDaDung.has(tenAnToan)) {
       const cham = tenAnToan.lastIndexOf(".");
@@ -93,13 +93,18 @@ export async function taoBundleXuatBan(
       mime: asset.mime,
       kich_thuoc: asset.kich_thuoc,
       checksum: asset.checksum,
+      // 'thieu: true' thống nhất cho mọi asset không có byte trong bundle:
+      // record bị xóa lẫn file byte mất.
+      thieu: !byte,
       tep: byte ? `assets/${tenAnToan}` : null,
     });
     if (byte) dsAsset.push({ duong_dan: `assets/${tenAnToan}`, noi_dung: byte });
   }
 
   const manifest = {
-    dinh_dang: { id: def.id, phien_ban: def.phien_ban, nhan: def.nhan },
+    // Phiên bản đã ghim lúc tạo bản thể hiện, không phải bản registry hiện
+    // tại — khi schema đổi sau, dòng nguồn vẫn đúng bản đã dùng.
+    dinh_dang: { id: def.id, phien_ban: bth.phien_ban_dinh_dang, nhan: def.nhan },
     ban_the_hien_id: bth.id,
     ngon_ngu: bth.ngon_ngu,
     doi_tuong: bth.doi_tuong,
@@ -111,8 +116,10 @@ export async function taoBundleXuatBan(
       tao_boi: revision.tao_boi,
     },
     xuat_ban: { id: xb.id, tao_luc: xb.tao_luc, tao_boi: xb.tao_boi },
+    // Tiêu đề thông điệp lấy theo revision đã ghim trong revision nội dung,
+    // không lấy head — đổi tiêu đề sau sinh nội dung không làm lệch provenance.
     thong_diep: thongDiep
-      ? { id: thongDiep.id, tieu_de: thongDiep.tieu_de, revision_id: tdRev?.id ?? null }
+      ? { id: thongDiep.id, tieu_de: tdRev?.tieu_de ?? thongDiep.tieu_de, revision_id: tdRev?.id ?? null }
       : null,
     nguon: dsNguon,
     assets: manifestAsset,

@@ -158,12 +158,6 @@ const REGISTRY: Record<string, DinhNghiaDinhDang> = Object.fromEntries(
 
 export const DANH_SACH_DINH_DANG = Object.keys(REGISTRY);
 
-export type DinhDang = string;
-
-export function laDinhDang(v: unknown): v is DinhDang {
-  return typeof v === "string" && v in REGISTRY;
-}
-
 export function layDinhDang(id: string): DinhNghiaDinhDang | null {
   return REGISTRY[id] ?? null;
 }
@@ -185,12 +179,17 @@ export function docNoiDung(def: DinhNghiaDinhDang, noiDung: string): TruongGiaTr
     // Không phải JSON → văn bản thường.
   }
   if (typeof j === "object" && j !== null && !Array.isArray(j)) {
-    const ra: TruongGiaTri = {};
+    // Object null-prototype: key lạ như '__proto__' vẫn là own-key nên
+    // validation thấy và báo 'trường không nằm trong schema' thay vì mất lặng.
+    const ra: TruongGiaTri = Object.create(null);
     for (const [k, v] of Object.entries(j as Record<string, unknown>)) {
       if (typeof v === "string") ra[k] = v;
-      else if (Array.isArray(v)) ra[k] = v.map(String);
-      else if (v === null || v === undefined) continue;
-      else ra[k] = String(v);
+      else if (Array.isArray(v)) {
+        ra[k] = v.map((m) => (typeof m === "string" ? m : JSON.stringify(m)));
+      } else if (v === null || v === undefined) continue;
+      // Object/number → JSON (đọc được, không '[object Object]'); validation
+      // báo kiểu sai riêng.
+      else ra[k] = JSON.stringify(v);
     }
     return ra;
   }
@@ -205,6 +204,17 @@ export function kiemTraNoiDung(def: DinhNghiaDinhDang, noiDung: string): LoiDinh
   const dsLoi: LoiDinhDang[] = [];
   const daKhaiBao = new Set(def.truong.map((t) => t.ten));
 
+  // JSON gốc để phát hiện kiểu sai — docNoiDung ép chuỗi mất kiểu ban đầu.
+  let raw: Record<string, unknown> | null = null;
+  try {
+    const j: unknown = JSON.parse(noiDung);
+    if (j !== null && typeof j === "object" && !Array.isArray(j)) {
+      raw = j as Record<string, unknown>;
+    }
+  } catch {
+    // Không phải JSON → nhánh thô, không có kiểu để kiểm.
+  }
+
   for (const ten of Object.keys(fields)) {
     if (ten !== "_tho" && !daKhaiBao.has(ten)) {
       dsLoi.push({ truong: ten, loi: `Trường '${ten}' không nằm trong schema định dạng '${def.id}'.` });
@@ -217,6 +227,22 @@ export function kiemTraNoiDung(def: DinhNghiaDinhDang, noiDung: string): LoiDinh
       if (t.bat_buoc) dsLoi.push({ truong: t.ten, loi: `'${t.nhan}' (${t.ten}) là bắt buộc.` });
       continue;
     }
+    // Kiểu dữ liệu sai → báo cụ thể và bỏ qua kiểm độ dài (giá trị đã bị
+    // ép chuỗi trong docNoiDung, đếm ký tự trên JSON không có nghĩa).
+    const rv = raw?.[t.ten];
+    if (rv !== undefined && rv !== null) {
+      if (t.loai === "danh_sach" && Array.isArray(rv)) {
+        const iSai = rv.findIndex((m) => typeof m !== "string");
+        if (iSai >= 0) {
+          dsLoi.push({ truong: t.ten, loi: `'${t.ten}' mục ${iSai + 1} không phải chuỗi.` });
+          continue;
+        }
+      } else if (t.loai !== "danh_sach" && typeof rv !== "string" && !Array.isArray(rv)) {
+        dsLoi.push({ truong: t.ten, loi: `'${t.ten}' phải là chuỗi, nhận kiểu ${typeof rv}.` });
+        continue;
+      }
+    }
+
     if (t.loai === "danh_sach") {
       if (!Array.isArray(v)) {
         dsLoi.push({ truong: t.ten, loi: `'${t.ten}' phải là mảng mục.` });
@@ -226,10 +252,11 @@ export function kiemTraNoiDung(def: DinhNghiaDinhDang, noiDung: string): LoiDinh
       if (t.bat_buoc && cacMucCoText.length === 0) {
         dsLoi.push({ truong: t.ten, loi: `'${t.nhan}' (${t.ten}) là bắt buộc, cần ít nhất một mục.` });
       }
-      if (t.so_muc_toi_da !== undefined && v.length > t.so_muc_toi_da) {
+      // Đếm như renderer: mục rỗng không chiếm suất.
+      if (t.so_muc_toi_da !== undefined && cacMucCoText.length > t.so_muc_toi_da) {
         dsLoi.push({
           truong: t.ten,
-          loi: `'${t.ten}' có ${v.length} mục, vượt giới hạn ${t.so_muc_toi_da}.`,
+          loi: `'${t.ten}' có ${cacMucCoText.length} mục, vượt giới hạn ${t.so_muc_toi_da}.`,
         });
       }
       if (t.do_dai_toi_da !== undefined) {

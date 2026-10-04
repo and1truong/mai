@@ -1,15 +1,26 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { taoServerTam } from "./helpers.ts";
+import { chayMigration, moDb } from "../src/server/db.ts";
 import {
   DANH_SACH_DINH_DANG,
   docNoiDung,
   kiemTraNoiDung,
   layDinhDang,
+  markdownSangHtml,
   renderHtml,
   renderMarkdown,
   renderText,
 } from "../src/modules/formats/index.ts";
+import { taoBundleXuatBan } from "../src/modules/formats/xuat.ts";
 import { taoZip } from "../src/modules/formats/zip.ts";
+import { taoKhoByteMem } from "../src/modules/nap/index.ts";
+import {
+  danhSachXuatBan,
+  layBanTheHien,
+} from "../src/modules/content/index.ts";
 
 // Test #19: registry định dạng có phiên bản, validation theo schema,
 // render an toàn (markdown/text/HTML), xem trước qua API và bundle
@@ -94,6 +105,36 @@ describe("registry định dạng (#19)", () => {
     expect(la.some((l) => l.truong === "truong_la" && l.loi.includes("không nằm trong schema"))).toBe(
       true,
     );
+
+    // Key nhạy như '__proto__' cũng phải được báo 'trường lạ', không mất lặng.
+    const bv = layDinhDang("bai-viet")!;
+    const proto = kiemTraNoiDung(bv, '{"noi_dung":"x","__proto__":"y"}');
+    expect(proto.some((l) => l.truong === "__proto__")).toBe(true);
+  });
+
+  test("kiểu sai: mục mảng không phải chuỗi, giá trị object/number — báo cụ thể, không '[object Object]'", () => {
+    const faq = layDinhDang("faq")!;
+    const loi = kiemTraNoiDung(faq, JSON.stringify({ hoi_dap: [{ hoi: "a", dap: "b" }] }));
+    expect(
+      loi.some((l) => l.truong === "hoi_dap" && l.loi.includes("không phải chuỗi")),
+    ).toBe(true);
+    // docNoiDung giữ nội dung đọc được (JSON) thay vì băm im lặng.
+    const fields = docNoiDung(faq, JSON.stringify({ hoi_dap: [{ hoi: "a" }] }));
+    expect((fields.hoi_dap as string[])[0]).not.toContain("[object Object]");
+    expect((fields.hoi_dap as string[])[0]).toContain('"hoi"');
+
+    const so = kiemTraNoiDung(
+      layDinhDang("bai-viet")!,
+      JSON.stringify({ tieu_de: 42, noi_dung: "ok" }),
+    );
+    expect(so.some((l) => l.truong === "tieu_de" && l.loi.includes("phải là chuỗi"))).toBe(true);
+    // Mục rỗng không chiếm suất so_muc_toi_da (đếm như renderer).
+    const thread = layDinhDang("thread")!;
+    const vuaDung = kiemTraNoiDung(
+      thread,
+      JSON.stringify({ cac_muc: [...Array(25).fill("mục"), ""] }),
+    );
+    expect(vuaDung.some((l) => l.loi.includes("vượt giới hạn"))).toBe(false);
   });
 
   test("docNoiDung: plaintext provider map vào 'noi_dung', định dạng không có → '_tho'", () => {
@@ -147,6 +188,15 @@ describe("render (#19)", () => {
     expect(html).toContain('href="https://a.b"');
     // Nội dung script vẫn hiện dạng text đã escape, không thiếu chữ.
     expect(html).toContain("&lt;script&gt;");
+  });
+
+  test("autolink: '&' trong query không bị cắt, dấu câu đuôi vẫn bị cắt", () => {
+    const html = markdownSangHtml(
+      "xem https://a.b/?x=1&y=2 và https://a.b/p?q=1&r=2.",
+    );
+    expect(html).toContain('href="https://a.b/?x=1&amp;y=2"');
+    expect(html).toContain('href="https://a.b/p?q=1&amp;r=2"');
+    expect(html).not.toContain('href="https://a.b/p?q=1&amp;r=2."');
   });
 });
 
@@ -324,5 +374,75 @@ describe("API xem trước + export (#19)", () => {
     } finally {
       await app.dong();
     }
+  });
+
+  test("bundle: provenance theo revision/version đã ghim; asset thiếu thống nhất", async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "mai-xuat-"));
+    const db = moDb(dataDir);
+    chayMigration(db);
+    const kho = taoKhoByteMem();
+    const gio = new Date().toISOString();
+    // Thông điệp: head hiện 'Tiêu đề MỚI' nhưng revision ghim 'Tiêu đề gốc'.
+    db.run(
+      `INSERT INTO thong_diep (id, campaign_id, tieu_de, noi_dung, head_revision_id, tao_luc, tao_boi, cap_nhat_luc, cap_nhat_boi)
+       VALUES (?, NULL, ?, '', ?, ?, 'demo', ?, 'demo')`,
+      ["td1", "Tiêu đề MỚI", "tdr1", gio, gio],
+    );
+    db.run(
+      `INSERT INTO thong_diep_revision (id, thong_diep_id, so_thu_tu, tieu_de, noi_dung, nguon_revision_ids, dua_tren_revision_id, tao_luc, tao_boi)
+       VALUES (?, 'td1', 1, ?, '', '[]', NULL, ?, 'demo')`,
+      ["tdr1", "Tiêu đề gốc", gio],
+    );
+    // Bản thể hiện ghim phien_ban_dinh_dang = 2 trong khi registry hiện v1.
+    db.run(
+      `INSERT INTO ban_the_hien (id, thong_diep_id, dinh_dang, ngon_ngu, phien_ban_dinh_dang, doi_tuong, dich_den, trang_thai, head_revision_id, tao_luc, tao_boi)
+       VALUES ('bth1', 'td1', 'bai-viet', 'vi', 2, '', '', 'nhap', 'rev1', ?, 'demo')`,
+      [gio],
+    );
+    db.run(
+      `INSERT INTO revision (id, ban_the_hien_id, so_thu_tu, noi_dung, dua_tren_revision_id, context_sinh_id, thong_diep_revision_id, tao_luc, tao_boi)
+       VALUES ('rev1', 'bth1', 1, ?, NULL, NULL, 'tdr1', ?, 'demo')`,
+      [JSON_BAI_VIET, gio],
+    );
+    // a1: có byte; a2: record còn nhưng byte mất; 'a-xoa': record đã xóa.
+    const dsAsset: [string, string][] = [
+      ["a1", "p1.png"],
+      ["a2", "p2.png"],
+    ];
+    for (const [id, duongDan] of dsAsset) {
+      db.run(
+        `INSERT INTO asset (id, ten_file, duong_dan, loai, mime, kich_thuoc, checksum, nguon_id, ghi_chu, khoa_idem, trang_thai, tao_luc, tao_boi)
+         VALUES (?, 'x.png', ?, 'hinh_anh', 'image/png', 3, ?, NULL, '', NULL, 'hoat_dong', ?, 'demo')`,
+        [id, duongDan, `sum-${id}`, gio],
+      );
+    }
+    await kho.ghi("p1.png", new Uint8Array([7, 7]));
+    db.run(
+      `INSERT INTO xuat_ban (id, ban_the_hien_id, revision_id, dich_den, ghi_chu, asset_ids, tao_luc, tao_boi)
+       VALUES ('xb1', 'bth1', 'rev1', 'web', '', ?, ?, 'demo')`,
+      [JSON.stringify(["a1", "a2", "a-xoa"]), gio],
+    );
+
+    const bth = layBanTheHien(db, "bth1")!;
+    const xb = danhSachXuatBan(db, "bth1")[0]!;
+    const { tenFile, byte } = await taoBundleXuatBan(db, bth, xb, kho);
+    expect(tenFile).toBe("mai-bai-viet-rev1.zip");
+    const tep = docTepZip(byte);
+    const manifest = JSON.parse(new TextDecoder().decode(tep.get("manifest.json")!));
+    // Version + tiêu đề theo phần đã ghim, không theo head/registry hiện tại.
+    expect(manifest.dinh_dang.phien_ban).toBe(2);
+    expect(manifest.thong_diep.tieu_de).toBe("Tiêu đề gốc");
+    expect(manifest.revision.id).toBe("rev1");
+    // a1 đủ byte; a2 và 'a-xoa' cùng cờ thieu:true.
+    const a1 = manifest.assets.find((a: { id: string }) => a.id === "a1");
+    const a2 = manifest.assets.find((a: { id: string }) => a.id === "a2");
+    const aXoa = manifest.assets.find((a: { id: string }) => a.id === "a-xoa");
+    expect(a1.tep).toBe("assets/x.png");
+    expect(a1.thieu).toBe(false);
+    expect(a2.thieu).toBe(true);
+    expect(a2.tep).toBeNull();
+    expect(aXoa.thieu).toBe(true);
+    expect([...(tep.get("assets/x.png") ?? [])]).toEqual([7, 7]);
+    db.close();
   });
 });

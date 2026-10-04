@@ -831,10 +831,14 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       // lỗi chỉ là cảnh báo để sửa/duyệt.
       const bth = layBanTheHien(c.db, p.id!);
       const def = bth ? layDinhDang(bth.dinh_dang) : undefined;
-      return ok(
-        { ...rev, ds_loi_dinh_dang: def ? kiemTraNoiDung(def, rev.noi_dung) : [] },
-        201,
-      );
+      const dsLoiDd = def ? kiemTraNoiDung(def, rev.noi_dung) : [];
+      if (bth && def && bth.phien_ban_dinh_dang !== def.phien_ban) {
+        dsLoiDd.unshift({
+          truong: "_dinh_dang",
+          loi: `Bản thể hiện ghim định dạng v${bth.phien_ban_dinh_dang}, registry hiện v${def.phien_ban} — render theo schema mới nhất.`,
+        });
+      }
+      return ok({ ...rev, ds_loi_dinh_dang: dsLoiDd }, 201);
     }),
     // Chuyển trạng thái qua service: ghi một record duyet ghim revision head.
     route("POST", "/api/ban-the-hien/:id/trang-thai", async (req, p, c) => {
@@ -906,7 +910,7 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
         return ok({
           revision_id: null,
           dinh_dang: def.id,
-          phien_ban_dinh_dang: def.phien_ban,
+          phien_ban_dinh_dang: bth.phien_ban_dinh_dang,
           html: "",
           markdown: "",
           text: "",
@@ -917,14 +921,21 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       if (!rev || rev.ban_the_hien_id !== bth.id) {
         loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy revision của bản thể hiện.");
       }
+      const dsLoi = kiemTraNoiDung(def, rev.noi_dung);
+      if (bth.phien_ban_dinh_dang !== def.phien_ban) {
+        dsLoi.unshift({
+          truong: "_dinh_dang",
+          loi: `Bản thể hiện ghim định dạng v${bth.phien_ban_dinh_dang}, registry hiện v${def.phien_ban} — render theo schema mới nhất.`,
+        });
+      }
       return ok({
         revision_id: rev.id,
         dinh_dang: def.id,
-        phien_ban_dinh_dang: def.phien_ban,
+        phien_ban_dinh_dang: bth.phien_ban_dinh_dang,
         html: renderHtml(def, rev.noi_dung),
         markdown: renderMarkdown(def, rev.noi_dung),
         text: renderText(def, rev.noi_dung),
-        ds_loi: kiemTraNoiDung(def, rev.noi_dung),
+        ds_loi: dsLoi,
       });
     }),
 
