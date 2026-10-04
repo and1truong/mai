@@ -239,16 +239,6 @@ export function chonDauRa(
       loiRequest(400, "VALIDATION", "ds_chon phải là mảng lựa chọn không rỗng.");
     }
     const dsLoi: string[] = [];
-    // Lọc lựa chọn trùng ngay đầu — response không đếm hai lần cùng đầu ra.
-    const daCo = new Set<string>();
-    dsChon = dsChon.filter((c) => {
-      // Khóa dedupe chuẩn hóa giống khóa bản thể hiện (dich_den trim) —
-      // "linkedin" và " linkedin " phải tính trùng, không đếm hai lần.
-      const k = `${c.doi_tuong_id ?? ""}|${c.dinh_dang}|${c.ngon_ngu ?? ""}|${(c.dich_den ?? "").trim()}`;
-      if (daCo.has(k)) return false;
-      daCo.add(k);
-      return true;
-    });
     for (const [i, chon] of dsChon.entries()) {
       const dd = layDinhDang(chon.dinh_dang);
       if (!dd) {
@@ -268,6 +258,17 @@ export function chonDauRa(
       }
     }
     if (dsLoi.length > 0) throw new LoiApi(400, "VALIDATION", "ds_chon không hợp lệ.", dsLoi);
+
+    // Lọc lựa chọn trùng sau validate — dich_den đã chắc là chuỗi ở đây.
+    // Khóa chuẩn hóa giống khóa bản thể hiện (dich_den trim): "linkedin"
+    // và " linkedin " tính trùng, response không đếm hai lần.
+    const daCo = new Set<string>();
+    dsChon = dsChon.filter((c) => {
+      const k = `${c.doi_tuong_id ?? ""}|${c.dinh_dang}|${c.ngon_ngu ?? ""}|${(c.dich_den ?? "").trim()}`;
+      if (daCo.has(k)) return false;
+      daCo.add(k);
+      return true;
+    });
 
     const dtTen = (dtId: string | null) =>
       dtId ? (layDoiTuong(db, dtId)?.ten ?? dtId) : "";

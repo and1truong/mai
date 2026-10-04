@@ -538,6 +538,9 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
           if (x.ngon_ngu !== undefined && typeof x.ngon_ngu !== "string") {
             dsLoi.push(`ds_chon[${i}].ngon_ngu phải là chuỗi.`);
           }
+          if (x.dich_den !== undefined && typeof x.dich_den !== "string") {
+            dsLoi.push(`ds_chon[${i}].dich_den phải là chuỗi.`);
+          }
         }
       }
       nemLoiValidation(dsLoi);

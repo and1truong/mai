@@ -6,6 +6,7 @@ import { chayMigration, moDb } from "../src/server/db.ts";
 import { startServer } from "../src/server/index.ts";
 import { seed } from "../src/server/seed.ts";
 import { chonDauRa } from "../src/modules/luong/index.ts";
+import { LoiApi } from "../src/loi.ts";
 import {
   capNhatThongDiep,
   layBanTheHien,
@@ -276,15 +277,20 @@ describe("Story #6 — creator solo: phân phối ý tưởng kỹ thuật", () 
         "demo",
       );
       expect(kq2.ds_bth.length).toBe(1);
-      // dich_den không phải chuỗi → VALIDATION.
-      expect(() =>
+      // dich_den không phải chuỗi → LoiApi VALIDATION (không phải TypeError → 500).
+      let loi: unknown;
+      try {
         chonDauRa(
           db,
           "seed-kh-retry",
           [{ doi_tuong_id: null, dinh_dang: "script-ngan", dich_den: 5 as never }],
           "demo",
-        ),
-      ).toThrow();
+        );
+      } catch (e) {
+        loi = e;
+      }
+      expect(loi).toBeInstanceOf(LoiApi);
+      expect((loi as LoiApi).ma).toBe("VALIDATION");
     } finally {
       db.close();
     }
