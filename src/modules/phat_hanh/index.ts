@@ -198,6 +198,9 @@ export function kiemTraDsFact(
         }
       }
     }
+    if (!nguonId && f.muc_id !== undefined && f.muc_id !== null && f.muc_id !== "") {
+      dsLoi.push(`ds_fact[${i}].muc_id yêu cầu kèm nguon_id.`);
+    }
     const mucId =
       typeof f.muc_id === "string" && f.muc_id && nguonId ? f.muc_id.trim() : null;
     ds.push({ id, tinh_nang: tinhNang, noi_dung: noiDung, nguon_id: nguonId, muc_id: mucId });
@@ -342,17 +345,18 @@ function dsNguonIdsCuaThongDiep(db: Database, thongDiepId: string): string[] {
 }
 
 // Danh sách nguồn chủ đề phải link: nguồn phát hành tự động + nguồn đã
-// gán cho các tài liệu tham chiếu (changelog, tài liệu sản phẩm…).
+// gán cho các tài liệu tham chiếu (changelog, tài liệu sản phẩm…) + nguồn
+// bằng chứng của từng fact — fact trỏ nguồn hợp lệ phải nằm trong
+// provenance thông điệp để bộ sinh coi fact là đã xác nhận, khớp cờ
+// co_bang_chung mà UI hiển thị.
 function dsNguonBatBuoc(db: Database, cp: Campaign): string[] {
   const ds: string[] = [];
-  if (cp.nguon_phat_hanh_id && layNguon(db, cp.nguon_phat_hanh_id)) {
-    ds.push(cp.nguon_phat_hanh_id);
-  }
-  for (const t of cp.tham_chieu) {
-    if (t.nguon_id && layNguon(db, t.nguon_id) && !ds.includes(t.nguon_id)) {
-      ds.push(t.nguon_id);
-    }
-  }
+  const them = (id: string | null | undefined) => {
+    if (id && !ds.includes(id) && layNguon(db, id)) ds.push(id);
+  };
+  them(cp.nguon_phat_hanh_id);
+  for (const t of cp.tham_chieu) them(t.nguon_id);
+  for (const f of cp.ds_fact) them(f.nguon_id);
   return ds;
 }
 
@@ -412,18 +416,24 @@ export function damBaoThongDiepPhatHanh(
 
 // --- Đề xuất đầu ra theo đối tượng ---
 
-// Tìm hồ sơ đối tượng theo từ khóa trên tên/mô tả — persona demo đặt tên
-// có từ khóa này; không có hồ sơ → doi_tuong_id null (đầu ra vẫn tạo
+// Tìm hồ sơ đối tượng theo từ khóa: khớp `ten` trước (định danh rõ nhất),
+// rồi mới các field mô tả — tránh gắn nhầm hồ sơ khớp keyword ở field phụ
+// nhưng tên thuộc persona khác. Không có hồ sơ → null (đầu ra vẫn tạo
 // được, context chỉ thiếu hồ sơ).
 function timDoiTuong(db: Database, re: RegExp): HoSoDoiTuong | null {
+  const ds = danhSachDoiTuong(db);
   return (
-    danhSachDoiTuong(db).find((d) =>
-      re.test(`${d.ten} ${d.moi_quan_tam} ${d.kien_thuc_nen} ${d.nhu_cau_giao_tiep} ${d.nhan_khau_hoc}`),
-    ) ?? null
+    ds.find((d) => re.test(d.ten)) ??
+    ds.find((d) =>
+      re.test(`${d.moi_quan_tam} ${d.kien_thuc_nen} ${d.nhu_cau_giao_tiep} ${d.nhan_khau_hoc}`),
+    ) ??
+    null
   );
 }
 
-const RE_DEV = /dev|developer|lập\s*trình|kỹ\s*thuật|engineer|tích\s*hợp/i;
+// Regex hẹp cố ý: chỉ khớp persona chuyên developer — từ chung ("kỹ thuật",
+// "tích hợp") đụng tên hồ sơ khác ("Lãnh đạo kỹ thuật") và gắn nhầm persona.
+const RE_DEV = /dev|developer|lập\s*trình|engineer/i;
 const RE_TIEM_NANG = /tiềm\s*năng|prospect|khách\s*hàng\s*mới/i;
 const RE_BAO_MAT = /bảo\s*mật|an\s*ninh|security|ciso|mua\s*bảo\s*mật/i;
 const RE_SALES = /sales|bán\s*hàng|kinh\s*doanh/i;

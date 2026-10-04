@@ -73,6 +73,11 @@ const NHAN_TRANG_THAI: Record<string, string> = {
 const LOAI_GIOI_HAN = ["goi", "vung", "kha_dung", "chung"];
 const LOAI_CTA = ["tai_lieu", "nang_cap", "ho_tro", "chung"];
 
+// Server lưu loai "chung" là chuỗi rỗng — UI giữ nhãn "chung" trong Select
+// và map hai chiều khi đọc/ghi để không gửi giá trị server từ chối (400).
+const loaiVeUI = (v: string) => (v === "" ? "chung" : v);
+const loaiVeApi = (v: string) => (v === "chung" ? "" : v);
+
 const idMoi = (tienTo: string) => `${tienTo}-${crypto.randomUUID().slice(0, 8)}`;
 
 export default function PhatHanhPage() {
@@ -235,8 +240,8 @@ function ChiTietPhatHanhView({ id }: { id: string }) {
       doi_tuong_id: cp.doi_tuong_id ?? "",
     });
     setDsFact(cp.ds_fact);
-    setGioiHan(cp.gioi_han);
-    setCta(cp.cta);
+    setGioiHan(cp.gioi_han.map((g) => ({ ...g, loai: loaiVeUI(g.loai) })));
+    setCta(cp.cta.map((c) => ({ ...c, loai: loaiVeUI(c.loai) })));
     setMucLuc(cp.muc_luc);
     setMucLucDirty(false);
     setReleaseDirty(false);
@@ -281,8 +286,8 @@ function ChiTietPhatHanhView({ id }: { id: string }) {
           dinh_vi: form.dinh_vi,
           thuong_hieu_id: form.thuong_hieu_id || null,
           doi_tuong_id: form.doi_tuong_id || null,
-          gioi_han: gioiHan,
-          cta: cta,
+          gioi_han: gioiHan.map((g) => ({ ...g, loai: loaiVeApi(g.loai) })),
+          cta: cta.map((c) => ({ ...c, loai: loaiVeApi(c.loai) })),
           ds_fact: dsFact,
         }),
       });

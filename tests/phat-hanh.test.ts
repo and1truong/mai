@@ -8,6 +8,7 @@ import {
 } from "../src/modules/generation/index.ts";
 import { lapContextSinh } from "../src/modules/context/index.ts";
 import { layBanTheHien, layCampaign, layNguon } from "../src/modules/content/index.ts";
+import { thongDiepChuDe } from "../src/modules/so_bao/index.ts";
 import { seed } from "../src/server/seed.ts";
 import { taoServerTam } from "./helpers.ts";
 
@@ -99,7 +100,14 @@ async function taoPhatHanh(nguonId: string): Promise<string> {
 
 // Chờ job sinh hoàn tất: bth có head revision. Job lỗi thì head không
 // bao giờ có → hết thời gian vẫn báo bth hiện tại để assert fail rõ.
-async function choSinh(bthId: string, ms = 20000): Promise<Record<string, unknown>> {
+async function choSinh(
+  bthId: string,
+  ms = 20000,
+): Promise<
+  Record<string, unknown> & {
+    head_revision?: { id: string; noi_dung: string };
+  }
+> {
   const den = Date.now() + ms;
   let bth: Record<string, unknown> | null = null;
   while (Date.now() < den) {
@@ -201,6 +209,74 @@ describe("campaign phát hành: tạo + validation", () => {
     });
     expect(r.status).toBe(400);
     expect((await r.json()).loi.chi_tiet.join(" ")).toContain("muc_id");
+  });
+
+  test("ds_fact gửi muc_id mà không có nguon_id → 400", async () => {
+    const r = await post("/api/campaign", {
+      ten: "Phát hành muc lẻ",
+      loai: "phat_hanh",
+      ds_fact: [
+        { id: "f1", tinh_nang: "X", noi_dung: "y", nguon_id: null, muc_id: "cl-passkeys" },
+      ],
+    });
+    expect(r.status).toBe(400);
+    expect((await r.json()).loi.chi_tiet.join(" ")).toContain("muc_id yêu cầu kèm nguon_id");
+  });
+
+  test("nguồn bằng chứng của fact tự vào provenance thông điệp chủ đề", async () => {
+    // Fact trỏ nguồn hợp lệ nhưng nguồn đó không phải tài liệu tham chiếu:
+    // provenance phải link nguồn để bộ sinh coi fact là đã xác nhận, khớp
+    // cờ co_bang_chung trên UI.
+    const nguonId = await taoNguonBangChung();
+    const r = await post("/api/campaign", {
+      ten: "Phát hành fact lẻ",
+      loai: "phat_hanh",
+      ds_fact: [
+        {
+          id: "f1",
+          tinh_nang: "Passkeys",
+          noi_dung: "Đăng nhập bằng passkeys.",
+          nguon_id: nguonId,
+          muc_id: "cl-passkeys",
+        },
+      ],
+    });
+    expect(r.status).toBe(201);
+    const id = ((await r.json()).du_lieu as { id: string }).id;
+    const cp = layCampaign(app.db, id)!;
+    const td = thongDiepChuDe(app.db, cp)!;
+    const links = (
+      app.db
+        .query("SELECT nguon_id FROM thong_diep_nguon WHERE thong_diep_id = ?")
+        .all(td.id) as { nguon_id: string }[]
+    ).map((x) => x.nguon_id);
+    expect(links).toContain(nguonId);
+    expect(links).toContain(cp.nguon_phat_hanh_id);
+  });
+
+  test("đề xuất đầu ra gắn đúng hồ sơ đối tượng theo persona seed", async () => {
+    const j = await getJ("/api/campaign/seed-cp-phat-hanh-40");
+    const khoa = (m: { id: string }) => m.id;
+    const mucLuc = j.du_lieu.de_xuat_muc_luc as {
+      id: string;
+      doi_tuong_id: string | null;
+    }[];
+    const tim = (id: string) => mucLuc.find((m) => khoa(m) === id);
+    // Đầu ra developer phải mang persona 'Lập trình viên tích hợp' — không
+    // được đụng 'Kỹ sư' hay 'Lãnh đạo kỹ thuật' khớp keyword chung.
+    expect(tim("ph-dev")?.doi_tuong_id).toBe("seed-dt-dev-40");
+    expect(tim("ph-khach")?.doi_tuong_id).toBe("seed-dt-khach-hang-40");
+    expect(tim("ph-tiem-nang")?.doi_tuong_id).toBe("seed-dt-tiem-nang-40");
+    expect(tim("ph-bao-mat")?.doi_tuong_id).toBe("seed-dt-bao-mat-40");
+    expect(tim("ph-sales")?.doi_tuong_id).toBe("seed-dt-sales-40");
+    expect(tim("ph-support")?.doi_tuong_id).toBe("seed-dt-support-40");
+  });
+
+  test("GET /api/campaign?loai=so_bao loại campaign phát hành khỏi danh sách", async () => {
+    const j = await getJ("/api/campaign?loai=so_bao");
+    expect(Array.isArray(j.du_lieu)).toBe(true);
+    expect(j.du_lieu.some((c: { loai: string }) => c.loai === "phat_hanh")).toBe(false);
+    expect(j.du_lieu.length).toBeGreaterThan(0);
   });
 
   test("loai sai danh mục → 400; đổi loai đã đặt → 400", async () => {

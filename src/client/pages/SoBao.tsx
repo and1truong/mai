@@ -59,7 +59,7 @@ export default function SoBaoPage() {
 // --- Danh sách + tạo số báo ---
 
 function DanhSachSoBao() {
-  const { data, loading, error, reload } = useApi<Campaign[]>("/api/campaign");
+  const { data, loading, error, reload } = useApi<Campaign[]>("/api/campaign?loai=so_bao");
   const [ten, setTen] = useState("");
   const [soThuTu, setSoThuTu] = useState("");
   const [ngayPhatHanh, setNgayPhatHanh] = useState("");

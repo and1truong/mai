@@ -799,7 +799,14 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
     // Số báo (#8): campaign mang thêm field số báo (số thứ tự, ngày phát
     // hành, chủ đề, lập trường, chủ biên, hồ sơ dùng lại, tham chiếu nguồn
     // đã khai báo, mục lục). Field vắng mặt trên PUT giữ giá trị đã lưu.
-    route("GET", "/api/campaign", (_req, _p, c) => ok(danhSachCampaign(c.db))),
+    route("GET", "/api/campaign", (req, _p, c) => {
+      // ?loai=so_bao|phat_hanh lọc theo loại; campaign cũ chưa có loai tính
+      // 'so_bao' (migration 0014 backfill cùng quy tắc). Vắng mặt = tất cả.
+      const loai = new URL(req.url).searchParams.get("loai");
+      let ds = danhSachCampaign(c.db);
+      if (loai) ds = ds.filter((cp) => (cp.loai || "so_bao") === loai);
+      return ok(ds);
+    }),
     route("POST", "/api/campaign", async (req, _p, c) => {
       const body = await docBody(req);
       const dsLoi: string[] = [];
