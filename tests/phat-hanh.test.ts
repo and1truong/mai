@@ -376,6 +376,51 @@ describe("context sinh + kiểm chứng đầu ra phát hành", () => {
     expect(ph!.cta.length).toBe(3);
   });
 
+  test("nguồn sửa xóa mục fact trỏ tới → fact xac_nhan=false", async () => {
+    // Cùng semantic con trỏ bằng chứng với gây quỹ: muc_id chỉ còn hiệu
+    // lực khi mục đó còn trong cac_muc của revision nguồn đã ghim.
+    const nguonId = await taoNguonBangChung();
+    const id = await taoPhatHanh(nguonId);
+    const j = await getJ(`/api/campaign/${id}`);
+    const mucDev = j.du_lieu.de_xuat_muc_luc.find(
+      (m: { id: string }) => m.id === "ph-dev",
+    );
+    await put(`/api/campaign/${id}`, {
+      ten: "Phát hành test",
+      muc_luc: [mucDev],
+    });
+    const r = await post(`/api/campaign/${id}/chon`, { ds_muc_id: ["ph-dev"] });
+    expect(r.status).toBe(200);
+    const bthId = (await r.json()).du_lieu.ds_bth[0].id as string;
+    const bth = layBanTheHien(app.db, bthId)!;
+    const lam = () =>
+      lapContextNoiDung(app.db, {
+        bth,
+        task: TASK.nhap_ban_the_hien,
+        context_sinh: null,
+        doi_tuong: "dev",
+        campaign_id: id,
+      });
+    const mapTruoc = new Map(lam().phat_hanh!.ds_fact.map((f) => [f.id, f.xac_nhan]));
+    expect(mapTruoc.get("f-passkeys")).toBe(true);
+
+    // Revision nguồn mới xóa mục cl-passkeys mà fact trỏ tới.
+    const nguon = layNguon(app.db, nguonId)!;
+    const up = await put(`/api/nguon/${nguonId}`, {
+      tieu_de: nguon.tieu_de,
+      noi_dung: nguon.noi_dung,
+      dua_tren_revision_id: nguon.head_revision_id,
+      cac_muc: nguon.cac_muc.filter((m) => m.id !== "cl-passkeys"),
+    });
+    expect(up.status).toBe(200);
+    await put(`/api/campaign/${id}`, { ten: "Phát hành test" });
+
+    const ctx = lam();
+    const map = new Map(ctx.phat_hanh!.ds_fact.map((f) => [f.id, f.xac_nhan]));
+    expect(map.get("f-passkeys")).toBe(false);
+    expect(ctx.thieu_chung_cu).toContain("fact_chua_xac_nhan");
+  });
+
   test("kiemTraDauRa cảnh báo: giới hạn thiếu, claim chưa xác nhận, marker bịa", () => {
     const ctx: ContextTask = {
       task: TASK.nhap_ban_the_hien,
@@ -476,7 +521,21 @@ describe("context sinh + kiểm chứng đầu ra phát hành", () => {
 
 describe("chọn đầu ra → sinh → nội dung release", () => {
   test("nháp hướng dẫn developer: [F:]/[GH:] marker + câu hỏi cho fact chưa xác nhận", async () => {
-    const r = await post("/api/campaign/seed-cp-phat-hanh-40/chon", {
+    // Campaign riêng để không đụng đầu ra seed (sinh lại đầu ra đã
+    // duyệt đánh dấu 'thay_the').
+    const nguonId = await taoNguonBangChung();
+    const id = await taoPhatHanh(nguonId);
+    const j0 = await getJ(`/api/campaign/${id}`);
+    const dsMuc = (j0.du_lieu.de_xuat_muc_luc as { id: string }[]).filter((m) =>
+      ["ph-dev", "ph-email"].includes(m.id),
+    );
+    expect(dsMuc.length).toBe(2);
+    const r0 = await put(`/api/campaign/${id}`, {
+      ten: "Phát hành test",
+      muc_luc: dsMuc,
+    });
+    expect(r0.status).toBe(200);
+    const r = await post(`/api/campaign/${id}/chon`, {
       ds_muc_id: ["ph-dev", "ph-email"],
     });
     expect(r.status).toBe(200);
@@ -489,16 +548,15 @@ describe("chọn đầu ra → sinh → nội dung release", () => {
     const nd = JSON.parse(bth.head_revision!.noi_dung as string);
     // Claim tính năng đi kèm marker [F:<fact_id>] của release.
     const cacBuoc = (nd.cac_buoc as string[]).join("\n");
-    expect(cacBuoc).toContain("[F:fact-passkeys]");
-    expect(cacBuoc).toContain("[F:fact-sso]");
+    expect(cacBuoc).toContain("[F:f-passkeys]");
     // Giới hạn phải hiển thị khi tính năng bị giới hạn được nhắc.
-    expect((nd.gioi_han as string[]).join("\n")).toContain("[GH:gh-sso-goi]");
+    expect((nd.gioi_han as string[]).join("\n")).toContain("[GH:gh-sso]");
     expect((nd.gioi_han as string[]).join("\n")).toContain("Enterprise");
     // Fact chưa xác nhận chỉ ở dạng câu hỏi — không phải dòng claim.
     expect(cacBuoc).toContain("[CÂU HỎI");
     expect(cacBuoc).not.toMatch(/nhanh hơn 10 lần[^[]*$/m);
     // CTA trỏ đúng trang tài liệu đã khai báo.
-    expect(nd.lien_ket).toBe("https://docs.maisuite.example.com/v4");
+    expect(nd.lien_ket).toBe("https://docs.example.com/v4");
   });
 });
 

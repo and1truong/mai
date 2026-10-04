@@ -27,6 +27,8 @@ import type { TaskDinhNghia } from "./task.ts";
 //   context — kiểm chứng tại modules/generation/hop_le.ts.
 
 // Một nguồn đã chọn đưa vào context: trích dẫn đầu ra resolve về revision_id.
+// ds_muc = id các mục trong revision đã ghim — con trỏ bằng chứng muc_id
+// của campaign chỉ còn hiệu lực khi mục đó còn tồn tại trong bản này.
 export type NguonContext = {
   revision_id: string;
   nguon_id: string;
@@ -34,6 +36,7 @@ export type NguonContext = {
   tieu_de: string;
   noi_dung: string; // đã cắt gọn theo giới hạn nếu cần
   da_cat_gon: boolean;
+  ds_muc: string[];
 };
 
 // Fact release đưa vào context (#9): xac_nhan=false khi fact không trỏ

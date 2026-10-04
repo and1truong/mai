@@ -484,6 +484,61 @@ describe("context sinh + kiểm chứng đầu ra gây quỹ", () => {
     expect(ctx.thieu_chung_cu).toContain("trich_dan_chua_nguon");
   });
 
+  test("nguồn sửa xóa mục được trỏ → xac_nhan=false (khớp view co_bang_chung)", async () => {
+    // Con trỏ bằng chứng chỉ còn hiệu lực khi muc_id còn trong cac_muc
+    // của revision nguồn đã ghim — nguồn bị sửa xóa mục thì mục trỏ tới
+    // phải lùi về chưa xác nhận, đầu ra mới để [CÂU HỎI] thay vì sự thật.
+    const nguonId = await taoNguonHienTruong();
+    const id = await taoGayQuy(nguonId);
+    const j = await getJ(`/api/campaign/${id}`);
+    const mucBaoCao = j.du_lieu.de_xuat_muc_luc.find(
+      (m: { id: string }) => m.id === "gq-bao-cao",
+    );
+    await put(`/api/campaign/${id}`, {
+      ten: "Gây quỹ test",
+      muc_luc: [mucBaoCao],
+    });
+    const r = await post(`/api/campaign/${id}/chon`, { ds_muc_id: ["gq-bao-cao"] });
+    expect(r.status).toBe(200);
+    const bthId = (await r.json()).du_lieu.ds_bth[0].id as string;
+    const bth = layBanTheHien(app.db, bthId)!;
+    const lam = () =>
+      lapContextNoiDung(app.db, {
+        bth,
+        task: TASK.nhap_ban_the_hien,
+        context_sinh: null,
+        doi_tuong: "nhà tài trợ",
+        campaign_id: id,
+      });
+    const mapTruoc = new Map(lam().gay_quy!.ds_tac_dong.map((t) => [t.id, t.xac_nhan]));
+    expect(mapTruoc.get("td-lang-a")).toBe(true);
+
+    // Revision nguồn mới xóa mục ht-lang-a (td-lang-a + td-lang-b trỏ tới).
+    const nguon = layNguon(app.db, nguonId)!;
+    const up = await put(`/api/nguon/${nguonId}`, {
+      tieu_de: nguon.tieu_de,
+      noi_dung: nguon.noi_dung,
+      dua_tren_revision_id: nguon.head_revision_id,
+      cac_muc: nguon.cac_muc.filter((m) => m.id !== "ht-lang-a"),
+    });
+    expect(up.status).toBe(200);
+    // Thông điệp chủ đề re-pin revision nguồn mới.
+    await put(`/api/campaign/${id}`, { ten: "Gây quỹ test" });
+
+    const ctx = lam();
+    const mapTd = new Map(ctx.gay_quy!.ds_tac_dong.map((t) => [t.id, t.xac_nhan]));
+    expect(mapTd.get("td-lang-a")).toBe(false);
+    expect(mapTd.get("td-lang-b")).toBe(false);
+    // Mục ht-trich-dan còn → trích dẫn trỏ tới vẫn xác nhận.
+    const mapTq = new Map(ctx.gay_quy!.ds_trich_dan.map((t) => [t.id, t.xac_nhan]));
+    expect(mapTq.get("tq-ba-x")).toBe(true);
+    expect(ctx.thieu_chung_cu).toContain("tac_dong_chua_xac_nhan");
+    // View phái sinh khớp cùng kết luận.
+    const view = (await getJ(`/api/campaign/${id}`)).du_lieu.gay_quy
+      .ds_tac_dong_view as { id: string; co_bang_chung: boolean }[];
+    expect(view.find((t) => t.id === "td-lang-a")?.co_bang_chung).toBe(false);
+  });
+
   test("kiemTraDauRa cảnh báo: marker bịa, trích dẫn bịa, ước tính viết như đã đạt, thiếu tiền tệ, số đo lạ", () => {
     const kq = kiemTraDauRa(ctxGayQuy(), {
       noi_dung: JSON.stringify({

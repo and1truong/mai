@@ -124,6 +124,7 @@ export function lapContextNoiDung(
       tieu_de: n.tieu_de,
       noi_dung: text,
       da_cat_gon: daCat,
+      ds_muc: n.cac_muc.map((m) => m.id),
     });
   }
 
@@ -146,14 +147,26 @@ export function lapContextNoiDung(
     }
   }
 
+  // Con trỏ bằng chứng vào một nguồn trong chuỗi provenance: xác nhận
+  // chỉ khi nguồn có mặt VÀ (nếu có muc_id) mục đó còn trong cac_muc
+  // của revision nguồn đã ghim — nguồn bị sửa xóa mục thì mục trỏ tới
+  // coi như chưa xác nhận (khớp view co_bang_chung của UI/gợi ý).
+  const nguonTrongContext = new Map(ds_nguon.map((n) => [n.nguon_id, n]));
+  const daXacNhan = (nguonId: string | null, mucId: string | null): string | undefined => {
+    if (!nguonId) return undefined;
+    const n = nguonTrongContext.get(nguonId);
+    if (!n) return undefined;
+    if (mucId && !n.ds_muc.includes(mucId)) return undefined;
+    return n.tieu_de;
+  };
+
   // Bản phát hành (#9): định vị + giới hạn + CTA + fact đi vào context.
   // Fact được xác nhận chỉ khi nguồn bằng chứng của nó nằm trong chuỗi
   // provenance của lần sinh này — fact chưa xác nhận là chứng cứ thiếu.
   let phatHanh: ContextTask["phat_hanh"];
   if (cp && cp.loai === "phat_hanh") {
-    const nguonTrongContext = new Map(ds_nguon.map((n) => [n.nguon_id, n.tieu_de]));
     const dsFact = cp.ds_fact.map((f) => {
-      const tieuDe = f.nguon_id ? nguonTrongContext.get(f.nguon_id) : undefined;
+      const tieuDe = daXacNhan(f.nguon_id, f.muc_id);
       return { ...f, xac_nhan: !!tieuDe, nguon_tieu_de: tieuDe };
     });
     if (dsFact.some((f) => !f.xac_nhan)) thieuCc.push("fact_chua_xac_nhan");
@@ -175,13 +188,12 @@ export function lapContextNoiDung(
   // thiếu (provider để [CÂU HỎI], không trình bày như sự thật).
   let gayQuy: ContextTask["gay_quy"];
   if (cp && cp.loai === "gay_quy") {
-    const nguonTrongContext = new Map(ds_nguon.map((n) => [n.nguon_id, n.tieu_de]));
     const dsTacDong = cp.ds_tac_dong.map((t) => {
-      const tieuDe = t.nguon_id ? nguonTrongContext.get(t.nguon_id) : undefined;
+      const tieuDe = daXacNhan(t.nguon_id, t.muc_id);
       return { ...t, xac_nhan: !!tieuDe, nguon_tieu_de: tieuDe };
     });
     const dsTrichDan = cp.ds_trich_dan.map((t) => {
-      const tieuDe = t.nguon_id ? nguonTrongContext.get(t.nguon_id) : undefined;
+      const tieuDe = daXacNhan(t.nguon_id, t.muc_id);
       return { ...t, xac_nhan: !!tieuDe, nguon_tieu_de: tieuDe };
     });
     if (dsTacDong.some((t) => !t.xac_nhan)) thieuCc.push("tac_dong_chua_xac_nhan");
