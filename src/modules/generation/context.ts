@@ -168,6 +168,37 @@ export function lapContextNoiDung(
     };
   }
 
+  // Chiến dịch gây quỹ (#10): mục tiêu + số tiền/tiền tệ + thông điệp
+  // lõi + tác động/trích dẫn + CTA quyên góp đi vào context. Tác động
+  // và trích dẫn được xác nhận chỉ khi nguồn bằng chứng của nó nằm trong
+  // chuỗi provenance của lần sinh này — mục chưa xác nhận là chứng cứ
+  // thiếu (provider để [CÂU HỎI], không trình bày như sự thật).
+  let gayQuy: ContextTask["gay_quy"];
+  if (cp && cp.loai === "gay_quy") {
+    const nguonTrongContext = new Map(ds_nguon.map((n) => [n.nguon_id, n.tieu_de]));
+    const dsTacDong = cp.ds_tac_dong.map((t) => {
+      const tieuDe = t.nguon_id ? nguonTrongContext.get(t.nguon_id) : undefined;
+      return { ...t, xac_nhan: !!tieuDe, nguon_tieu_de: tieuDe };
+    });
+    const dsTrichDan = cp.ds_trich_dan.map((t) => {
+      const tieuDe = t.nguon_id ? nguonTrongContext.get(t.nguon_id) : undefined;
+      return { ...t, xac_nhan: !!tieuDe, nguon_tieu_de: tieuDe };
+    });
+    if (dsTacDong.some((t) => !t.xac_nhan)) thieuCc.push("tac_dong_chua_xac_nhan");
+    if (dsTrichDan.some((t) => !t.xac_nhan)) thieuCc.push("trich_dan_chua_nguon");
+    gayQuy = {
+      ten: cp.ten,
+      muc_tieu: cp.muc_tieu,
+      so_tien_muc_tieu: cp.so_tien_muc_tieu,
+      tien_te: cp.tien_te,
+      thong_diep_loi: cp.thong_diep_loi,
+      ngon_ngu_phu: cp.ngon_ngu_phu,
+      cta: cp.cta,
+      ds_tac_dong: dsTacDong,
+      ds_trich_dan: dsTrichDan,
+    };
+  }
+
   return {
     task: input.task,
     thong_diep: {
@@ -182,6 +213,7 @@ export function lapContextNoiDung(
     context_sinh: input.context_sinh,
     lap_truong: cp?.lap_truong || null,
     phat_hanh: phatHanh,
+    gay_quy: gayQuy,
     thieu_chung_cu: thieuCc,
     gioi_han_dau_ra: gioiHan.toi_da_ky_tu_dau_ra,
   };

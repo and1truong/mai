@@ -520,6 +520,167 @@ const DANG_EMAIL_PHAN_DOAN: DinhNghiaDinhDang = {
   ],
 };
 
+// --- Định dạng gây quỹ nonprofit (#10) ---
+// Đầu ra của một chiến dịch truyền thông gây quỹ. Tác động đã đạt và
+// ước tính là HAI trường danh sách riêng (tac_dong_da_dat /
+// tac_dong_uoc_tinh) để tiêu chí "phân biệt đã đạt vs ước tính" thành
+// cấu trúc schema, không phụ thuộc cách viết. `muc_tieu` là mục tiêu
+// gây quỹ tương lai; `lien_ket` là đích CTA quyên góp do tổ chức cung
+// cấp — xem trước hiện link cuối trước khi duyệt. Tác động/trích dẫn
+// chưa xác nhận đổ thành dòng [CÂU HỎI], không trình bày như sự thật.
+
+const TRUONG_TAC_DONG_DA_DAT: DinhNghiaTruong = {
+  ten: "tac_dong_da_dat",
+  nhan: "Tác động đã đạt",
+  loai: "danh_sach",
+  bat_buoc: true,
+  so_muc_toi_da: 30,
+  do_dai_toi_da: 500,
+};
+const TRUONG_TAC_DONG_UOC_TINH: DinhNghiaTruong = {
+  ten: "tac_dong_uoc_tinh",
+  nhan: "Tác động ước tính",
+  loai: "danh_sach",
+  so_muc_toi_da: 30,
+  do_dai_toi_da: 500,
+};
+const TRUONG_MUC_TIEU_GQ: DinhNghiaTruong = {
+  ten: "muc_tieu",
+  nhan: "Mục tiêu gây quỹ",
+  loai: "van_ban",
+  do_dai_toi_da: 500,
+};
+const TRUONG_CTA_GQ: DinhNghiaTruong = {
+  ten: "cta",
+  nhan: "CTA quyên góp",
+  loai: "van_ban",
+  do_dai_toi_da: 200,
+};
+const TRUONG_LIEN_KET_GQ: DinhNghiaTruong = {
+  ten: "lien_ket",
+  nhan: "Link quyên góp",
+  loai: "van_ban",
+  do_dai_toi_da: 500,
+};
+
+const DANG_BAO_CAO_TAC_DONG: DinhNghiaDinhDang = {
+  id: "bao-cao-tac-dong",
+  phien_ban: 1,
+  nhan: "Báo cáo tác động",
+  mo_ta: "Báo cáo cho nhà tài trợ: tác động đã đạt tách khỏi ước tính, mục tiêu gây quỹ tương lai nêu riêng, link quyên góp cuối.",
+  ngon_ngu: NGON_NGU,
+  truong: [
+    { ten: "tieu_de", nhan: "Tiêu đề", loai: "van_ban", bat_buoc: true, do_dai_toi_da: 200 },
+    { ten: "tom_tat", nhan: "Tóm tắt", loai: "van_ban", do_dai_toi_da: 300 },
+    TRUONG_TAC_DONG_DA_DAT,
+    TRUONG_TAC_DONG_UOC_TINH,
+    TRUONG_MUC_TIEU_GQ,
+    { ten: "noi_dung", nhan: "Nội dung", loai: "markdown", bat_buoc: true },
+    {
+      ten: "trich_dan",
+      nhan: "Trích dẫn",
+      loai: "danh_sach",
+      so_muc_toi_da: 20,
+      do_dai_toi_da: 500,
+    },
+    TRUONG_CTA_GQ,
+    TRUONG_LIEN_KET_GQ,
+  ],
+};
+
+const DANG_CAU_CHUYEN_NHAN_VAN: DinhNghiaDinhDang = {
+  id: "cau-chuyen-nhan-van",
+  phien_ban: 1,
+  nhan: "Câu chuyện nhân văn",
+  mo_ta: "Câu chuyện công khai chỉ dùng tư liệu đã cung cấp — khoảng trống hiển thị là câu hỏi biên tập, không bịa tên/lời/ảnh/số đo.",
+  ngon_ngu: NGON_NGU,
+  truong: [
+    { ten: "tieu_de", nhan: "Tiêu đề", loai: "van_ban", bat_buoc: true, do_dai_toi_da: 200 },
+    { ten: "noi_dung", nhan: "Nội dung", loai: "markdown", bat_buoc: true },
+    {
+      ten: "trich_dan",
+      nhan: "Trích dẫn được phép dùng",
+      loai: "danh_sach",
+      so_muc_toi_da: 10,
+      do_dai_toi_da: 500,
+    },
+    {
+      ten: "con_thieu",
+      nhan: "Câu hỏi biên tập còn thiếu",
+      loai: "danh_sach",
+      so_muc_toi_da: 20,
+      do_dai_toi_da: 500,
+    },
+    TRUONG_CTA_GQ,
+    TRUONG_LIEN_KET_GQ,
+  ],
+  goi_y_asset: "ảnh hiện trường đã có quyền sử dụng",
+};
+
+const DANG_EMAIL_TAI_TRO: DinhNghiaDinhDang = {
+  id: "email-tai-tro",
+  phien_ban: 1,
+  nhan: "Email nhà tài trợ lớn",
+  mo_ta: "Nháp email cho nhà tài trợ lớn: chi tiết hơn câu chuyện công khai nhưng giữ nguyên fact tác động và CTA quyên góp.",
+  ngon_ngu: NGON_NGU,
+  truong: [
+    { ten: "tieu_de", nhan: "Chủ đề email", loai: "van_ban", bat_buoc: true, do_dai_toi_da: 150 },
+    { ten: "tom_tat", nhan: "Xem trước", loai: "van_ban", do_dai_toi_da: 200 },
+    { ten: "phan_doan", nhan: "Phân đoạn", loai: "van_ban", do_dai_toi_da: 200 },
+    { ten: "noi_dung", nhan: "Nội dung", loai: "markdown", bat_buoc: true },
+    TRUONG_TAC_DONG_DA_DAT,
+    TRUONG_TAC_DONG_UOC_TINH,
+    TRUONG_MUC_TIEU_GQ,
+    TRUONG_CTA_GQ,
+    TRUONG_LIEN_KET_GQ,
+  ],
+};
+
+const DANG_TRANG_CAMPAIGN: DinhNghiaDinhDang = {
+  id: "trang-campaign",
+  phien_ban: 1,
+  nhan: "Trang campaign",
+  mo_ta: "Trang campaign trên website sở hữu: mục tiêu + số tiền kèm tiền tệ, tác động đã đạt/ước tính riêng, CTA quyên góp.",
+  ngon_ngu: NGON_NGU,
+  truong: [
+    { ten: "tieu_de", nhan: "Tiêu đề", loai: "van_ban", bat_buoc: true, do_dai_toi_da: 200 },
+    { ten: "noi_dung", nhan: "Nội dung", loai: "markdown", bat_buoc: true },
+    TRUONG_TAC_DONG_DA_DAT,
+    TRUONG_TAC_DONG_UOC_TINH,
+    TRUONG_MUC_TIEU_GQ,
+    {
+      ten: "trich_dan",
+      nhan: "Trích dẫn",
+      loai: "danh_sach",
+      so_muc_toi_da: 10,
+      do_dai_toi_da: 500,
+    },
+    TRUONG_CTA_GQ,
+    TRUONG_LIEN_KET_GQ,
+  ],
+};
+
+const DANG_CAP_NHAT_TINH_NGUYEN: DinhNghiaDinhDang = {
+  id: "cap-nhat-tinh-nguyen",
+  phien_ban: 1,
+  nhan: "Cập nhật tình nguyện viên",
+  mo_ta: "Cập nhật nội bộ cho tình nguyện viên: tiến độ, việc cần làm, link quyên góp nếu có.",
+  ngon_ngu: NGON_NGU,
+  truong: [
+    { ten: "tieu_de", nhan: "Tiêu đề", loai: "van_ban", bat_buoc: true, do_dai_toi_da: 200 },
+    { ten: "noi_dung", nhan: "Nội dung", loai: "markdown", bat_buoc: true },
+    {
+      ten: "cac_buoc",
+      nhan: "Việc cần làm",
+      loai: "danh_sach",
+      so_muc_toi_da: 20,
+      do_dai_toi_da: 500,
+    },
+    TRUONG_CTA_GQ,
+    TRUONG_LIEN_KET_GQ,
+  ],
+};
+
 const REGISTRY: Record<string, DinhNghiaDinhDang> = Object.fromEntries(
   [
     DANG_BAI_VIET,
@@ -542,6 +703,11 @@ const REGISTRY: Record<string, DinhNghiaDinhDang> = Object.fromEntries(
     DANG_KIEM_SOAT_BAO_MAT,
     DANG_BRIEF_BAN_HANG,
     DANG_EMAIL_PHAN_DOAN,
+    DANG_BAO_CAO_TAC_DONG,
+    DANG_CAU_CHUYEN_NHAN_VAN,
+    DANG_EMAIL_TAI_TRO,
+    DANG_TRANG_CAMPAIGN,
+    DANG_CAP_NHAT_TINH_NGUYEN,
   ].map((d) => [d.id, d]),
 );
 
