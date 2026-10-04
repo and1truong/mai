@@ -246,6 +246,33 @@ describe("đổi ngày hiệu lực → vô hiệu hóa nguồn phụ thuộc (#
     expect(xong.loi).toContain("ghim nguồn cũ");
   });
 
+  // Bug E2E bắt trên PR #49: đề xuất task sinh_lai trên đầu ra đã có job
+  // lên lịch cùng khoa_idem → dedupe bind task vào job 'cho' +7d, task
+  // kẹt 'dang_lam' mãi (đến hạn thì guard cũ chặn). Fix: enqueueJob kéo
+  // lịch job 'cho' về sớm khi yêu cầu mới muốn chạy trước.
+  test("đề xuất task trên đầu ra có job lên lịch: kéo lịch về chạy ngay, không kẹt", async () => {
+    const task = danhSachTaskSua(app.db, { banTheHienId: "seed-bth-cq-truong-hoc" }).find(
+      (t) => t.loai === "sinh_lai",
+    )!;
+    const res = await post(`/api/task-sua/${task.id}/de-xuat`, {});
+    expect(res.status).toBe(200);
+    const j = await res.json();
+    const job = j.du_lieu.job;
+    // Task bind vào job 'cho' đã lên lịch → lịch bị kéo về chạy ngay.
+    const jobDoc = layJob(app.db, job.id)!;
+    expect(jobDoc.chay_som_nhat).toBeNull();
+    const xong = await choJob(job.id);
+    expect(xong.trang_thai).toBe("xong");
+    // Revision mới ghim chính sách rev 2 → hết 'cũ'.
+    const bth = layBanTheHien(app.db, "seed-bth-cq-truong-hoc")!;
+    const cq = (await getJ(`/api/campaign/${CP}`)).du_lieu.cong_quyen;
+    const dong = cq.dau_ra.find(
+      (d: { ban_the_hien_id: string }) => d.ban_the_hien_id === bth.id,
+    );
+    expect(dong.la_cu).toBe(false);
+    expect(dong.revision_chinh_sach?.so_thu_tu).toBe(2);
+  });
+
   test("chế độ bảo vệ: reviewer sai → 400; thiếu reviewer trên bản cũ → guard cũ chặn trước (409)", async () => {
     const bth = layBanTheHien(app.db, "seed-bth-cq-faq")!;
     // Bản đang ghim chính sách cũ: thiếu nguoi_duyet_id → guard 'cũ'
