@@ -230,7 +230,7 @@ describe("nội dung đã sinh giữ context đã dùng", () => {
     const res = await post("/api/job", {
       loai: "sinh_ban_the_hien",
       payload: {
-        nguon_id: "seed-nguon-1",
+        thong_diep_id: "seed-td-1",
         dinh_dang: "newsletter",
         thuong_hieu_id: "seed-th-creator",
         doi_tuong_id: "seed-dt-khong-chuyen",
@@ -266,7 +266,7 @@ describe("nội dung đã sinh giữ context đã dùng", () => {
   test("job thiếu hồ sơ tồn tại → 400 tại API", async () => {
     const res = await post("/api/job", {
       loai: "sinh_ban_the_hien",
-      payload: { nguon_id: "seed-nguon-1", dinh_dang: "web", doi_tuong_id: "khong-co" },
+      payload: { thong_diep_id: "seed-td-1", dinh_dang: "web", doi_tuong_id: "khong-co" },
     });
     expect(res.status).toBe(400);
   });

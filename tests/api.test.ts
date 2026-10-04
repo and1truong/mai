@@ -94,6 +94,10 @@ describe("revision + xung đột", () => {
   moApp();
 
   test("dua_tren_revision_id sai → 409; đúng head → 201", async () => {
+    const head = (
+      await (await fetch(`${app.url}/api/ban-the-hien/seed-bth-1`)).json()
+    ).du_lieu.head_revision_id;
+
     const sai = await post(app, "/api/ban-the-hien/seed-bth-1/revision", {
       noi_dung: "rev sai",
       dua_tren_revision_id: "khong-dung",
@@ -103,7 +107,7 @@ describe("revision + xung đột", () => {
 
     const dung = await post(app, "/api/ban-the-hien/seed-bth-1/revision", {
       noi_dung: "rev đúng",
-      dua_tren_revision_id: "seed-rev-1",
+      dua_tren_revision_id: head,
     });
     expect(dung.status).toBe(201);
     expect((await dung.json()).du_lieu.so_thu_tu).toBe(2);
@@ -176,7 +180,7 @@ describe("job nền trong process", () => {
   test("job sinh_ban_the_hien chạy xong và tạo bản thể hiện", async () => {
     const res = await post(app, "/api/job", {
       loai: "sinh_ban_the_hien",
-      payload: { nguon_id: "seed-nguon-1", dinh_dang: "newsletter" },
+      payload: { thong_diep_id: "seed-td-1", dinh_dang: "newsletter" },
     });
     expect(res.status).toBe(201);
     const { du_lieu: job } = await res.json();
@@ -190,7 +194,7 @@ describe("job nền trong process", () => {
     expect(ban.head_revision_id).toBeTruthy();
   });
 
-  test("job thiếu payload.nguon_id → 400 VALIDATION", async () => {
+  test("job thiếu payload.thong_diep_id → 400 VALIDATION", async () => {
     const res = await post(app, "/api/job", { loai: "sinh_ban_the_hien", payload: {} });
     expect(res.status).toBe(400);
     expect((await res.json()).loi.ma).toBe("VALIDATION");
@@ -207,7 +211,7 @@ describe("job mồ côi sau restart", () => {
     db0
       .query(
         `INSERT INTO job (id, loai, trang_thai, khoa_idem, entity_loai, entity_id, revision_id, payload, so_lan_thu, tao_luc)
-         VALUES ('orphan-1', 'sinh_ban_the_hien', 'dang_chay', 'orphan-1', 'ban_the_hien', 'seed-bth-1', 'seed-rev-1', ?, 1, ?)`,
+         VALUES ('orphan-1', 'sinh_ban_the_hien', 'dang_chay', 'orphan-1', 'ban_the_hien', 'seed-bth-1', (SELECT head_revision_id FROM ban_the_hien WHERE id = 'seed-bth-1'), ?, 1, ?)`,
       )
       .run(
         JSON.stringify({ ban_the_hien_id: "seed-bth-1" }),
@@ -232,14 +236,16 @@ describe("job mồ côi sau restart", () => {
   });
 });
 
-describe("ràng buộc unique (nguon_id, dinh_dang)", () => {
+describe("ràng buộc unique danh tính đầu ra", () => {
   moApp();
 
-  test("tạo trùng bản thể hiện cùng (nguồn, định dạng) → lỗi constraint", async () => {
+  test("tạo trùng bản thể hiện cùng (thông điệp, định dạng, ngôn ngữ, đối tượng, đích) → lỗi constraint", async () => {
     expect(() =>
       app.db
         .query(
-          "INSERT INTO ban_the_hien (id, nguon_id, dinh_dang, doi_tuong, trang_thai, head_revision_id, tao_luc, tao_boi) VALUES ('trung', 'seed-nguon-1', 'web', '', 'nhap', NULL, 'x', 'demo')",
+          `INSERT INTO ban_the_hien
+             (id, thong_diep_id, dinh_dang, ngon_ngu, phien_ban_dinh_dang, doi_tuong, dich_den, trang_thai, head_revision_id, tao_luc, tao_boi)
+           VALUES ('trung', 'seed-td-1', 'web', 'vi', 1, 'chung', '', 'nhap', NULL, 'x', 'demo')`,
         )
         .run(),
     ).toThrow();

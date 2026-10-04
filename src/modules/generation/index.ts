@@ -1,4 +1,3 @@
-import type { Nguon } from "../content/index.ts";
 import type { ContextSinhSnapshot } from "../context/index.ts";
 import { LoiApi } from "../../loi.ts";
 
@@ -9,6 +8,13 @@ import { LoiApi } from "../../loi.ts";
 // `contextSinh` giữ ràng buộc thương hiệu và sở thích đối tượng tách riêng;
 // kiểm chứng khác biệt thật khi sinh nằm ở ticket #20.
 
+// Nội dung đầu vào của một lần sinh: thông điệp chuẩn + các nguồn liên kết
+// (đã resolve tới đúng revision đã ghim — caller truyền snapshot, không id).
+export type NoiDungDauVao = {
+  tieu_de: string;
+  noi_dung: string;
+};
+
 export interface KetQuaSinh {
   noiDung: string;
 }
@@ -16,24 +22,29 @@ export interface KetQuaSinh {
 export interface NhaCungCap {
   ten: string;
   sinhBanTheHien(input: {
-    nguon: Nguon;
+    thongDiep: NoiDungDauVao;
+    dsNguon: NoiDungDauVao[];
     dinhDang: string;
     doiTuong: string;
+    ngonNgu?: string;
     contextSinh?: ContextSinhSnapshot | null;
   }): Promise<KetQuaSinh>;
 }
 
-// Fixture: output deterministic từ nội dung nguồn + context sinh. Không gọi mạng.
+// Fixture: output deterministic từ thông điệp + nguồn + context sinh.
+// Không gọi mạng. Thông điệp rỗng nội dung → tóm tắt từ nguồn đầu tiên.
 const fixture: NhaCungCap = {
   ten: "fixture",
-  async sinhBanTheHien({ nguon, dinhDang, doiTuong, contextSinh }) {
-    const tomTat = nguon.noi_dung.trim().split("\n").slice(0, 3).join(" ");
+  async sinhBanTheHien({ thongDiep, dsNguon, dinhDang, doiTuong, ngonNgu, contextSinh }) {
+    const vanBan = thongDiep.noi_dung.trim() || (dsNguon[0]?.noi_dung ?? "");
+    const tomTat = vanBan.trim().split("\n").slice(0, 3).join(" ");
     const dong = [
-      `# ${nguon.tieu_de}`,
+      `# ${thongDiep.tieu_de}`,
       "",
       `- Kênh: ${dinhDang}`,
       `- Đối tượng: ${contextSinh?.doi_tuong?.ten || doiTuong || "chung"}`,
     ];
+    if (ngonNgu) dong.push(`- Ngôn ngữ: ${ngonNgu}`);
     if (contextSinh?.doi_tuong) {
       dong.push(`- Độ sâu: ${contextSinh.doi_tuong.do_sau || "chưa biết"}`);
       dong.push(`- Từ vựng: ${contextSinh.doi_tuong.tu_vung || "chưa biết"}`);
@@ -45,6 +56,7 @@ const fixture: NhaCungCap = {
         .map((t) => t.thuat_ngu);
       if (giuNguyen.length > 0) dong.push(`- Thuật ngữ giữ nguyên: ${giuNguyen.join(", ")}`);
     }
+    if (dsNguon.length > 0) dong.push(`- Nguồn: ${dsNguon.map((n) => n.tieu_de).join("; ")}`);
     dong.push("", tomTat);
     return { noiDung: dong.join("\n") };
   },

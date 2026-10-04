@@ -1,9 +1,15 @@
 import type { Database } from "bun:sqlite";
 import { LoiApi } from "../../loi.ts";
-import { layBanTheHien, layNguon, themRevisionTrongTxn } from "../content/index.ts";
+import {
+  layBanTheHien,
+  layNguonRevision,
+  layThongDiep,
+  layThongDiepRevision,
+  themRevisionTrongTxn,
+} from "../content/index.ts";
 import type { GhiDeCampaign } from "../context/index.ts";
 import { lapContextSinh, luuContextSinhTuSnapshot } from "../context/index.ts";
-import type { NhaCungCap } from "../generation/index.ts";
+import type { NhaCungCap, NoiDungDauVao } from "../generation/index.ts";
 import { LoiVinhVien, type JobHandler } from "./index.ts";
 
 // Handler của từng loại job nền — đăng ký loại mới ở đây (#20, sau này #13).
@@ -25,11 +31,24 @@ export function taoHandlers(db: Database, provider: NhaCungCap): Record<string, 
       ctx.baoTienDo({ buoc: "doc_ban_the_hien" });
       const bth = layBanTheHien(ctx.db, bthId);
       if (!bth) throw new LoiVinhVien(`Không tìm thấy bản thể hiện: ${bthId}`);
-      const nguon = layNguon(ctx.db, bth.nguon_id);
-      if (!nguon) throw new LoiVinhVien(`Không tìm thấy nguồn: ${bth.nguon_id}`);
+      const thongDiep = layThongDiep(ctx.db, bth.thong_diep_id);
+      if (!thongDiep) throw new LoiVinhVien(`Không tìm thấy thông điệp: ${bth.thong_diep_id}`);
       if ((bth.head_revision_id ?? null) !== mongDoi) {
         throw new LoiVinhVien("Revision đích đã đổi trong lúc job xếp hàng. Thử lại để ghim head mới.");
       }
+      // Provenance: ghim revision thông điệp head tại thời điểm sinh; revision
+      // thông điệp đã ghim sẵn revision nguồn đã dùng → resolve đúng chuỗi.
+      const tdRev = thongDiep.head_revision_id
+        ? layThongDiepRevision(ctx.db, thongDiep.head_revision_id)
+        : null;
+      const dsNguon: NoiDungDauVao[] = (tdRev?.nguon_revision_ids ?? [])
+        .map((id) => layNguonRevision(ctx.db, id))
+        .filter((n): n is NonNullable<typeof n> => n !== null)
+        .map((n) => ({ tieu_de: n.tieu_de, noi_dung: n.noi_dung }));
+      const thongDiepDauVao: NoiDungDauVao = {
+        tieu_de: tdRev?.tieu_de ?? thongDiep.tieu_de,
+        noi_dung: tdRev?.noi_dung ?? thongDiep.noi_dung,
+      };
 
       ctx.baoTienDo({ buoc: "lap_context_sinh" });
       // Lắp context trong bộ nhớ: hồ sơ thiếu/sai → lỗi vĩnh viễn, không retry.
@@ -49,9 +68,11 @@ export function taoHandlers(db: Database, provider: NhaCungCap): Record<string, 
       ctx.baoTienDo({ buoc: "goi_provider" });
       ctx.assertConHan(); // attempt đã timeout/hủy → không gọi provider nữa
       const { noiDung } = await provider.sinhBanTheHien({
-        nguon,
+        thongDiep: thongDiepDauVao,
+        dsNguon,
         dinhDang: bth.dinh_dang,
         doiTuong: String(payload.doi_tuong ?? bth.doi_tuong),
+        ngonNgu: bth.ngon_ngu,
         contextSinh: snapshot,
       });
 
@@ -74,6 +95,7 @@ export function taoHandlers(db: Database, provider: NhaCungCap): Record<string, 
             noi_dung: noiDung,
             dua_tren_revision_id: mongDoi,
             context_sinh_id: cs.id,
+            thong_diep_revision_id: tdRev?.id ?? null,
           },
           "job",
         );
@@ -82,6 +104,7 @@ export function taoHandlers(db: Database, provider: NhaCungCap): Record<string, 
           ban_the_hien_id: bthId,
           revision_id: rev.id,
           context_sinh_id: cs.id,
+          thong_diep_revision_id: tdRev?.id ?? null,
           provider: provider.ten,
         };
       } catch (e) {
