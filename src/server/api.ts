@@ -111,6 +111,17 @@ import {
 } from "../modules/jobs/index.ts";
 import { LOAI_JOB_HO_TRO } from "../modules/jobs/handlers.ts";
 import { danhSachSuDungSinh } from "../modules/generation/index.ts";
+import {
+  cauHoiLamRo,
+  chonDauRa,
+  danhSachBanTheHienCu,
+  danhSachKeHoach,
+  layKeHoach,
+  capNhatKeHoach,
+  taoKeHoach,
+  viecGanDay,
+  type DauRaDeXuat,
+} from "../modules/luong/index.ts";
 import type { CauHinhAi } from "../config.ts";
 import { docBody, kiemTraByteDaDoc, kiemTraGioiHanBody, loi, ok } from "./http.ts";
 
@@ -429,8 +440,103 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
             c: number;
           }
         ).c,
+        // #5: home lấy từ state lưu thật — việc gần đây + hàng chờ review +
+        // bản thể hiện đã cũ (revision ghim lệch head thông điệp).
+        viec_gan_day: viecGanDay(c.db),
+        bth_cho_duyet: danhSachBanTheHien(c.db, { trangThai: "cho_duyet" }).slice(0, 20),
+        bth_cu: danhSachBanTheHienCu(c.db),
       }),
     ),
+
+    // --- Kế hoạch: luồng intake → chọn đầu ra → sinh (#5) ---
+    route("GET", "/api/ke-hoach", (_req, _p, c) => ok(danhSachKeHoach(c.db))),
+    route("POST", "/api/ke-hoach", async (req, _p, c) => {
+      const body = await docBody(req);
+      const dsLoi: string[] = [];
+      const vanBan = batBuocChuoi(body.van_ban, "van_ban", dsLoi);
+      const nguonId = tuyChonChuoi(body.nguon_id);
+      if (nguonId && !layNguon(c.db, nguonId)) {
+        dsLoi.push(`Nguồn không tồn tại: ${nguonId}`);
+      }
+      nemLoiValidation(dsLoi);
+      const kh = taoKeHoach(
+        c.db,
+        {
+          van_ban: vanBan,
+          tieu_de: tuyChonChuoi(body.tieu_de) || undefined,
+          nguon_id: nguonId || null,
+          cta: tuyChonChuoi(body.cta),
+        },
+        c.actor,
+      );
+      return ok({
+        ke_hoach: kh,
+        cau_hoi: cauHoiLamRo(c.db, kh),
+        de_xuat: JSON.parse(kh.de_xuat_dau_ra),
+      });
+    }),
+    route("GET", "/api/ke-hoach/:id", (_req, p, c) => {
+      const kh = layKeHoach(c.db, p.id!);
+      if (!kh) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy kế hoạch.");
+      return ok({
+        ke_hoach: kh,
+        thong_diep: layThongDiep(c.db, kh.thong_diep_id),
+        nguon: kh.nguon_id ? layNguon(c.db, kh.nguon_id) : null,
+        cau_hoi: cauHoiLamRo(c.db, kh),
+        de_xuat: JSON.parse(kh.de_xuat_dau_ra),
+        ds_chon: JSON.parse(kh.ds_chon),
+        ho_so_doi_tuong: danhSachDoiTuong(c.db),
+      });
+    }),
+    route("PUT", "/api/ke-hoach/:id", async (req, p, c) => {
+      const body = await docBody(req);
+      const dsLoi: string[] = [];
+      if (body.van_ban !== undefined && typeof body.van_ban !== "string") {
+        dsLoi.push("van_ban phải là chuỗi.");
+      }
+      if (body.tieu_de !== undefined && typeof body.tieu_de !== "string") {
+        dsLoi.push("tieu_de phải là chuỗi.");
+      }
+      nemLoiValidation(dsLoi);
+      const kh = capNhatKeHoach(
+        c.db,
+        p.id!,
+        {
+          van_ban: body.van_ban as string | undefined,
+          tieu_de: body.tieu_de as string | undefined,
+          cta: body.cta as string | undefined,
+        },
+        c.actor,
+      );
+      return ok({ ke_hoach: kh, cau_hoi: cauHoiLamRo(c.db, kh) });
+    }),
+    route("POST", "/api/ke-hoach/:id/chon", async (req, p, c) => {
+      const body = await docBody(req);
+      const dsLoi: string[] = [];
+      const dsChon = body.ds_chon;
+      if (
+        !Array.isArray(dsChon) ||
+        dsChon.length === 0 ||
+        dsChon.some((x) => typeof x !== "object" || x === null || Array.isArray(x))
+      ) {
+        dsLoi.push("ds_chon phải là mảng object lựa chọn không rỗng.");
+      } else {
+        for (const [i, x] of dsChon.entries()) {
+          if (typeof x.dinh_dang !== "string" || !x.dinh_dang) {
+            dsLoi.push(`ds_chon[${i}].dinh_dang bắt buộc.`);
+          }
+          if (x.doi_tuong_id !== undefined && x.doi_tuong_id !== null && typeof x.doi_tuong_id !== "string") {
+            dsLoi.push(`ds_chon[${i}].doi_tuong_id phải là chuỗi hoặc null.`);
+          }
+          if (x.ngon_ngu !== undefined && typeof x.ngon_ngu !== "string") {
+            dsLoi.push(`ds_chon[${i}].ngon_ngu phải là chuỗi.`);
+          }
+        }
+      }
+      nemLoiValidation(dsLoi);
+      const kq = chonDauRa(c.db, p.id!, dsChon as DauRaDeXuat[], c.actor);
+      return ok(kq);
+    }),
 
     // --- Hồ sơ thương hiệu ---
     route("GET", "/api/ho-so-thuong-hieu", (_req, _p, c) => ok(danhSachThuongHieu(c.db))),
