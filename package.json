@@ -1,0 +1,29 @@
+{
+  "name": "mai",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MAI — nền tảng nội dung độc lập, deploy một gói (POC)",
+  "scripts": {
+    "dev": "bun scripts/dev.ts",
+    "build": "bun build ./src/client/index.html --outdir ./dist/client --minify",
+    "start": "bun src/server/index.ts",
+    "reset": "bun scripts/reset.ts",
+    "seed": "bun src/server/seed.ts",
+    "backup": "bun scripts/backup.ts",
+    "restore": "bun scripts/restore.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@radix-ui/themes": "^3.2.1",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.12",
+    "@types/react-dom": "^19.1.9",
+    "bun-types": "^1.2.21",
+    "typescript": "^5.9.2"
+  }
+}
