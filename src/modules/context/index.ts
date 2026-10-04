@@ -259,30 +259,38 @@ export function taoThuongHieu(
   const id = tuyChon.id ?? crypto.randomUUID();
   const nguonDuLieu = tuyChon.nguonDuLieu ?? "nguoi_dung";
   const ts = bayGio();
-  db.query(
-    `INSERT INTO ho_so_thuong_hieu
-       (id, ten, nhan_dien, ngon_ngu_uu_tien, vi_du_giong_van, nguyen_tac, claim_duyet, claim_cam, assets, la_fixture, nguon_du_lieu, tao_luc, tao_boi, cap_nhat_luc, cap_nhat_boi)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    id,
-    input.ten,
-    input.nhan_dien ?? "",
-    JSON.stringify(input.ngon_ngu_uu_tien ?? []),
-    input.vi_du_giong_van ?? "",
-    input.nguyen_tac ?? "",
-    JSON.stringify(input.claim_duyet ?? []),
-    JSON.stringify(input.claim_cam ?? []),
-    JSON.stringify(input.assets ?? []),
-    tuyChon.laFixture ? 1 : 0,
-    nguonDuLieu,
-    ts,
-    tacGia,
-    ts,
-    tacGia,
-  );
-  const hoSo = layThuongHieu(db, id)!;
-  ghiRevisionHoSo(db, "thuong_hieu", id, snapshotThuongHieu(db, hoSo), nguonDuLieu, tacGia);
-  return hoSo;
+  // Ghi entity + revision nguyên tử: revision luôn khớp state hồ sơ.
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.query(
+      `INSERT INTO ho_so_thuong_hieu
+         (id, ten, nhan_dien, ngon_ngu_uu_tien, vi_du_giong_van, nguyen_tac, claim_duyet, claim_cam, assets, la_fixture, nguon_du_lieu, tao_luc, tao_boi, cap_nhat_luc, cap_nhat_boi)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      id,
+      input.ten,
+      input.nhan_dien ?? "",
+      JSON.stringify(input.ngon_ngu_uu_tien ?? []),
+      input.vi_du_giong_van ?? "",
+      input.nguyen_tac ?? "",
+      JSON.stringify(input.claim_duyet ?? []),
+      JSON.stringify(input.claim_cam ?? []),
+      JSON.stringify(input.assets ?? []),
+      tuyChon.laFixture ? 1 : 0,
+      nguonDuLieu,
+      ts,
+      tacGia,
+      ts,
+      tacGia,
+    );
+    const hoSo = layThuongHieu(db, id)!;
+    ghiRevisionHoSo(db, "thuong_hieu", id, snapshotThuongHieu(db, hoSo), nguonDuLieu, tacGia);
+    db.exec("COMMIT");
+    return hoSo;
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  }
 }
 
 export function capNhatThuongHieu(
@@ -294,28 +302,35 @@ export function capNhatThuongHieu(
 ): HoSoThuongHieu {
   const cu = layThuongHieu(db, id);
   if (!cu) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy hồ sơ thương hiệu.");
-  db.query(
-    `UPDATE ho_so_thuong_hieu SET
-       ten = ?, nhan_dien = ?, ngon_ngu_uu_tien = ?, vi_du_giong_van = ?, nguyen_tac = ?,
-       claim_duyet = ?, claim_cam = ?, assets = ?, nguon_du_lieu = ?, cap_nhat_luc = ?, cap_nhat_boi = ?
-     WHERE id = ?`,
-  ).run(
-    input.ten,
-    input.nhan_dien ?? "",
-    JSON.stringify(input.ngon_ngu_uu_tien ?? []),
-    input.vi_du_giong_van ?? "",
-    input.nguyen_tac ?? "",
-    JSON.stringify(input.claim_duyet ?? []),
-    JSON.stringify(input.claim_cam ?? []),
-    JSON.stringify(input.assets ?? []),
-    nguonDuLieu,
-    bayGio(),
-    tacGia,
-    id,
-  );
-  const hoSo = layThuongHieu(db, id)!;
-  ghiRevisionHoSo(db, "thuong_hieu", id, snapshotThuongHieu(db, hoSo), nguonDuLieu, tacGia);
-  return hoSo;
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.query(
+      `UPDATE ho_so_thuong_hieu SET
+         ten = ?, nhan_dien = ?, ngon_ngu_uu_tien = ?, vi_du_giong_van = ?, nguyen_tac = ?,
+         claim_duyet = ?, claim_cam = ?, assets = ?, nguon_du_lieu = ?, cap_nhat_luc = ?, cap_nhat_boi = ?
+       WHERE id = ?`,
+    ).run(
+      input.ten,
+      input.nhan_dien ?? "",
+      JSON.stringify(input.ngon_ngu_uu_tien ?? []),
+      input.vi_du_giong_van ?? "",
+      input.nguyen_tac ?? "",
+      JSON.stringify(input.claim_duyet ?? []),
+      JSON.stringify(input.claim_cam ?? []),
+      JSON.stringify(input.assets ?? []),
+      nguonDuLieu,
+      bayGio(),
+      tacGia,
+      id,
+    );
+    const hoSo = layThuongHieu(db, id)!;
+    ghiRevisionHoSo(db, "thuong_hieu", id, snapshotThuongHieu(db, hoSo), nguonDuLieu, tacGia);
+    db.exec("COMMIT");
+    return hoSo;
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  }
 }
 
 // Xóa hồ sơ: thuật ngữ xóa theo cascade; revision hồ sơ xóa cùng.
@@ -354,6 +369,7 @@ export function thayThuatNgu(
   const hoSo = layThuongHieu(db, thuongHieuId);
   if (!hoSo) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy hồ sơ thương hiệu.");
   const ts = bayGio();
+  // Thay bảng + cập nhật hồ sơ + ghi revision nguyên tử trong một transaction.
   db.exec("BEGIN IMMEDIATE");
   try {
     db.query("DELETE FROM thuat_ngu WHERE thuong_hieu_id = ?").run(thuongHieuId);
@@ -373,15 +389,15 @@ export function thayThuatNgu(
     db.query(
       "UPDATE ho_so_thuong_hieu SET nguon_du_lieu = ?, cap_nhat_luc = ?, cap_nhat_boi = ? WHERE id = ?",
     ).run(nguonDuLieu, ts, tacGia, thuongHieuId);
+    const dsMoi = danhSachThuatNgu(db, thuongHieuId);
+    const hoSoMoi = layThuongHieu(db, thuongHieuId)!;
+    ghiRevisionHoSo(db, "thuong_hieu", thuongHieuId, { ...hoSoMoi, thuat_ngu: dsMoi }, nguonDuLieu, tacGia);
     db.exec("COMMIT");
+    return dsMoi;
   } catch (e) {
     db.exec("ROLLBACK");
     throw e;
   }
-  const dsMoi = danhSachThuatNgu(db, thuongHieuId);
-  const hoSoMoi = layThuongHieu(db, thuongHieuId)!;
-  ghiRevisionHoSo(db, "thuong_hieu", thuongHieuId, { ...hoSoMoi, thuat_ngu: dsMoi }, nguonDuLieu, tacGia);
-  return dsMoi;
 }
 
 // --- Hồ sơ đối tượng ---
@@ -406,32 +422,39 @@ export function taoDoiTuong(
   const id = tuyChon.id ?? crypto.randomUUID();
   const nguonDuLieu = tuyChon.nguonDuLieu ?? "nguoi_dung";
   const ts = bayGio();
-  db.query(
-    `INSERT INTO ho_so_doi_tuong
-       (id, ten, ngon_ngu, dia_diem, kien_thuc_nen, moi_quan_tam, do_sau, tu_vung, quan_he_to_chuc, nhu_cau_giao_tiep, nhan_khau_hoc, la_fixture, nguon_du_lieu, tao_luc, tao_boi, cap_nhat_luc, cap_nhat_boi)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    id,
-    input.ten,
-    input.ngon_ngu ?? "",
-    input.dia_diem ?? "",
-    input.kien_thuc_nen ?? "",
-    input.moi_quan_tam ?? "",
-    input.do_sau ?? "",
-    input.tu_vung ?? "",
-    input.quan_he_to_chuc ?? "",
-    input.nhu_cau_giao_tiep ?? "",
-    input.nhan_khau_hoc ?? "",
-    tuyChon.laFixture ? 1 : 0,
-    nguonDuLieu,
-    ts,
-    tacGia,
-    ts,
-    tacGia,
-  );
-  const hoSo = layDoiTuong(db, id)!;
-  ghiRevisionHoSo(db, "doi_tuong", id, hoSo, nguonDuLieu, tacGia);
-  return hoSo;
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.query(
+      `INSERT INTO ho_so_doi_tuong
+         (id, ten, ngon_ngu, dia_diem, kien_thuc_nen, moi_quan_tam, do_sau, tu_vung, quan_he_to_chuc, nhu_cau_giao_tiep, nhan_khau_hoc, la_fixture, nguon_du_lieu, tao_luc, tao_boi, cap_nhat_luc, cap_nhat_boi)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      id,
+      input.ten,
+      input.ngon_ngu ?? "",
+      input.dia_diem ?? "",
+      input.kien_thuc_nen ?? "",
+      input.moi_quan_tam ?? "",
+      input.do_sau ?? "",
+      input.tu_vung ?? "",
+      input.quan_he_to_chuc ?? "",
+      input.nhu_cau_giao_tiep ?? "",
+      input.nhan_khau_hoc ?? "",
+      tuyChon.laFixture ? 1 : 0,
+      nguonDuLieu,
+      ts,
+      tacGia,
+      ts,
+      tacGia,
+    );
+    const hoSo = layDoiTuong(db, id)!;
+    ghiRevisionHoSo(db, "doi_tuong", id, hoSo, nguonDuLieu, tacGia);
+    db.exec("COMMIT");
+    return hoSo;
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  }
 }
 
 export function capNhatDoiTuong(
@@ -442,31 +465,38 @@ export function capNhatDoiTuong(
   nguonDuLieu: NguonDuLieu = "nguoi_dung",
 ): HoSoDoiTuong {
   if (!layDoiTuong(db, id)) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy hồ sơ đối tượng.");
-  db.query(
-    `UPDATE ho_so_doi_tuong SET
-       ten = ?, ngon_ngu = ?, dia_diem = ?, kien_thuc_nen = ?, moi_quan_tam = ?, do_sau = ?,
-       tu_vung = ?, quan_he_to_chuc = ?, nhu_cau_giao_tiep = ?, nhan_khau_hoc = ?,
-       nguon_du_lieu = ?, cap_nhat_luc = ?, cap_nhat_boi = ?
-     WHERE id = ?`,
-  ).run(
-    input.ten,
-    input.ngon_ngu ?? "",
-    input.dia_diem ?? "",
-    input.kien_thuc_nen ?? "",
-    input.moi_quan_tam ?? "",
-    input.do_sau ?? "",
-    input.tu_vung ?? "",
-    input.quan_he_to_chuc ?? "",
-    input.nhu_cau_giao_tiep ?? "",
-    input.nhan_khau_hoc ?? "",
-    nguonDuLieu,
-    bayGio(),
-    tacGia,
-    id,
-  );
-  const hoSo = layDoiTuong(db, id)!;
-  ghiRevisionHoSo(db, "doi_tuong", id, hoSo, nguonDuLieu, tacGia);
-  return hoSo;
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.query(
+      `UPDATE ho_so_doi_tuong SET
+         ten = ?, ngon_ngu = ?, dia_diem = ?, kien_thuc_nen = ?, moi_quan_tam = ?, do_sau = ?,
+         tu_vung = ?, quan_he_to_chuc = ?, nhu_cau_giao_tiep = ?, nhan_khau_hoc = ?,
+         nguon_du_lieu = ?, cap_nhat_luc = ?, cap_nhat_boi = ?
+       WHERE id = ?`,
+    ).run(
+      input.ten,
+      input.ngon_ngu ?? "",
+      input.dia_diem ?? "",
+      input.kien_thuc_nen ?? "",
+      input.moi_quan_tam ?? "",
+      input.do_sau ?? "",
+      input.tu_vung ?? "",
+      input.quan_he_to_chuc ?? "",
+      input.nhu_cau_giao_tiep ?? "",
+      input.nhan_khau_hoc ?? "",
+      nguonDuLieu,
+      bayGio(),
+      tacGia,
+      id,
+    );
+    const hoSo = layDoiTuong(db, id)!;
+    ghiRevisionHoSo(db, "doi_tuong", id, hoSo, nguonDuLieu, tacGia);
+    db.exec("COMMIT");
+    return hoSo;
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  }
 }
 
 export function xoaDoiTuong(db: Database, id: string): void {
@@ -484,7 +514,8 @@ export function xoaDoiTuong(db: Database, id: string): void {
 
 // --- Context sinh ---
 
-const TRUONG_GHI_DE_THUONG_HIEU = new Set([
+// Trường hồ sơ được ghi đè theo campaign — API dùng để validate ghi_de.
+export const TRUONG_GHI_DE_THUONG_HIEU = new Set([
   "ten",
   "nhan_dien",
   "ngon_ngu_uu_tien",
@@ -495,7 +526,7 @@ const TRUONG_GHI_DE_THUONG_HIEU = new Set([
   "assets",
 ]);
 
-const TRUONG_GHI_DE_DOI_TUONG = new Set([
+export const TRUONG_GHI_DE_DOI_TUONG = new Set([
   "ten",
   "ngon_ngu",
   "dia_diem",
@@ -600,9 +631,14 @@ export function lapContextSinh(db: Database, input: NhapContextSinh): ContextSin
   return { thuong_hieu: thuongHieu, doi_tuong: doiTuong, ghi_de: ghiDe };
 }
 
-// Lưu một context sinh đã lắp vào DB (gọi khi thật sự sinh nội dung).
-export function luuContextSinh(db: Database, input: NhapContextSinh): ContextSinh {
-  const snapshot = lapContextSinh(db, input);
+// Lưu một snapshot đã lắp vào DB. Lấy id + revision từ chính snapshot nên
+// bản ghi luôn khớp đúng context mà provider đã dùng — dù hồ sơ đổi giữa
+// lúc lắp và lúc lưu. Không mở transaction — caller bọc khi cần nguyên tử
+// với ghi khác (vd revision bản thể hiện trong job).
+export function luuContextSinhTuSnapshot(
+  db: Database,
+  snapshot: ContextSinhSnapshot,
+): ContextSinh {
   const id = crypto.randomUUID();
   db.query(
     `INSERT INTO context_sinh
@@ -610,15 +646,20 @@ export function luuContextSinh(db: Database, input: NhapContextSinh): ContextSin
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
-    input.thuong_hieu_id ?? null,
+    snapshot.thuong_hieu?.ho_so_id ?? null,
     snapshot.thuong_hieu?.revision_id ?? null,
-    input.doi_tuong_id ?? null,
+    snapshot.doi_tuong?.ho_so_id ?? null,
     snapshot.doi_tuong?.revision_id ?? null,
     JSON.stringify(snapshot.ghi_de),
     JSON.stringify(snapshot),
     bayGio(),
   );
   return db.query("SELECT * FROM context_sinh WHERE id = ?").get(id) as ContextSinh;
+}
+
+// Lưu một context sinh đã lắp vào DB (gọi khi thật sự sinh nội dung).
+export function luuContextSinh(db: Database, input: NhapContextSinh): ContextSinh {
+  return luuContextSinhTuSnapshot(db, lapContextSinh(db, input));
 }
 
 export function layContextSinh(db: Database, id: string): ContextSinh | null {

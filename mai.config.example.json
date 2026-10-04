@@ -3,5 +3,9 @@
   "dataDir": "./data",
   "ai": {
     "provider": "fixture"
+  },
+  "jobs": {
+    "concurrency": 2,
+    "chuKyMs": 500
   }
 }

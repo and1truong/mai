@@ -25,6 +25,7 @@ test("migration chạy được và idempotent", () => {
     "ban_the_hien",
     "revision",
     "job",
+    "job_log",
     "schema_migrations",
   ]) {
     expect(bang).toContain(t);
