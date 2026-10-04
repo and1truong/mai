@@ -1,7 +1,13 @@
 import type { CauHinhAi } from "../../config.ts";
 import { LoiApi } from "../../loi.ts";
 import type { ContextSinhSnapshot } from "../context/index.ts";
-import type { CtaLienKet, FactPhatHanh, GioiHanPhatHanh } from "../content/index.ts";
+import type {
+  CtaLienKet,
+  FactPhatHanh,
+  GioiHanPhatHanh,
+  TacDongGayQuy,
+  TrichDanGayQuy,
+} from "../content/index.ts";
 import type { DinhNghiaDinhDang } from "../formats/index.ts";
 import { fixture } from "./fixture.ts";
 import { taoAdapterOpenAI } from "./live.ts";
@@ -21,6 +27,8 @@ import type { TaskDinhNghia } from "./task.ts";
 //   context — kiểm chứng tại modules/generation/hop_le.ts.
 
 // Một nguồn đã chọn đưa vào context: trích dẫn đầu ra resolve về revision_id.
+// ds_muc = id các mục trong revision đã ghim — con trỏ bằng chứng muc_id
+// của campaign chỉ còn hiệu lực khi mục đó còn tồn tại trong bản này.
 export type NguonContext = {
   revision_id: string;
   nguon_id: string;
@@ -28,6 +36,7 @@ export type NguonContext = {
   tieu_de: string;
   noi_dung: string; // đã cắt gọn theo giới hạn nếu cần
   da_cat_gon: boolean;
+  ds_muc: string[];
 };
 
 // Fact release đưa vào context (#9): xac_nhan=false khi fact không trỏ
@@ -51,6 +60,36 @@ export type PhatHanhContext = {
   ds_fact: FactPhatHanhContext[];
 };
 
+// Tác động/trích dẫn gây quỹ đưa vào context (#10): xac_nhan=false khi
+// mục không trỏ nguồn đã nạp hoặc nguồn đó không vào chuỗi provenance
+// của lần sinh — provider phải để [CÂU HỎI], không trình bày như sự
+// thật. trang_thai 'da_dat' | 'uoc_tinh' đi kèm để đầu ra không trộn
+// tác động đã đo với ước tính.
+export type TacDongContext = TacDongGayQuy & {
+  xac_nhan: boolean;
+  nguon_tieu_de?: string;
+};
+export type TrichDanContext = TrichDanGayQuy & {
+  xac_nhan: boolean;
+  nguon_tieu_de?: string;
+};
+
+// Context chiến dịch gây quỹ (#10) — chỉ có khi thông điệp thuộc
+// campaign loai 'gay_quy': mục tiêu + số tiền kèm tiền tệ, thông điệp
+// lõi, tác động/trích dẫn kèm cờ xác nhận, CTA quyên góp và ngôn ngữ
+// thứ hai.
+export type GayQuyContext = {
+  ten: string;
+  muc_tieu: string;
+  so_tien_muc_tieu: number | null;
+  tien_te: string;
+  thong_diep_loi: string;
+  ngon_ngu_phu: string;
+  cta: CtaLienKet[];
+  ds_tac_dong: TacDongContext[];
+  ds_trich_dan: TrichDanContext[];
+};
+
 // Context một lần sinh — provider nhận nguyên object này, không tự truy DB.
 export type ContextTask = {
   task: TaskDinhNghia;
@@ -66,6 +105,9 @@ export type ContextTask = {
   // Bản phát hành (#9) — có khi campaign loai 'phat_hanh': provider lấy
   // định vị/fact/giới hạn/CTA từ đây thay vì suy diễn từ văn bản.
   phat_hanh?: PhatHanhContext;
+  // Chiến dịch gây quỹ (#10) — có khi campaign loai 'gay_quy': provider
+  // lấy mục tiêu/tác động/trích dẫn/CTA quyên góp từ đây.
+  gay_quy?: GayQuyContext;
   // Chứng cứ còn thiếu trong input (số liệu/mốc thời gian/văn bản tham
   // chiếu) — provider phải để câu hỏi/khoảng trống tường minh thay vì bịa.
   thieu_chung_cu: string[];

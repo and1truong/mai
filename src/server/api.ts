@@ -136,6 +136,25 @@ import {
   kiemTraGioiHan,
   laPhatHanh,
 } from "../modules/phat_hanh/index.ts";
+import {
+  damBaoThongDiepGayQuy,
+  deXuatDauRaGayQuy,
+  docGhiChuQuyenView,
+  docMucTieu,
+  docNgonNguPhu,
+  docSoTienMucTieu,
+  docTacDongView,
+  docThongDiepLoi,
+  docTienTe,
+  docTrichDanView,
+  dongBoNguonGayQuy,
+  ghiChuQuyenChoAssets,
+  goiYGayQuy,
+  kiemTraDsTacDong,
+  kiemTraDsTrichDan,
+  kiemTraGhiChuQuyen,
+  laGayQuy,
+} from "../modules/gay_quy/index.ts";
 import { LOAI_JOB_HO_TRO } from "../modules/jobs/handlers.ts";
 import {
   DANH_SACH_LOAI_THAY_DOI,
@@ -352,9 +371,22 @@ function docLoaiCampaign(v: unknown, dsLoi: string[]): string | undefined {
   return s;
 }
 
-// Suy loại campaign khi POST không gửi loai: có field release →
-// 'phat_hanh'; có field số báo → 'so_bao'; còn lại campaign thường.
+// Suy loại campaign khi POST không gửi loai: có field gây quỹ →
+// 'gay_quy' (kiểm trước vì 'cta' dùng chung với phát hành); có field
+// release → 'phat_hanh'; có field số báo → 'so_bao'; còn lại campaign
+// thường.
 function inferLoaiCampaign(body: Record<string, unknown>): string {
+  if (
+    body.muc_tieu !== undefined ||
+    body.so_tien_muc_tieu !== undefined ||
+    body.thong_diep_loi !== undefined ||
+    body.ngon_ngu_phu !== undefined ||
+    body.ds_tac_dong !== undefined ||
+    body.ds_trich_dan !== undefined ||
+    body.ghi_chu_quyen !== undefined
+  ) {
+    return "gay_quy";
+  }
   if (
     body.phien_ban !== undefined ||
     body.dinh_vi !== undefined ||
@@ -827,6 +859,20 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       if (phienBan.length > 100) dsLoi.push("phien_ban vượt 100 ký tự.");
       const dinhVi = tuyChonChuoi(body.dinh_vi);
       if (dinhVi.length > 2000) dsLoi.push("dinh_vi vượt 2000 ký tự.");
+      // Field gây quỹ (#10): validate đầy đủ trước mọi mutation; con trỏ
+      // bằng chứng (nguon_id/muc_id/asset_id) phải đúng — mục tác động
+      // hay trích dẫn trỏ nguồn không có là bịa ngầm, chặn ngay.
+      const mucTieu = docMucTieu(body.muc_tieu, dsLoi) ?? "";
+      const soTienMucTieu = docSoTienMucTieu(body.so_tien_muc_tieu, dsLoi) ?? null;
+      const tienTe = docTienTe(body.tien_te, dsLoi) ?? "";
+      const thongDiepLoi = docThongDiepLoi(body.thong_diep_loi, dsLoi) ?? "";
+      const ngonNguPhu = docNgonNguPhu(body.ngon_ngu_phu, dsLoi) ?? "";
+      const dsTacDong = kiemTraDsTacDong(c.db, body.ds_tac_dong, dsLoi) ?? [];
+      const dsTrichDan = kiemTraDsTrichDan(c.db, body.ds_trich_dan, dsLoi) ?? [];
+      const ghiChuQuyen = kiemTraGhiChuQuyen(c.db, body.ghi_chu_quyen, dsLoi) ?? [];
+      if (loai === "gay_quy" && soTienMucTieu !== null && !tienTe) {
+        dsLoi.push("so_tien_muc_tieu có giá trị thì tien_te bắt buộc.");
+      }
       nemLoiValidation(dsLoi);
       const cp = taoCampaign(
         c.db,
@@ -849,6 +895,14 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
           gioi_han: gioiHan,
           cta: cta,
           ds_fact: dsFact,
+          muc_tieu: mucTieu,
+          so_tien_muc_tieu: soTienMucTieu,
+          tien_te: tienTe,
+          thong_diep_loi: thongDiepLoi,
+          ngon_ngu_phu: ngonNguPhu,
+          ds_tac_dong: dsTacDong,
+          ds_trich_dan: dsTrichDan,
+          ghi_chu_quyen: ghiChuQuyen,
         },
         c.actor,
       );
@@ -858,26 +912,42 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
         dongBoNguonPhatHanh(c.db, cp, c.actor);
         damBaoThongDiepPhatHanh(c.db, cp, c.actor);
       }
+      // Gây quỹ (#10): tương tự — nguồn fact 'gq-*' + thông điệp chủ đề
+      // link nguồn gây quỹ và mọi nguồn tư liệu đã tham chiếu.
+      if (laGayQuy(cp)) {
+        dongBoNguonGayQuy(c.db, cp, c.actor);
+        damBaoThongDiepGayQuy(c.db, cp, c.actor);
+      }
       return ok(layCampaign(c.db, cp.id)!, 201);
     }),
     route("GET", "/api/phat-hanh", (_req, _p, c) =>
       ok(danhSachCampaign(c.db).filter(laPhatHanh)),
+    ),
+    route("GET", "/api/gay-quy", (_req, _p, c) =>
+      ok(danhSachCampaign(c.db).filter(laGayQuy)),
     ),
     route("GET", "/api/campaign/:id", (_req, p, c) => {
       const cp = layCampaign(c.db, p.id!);
       if (!cp) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy campaign.");
       const td = thongDiepChuDe(c.db, cp);
       const ph = laPhatHanh(cp);
+      const gq = laGayQuy(cp);
       // View phái sinh theo loại campaign: bản phát hành có đề xuất đầu ra
-      // theo đối tượng + fact/giới hạn/CTA; số báo giữ view của #8.
+      // theo đối tượng + fact/giới hạn/CTA; chiến dịch gây quỹ có tác
+      // động/trích dẫn/ghi chú quyền; số báo giữ view của #8.
       const nguonPh = cp.nguon_phat_hanh_id ? layNguon(c.db, cp.nguon_phat_hanh_id) : null;
+      const nguonGq = cp.nguon_gay_quy_id ? layNguon(c.db, cp.nguon_gay_quy_id) : null;
       return ok({
         ...cp,
         thong_diep: danhSachThongDiep(c.db, cp.id),
         thong_diep_chu_de: td ? { id: td.id, tieu_de: td.tieu_de } : null,
         tham_chieu_view: docThamChieuView(c.db, cp),
-        de_xuat_muc_luc: ph ? deXuatDauRaPhatHanh(c.db, cp) : deXuatMucLuc(c.db, cp),
-        goi_y: ph ? goiYPhatHanh(c.db, cp) : goiYKhoangTrong(c.db, cp),
+        de_xuat_muc_luc: ph
+          ? deXuatDauRaPhatHanh(c.db, cp)
+          : gq
+            ? deXuatDauRaGayQuy(c.db, cp)
+            : deXuatMucLuc(c.db, cp),
+        goi_y: ph ? goiYPhatHanh(c.db, cp) : gq ? goiYGayQuy(c.db, cp) : goiYKhoangTrong(c.db, cp),
         tien_do: tienDoSoBao(c.db, cp),
         hang_cho: danhSachBanTheHien(c.db, { campaignId: cp.id, trangThai: "cho_duyet" }),
         phat_hanh: ph
@@ -890,6 +960,20 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
                   }
                 : null,
               ds_fact_view: docFactView(c.db, cp),
+            }
+          : null,
+        gay_quy: gq
+          ? {
+              nguon_gay_quy: nguonGq
+                ? {
+                    id: nguonGq.id,
+                    tieu_de: nguonGq.tieu_de,
+                    head_revision_id: nguonGq.head_revision_id,
+                  }
+                : null,
+              ds_tac_dong_view: docTacDongView(c.db, cp),
+              ds_trich_dan_view: docTrichDanView(c.db, cp),
+              ghi_chu_quyen_view: docGhiChuQuyenView(c.db, cp),
             }
           : null,
       });
@@ -926,6 +1010,28 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       if (dinhVi !== undefined && dinhVi.length > 2000) {
         dsLoi.push("dinh_vi vượt 2000 ký tự.");
       }
+      // Field gây quỹ (#10): absent → giữ giá trị đã lưu; có mặt → validate.
+      const mucTieu = docMucTieu(body.muc_tieu, dsLoi);
+      const soTienMucTieu = docSoTienMucTieu(body.so_tien_muc_tieu, dsLoi);
+      const tienTe = docTienTe(body.tien_te, dsLoi);
+      const thongDiepLoi = docThongDiepLoi(body.thong_diep_loi, dsLoi);
+      const ngonNguPhu = docNgonNguPhu(body.ngon_ngu_phu, dsLoi);
+      const dsTacDong = kiemTraDsTacDong(c.db, body.ds_tac_dong, dsLoi);
+      const dsTrichDan = kiemTraDsTrichDan(c.db, body.ds_trich_dan, dsLoi);
+      const ghiChuQuyen = kiemTraGhiChuQuyen(c.db, body.ghi_chu_quyen, dsLoi);
+      // Số tiền có mà thiếu tiền tệ: chỉ lỗi khi cặp kết quả vẫn thiếu
+      // tien_te (PUT gửi so_tien mà không gửi tien_te → giữ tien_te cũ).
+      const tienTeKetQua = tienTe !== undefined ? tienTe : cu.tien_te;
+      const soTienKetQua =
+        soTienMucTieu !== undefined ? soTienMucTieu : cu.so_tien_muc_tieu;
+      const loaiKetQua = loaiMoi !== undefined ? loaiMoi : cu.loai;
+      if (
+        (loaiKetQua === "gay_quy" || laGayQuy(cu)) &&
+        soTienKetQua !== null &&
+        !tienTeKetQua
+      ) {
+        dsLoi.push("so_tien_muc_tieu có giá trị thì tien_te bắt buộc.");
+      }
       nemLoiValidation(dsLoi);
       const cp = capNhatCampaign(
         c.db,
@@ -950,6 +1056,14 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
           gioi_han: gioiHan,
           cta: cta,
           ds_fact: dsFact,
+          muc_tieu: mucTieu,
+          so_tien_muc_tieu: soTienMucTieu,
+          tien_te: tienTe,
+          thong_diep_loi: thongDiepLoi,
+          ngon_ngu_phu: ngonNguPhu,
+          ds_tac_dong: dsTacDong,
+          ds_trich_dan: dsTrichDan,
+          ghi_chu_quyen: ghiChuQuyen,
         },
         c.actor,
       );
@@ -963,6 +1077,15 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
           phatHien = phatHienThayDoiNguon(c.db, sync.nguon.id, c.actor);
         }
         damBaoThongDiepPhatHanh(c.db, cp, c.actor);
+      }
+      // Gây quỹ (#10): cùng cơ chế — field đổi → revision nguồn fact mới
+      // → đầu ra phụ thuộc được đánh dấu la_cu và mở task sửa.
+      if (laGayQuy(cp)) {
+        const sync = dongBoNguonGayQuy(c.db, cp, c.actor);
+        if (sync.da_doi) {
+          phatHien = phatHienThayDoiNguon(c.db, sync.nguon.id, c.actor);
+        }
+        damBaoThongDiepGayQuy(c.db, cp, c.actor);
       }
       return ok({ ...layCampaign(c.db, cp.id)!, phat_hien: phatHien });
     }),
@@ -1428,12 +1551,22 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
         };
       });
       const thongDiep = layThongDiep(c.db, bth.thong_diep_id);
+      const dsAsset = danhSachAssetBanTheHien(c.db, bth.id);
+      // #10: asset đính kèm của đầu ra gây quỹ kèm ghi chú quyền/đồng ý
+      // đã khai báo trên campaign — người review thấy quyền sử dụng trước
+      // khi duyệt, không phải mở trang campaign.
+      const cp = thongDiep?.campaign_id ? layCampaign(c.db, thongDiep.campaign_id) : null;
+      const ghiChuQuyen =
+        cp && laGayQuy(cp)
+          ? ghiChuQuyenChoAssets(c.db, cp, dsAsset.map((a) => a.id))
+          : [];
       return ok({
         ...bth,
         thong_diep: thongDiep,
         revisions,
         ds_xuat_ban: danhSachXuatBan(c.db, bth.id),
-        assets: danhSachAssetBanTheHien(c.db, bth.id),
+        assets: dsAsset,
+        ghi_chu_quyen: ghiChuQuyen,
         // #14: task sửa còn mở của bản này — editor hiện banner cảnh báo.
         ds_task_mo: danhSachTaskSua(c.db, {
           banTheHienId: bth.id,

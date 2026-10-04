@@ -29,6 +29,11 @@ import {
   dongBoNguonPhatHanh,
 } from "../modules/phat_hanh/index.ts";
 import {
+  damBaoThongDiepGayQuy,
+  deXuatDauRaGayQuy,
+  dongBoNguonGayQuy,
+} from "../modules/gay_quy/index.ts";
+import {
   datAssetBanTheHien,
   duongDanTepAsset,
   kiemTraByteAsset,
@@ -1138,23 +1143,425 @@ export function seed(
     daSeed.push("story_phat_hanh_40");
   }
 
+  // --- Story #10: Giọt Nước Chung — chiến dịch gây quỹ theo mục tiêu ---
+  // Campaign loại 'gay_quy': mục tiêu + số tiền kèm tiền tệ, thông điệp
+  // lõi, tác động đã đạt/ước tính với con trỏ bằng chứng nguồn, trích
+  // dẫn được phép dùng, ghi chú quyền cho asset tổ chức cung cấp.
+  // Toàn bộ dữ liệu hiện trường là HƯ CẤU (ghi trong tiêu đề nguồn).
+  // Tác động/trích dẫn cố ý không nguồn → chưa xác nhận, chỉ được để
+  // dạng câu hỏi [CÂU HỎI], không trình bày như sự thật.
+  if (!db.query("SELECT id FROM campaign WHERE id = 'seed-cp-gay-quy-khe-tre'").get()) {
+    // 4 hồ sơ đối tượng cho đầu ra của story.
+    themDoiTuong(
+      db,
+      "seed-dt-nha-tai-tro-gq",
+      {
+        ten: "Nhà tài trợ hiện hữu (fixture)",
+        ngon_ngu: "vi",
+        dia_diem: "Người và tổ chức đã quyên góp cho các công trình trước.",
+        kien_thuc_nen: "Quan tâm tác động đo được; muốn biết tiền đi đâu.",
+        moi_quan_tam: "Báo cáo tác động rõ ràng, minh bạch số liệu và chi phí.",
+        do_sau: "vua_phai",
+        tu_vung: "Đơn giản, tôn trọng; tránh ngôn ngữ cảm xúc quá mức.",
+        quan_he_to_chuc: "Nhà tài trợ định kỳ của tổ chức.",
+        nhu_cau_giao_tiep: "Báo cáo có số liệu nguồn; tách rõ đã đạt và ước tính.",
+        nhan_khau_hoc: "",
+      },
+      tacGia,
+    );
+    themDoiTuong(
+      db,
+      "seed-dt-ntt-lon-gq",
+      {
+        ten: "Nhà tài trợ lớn (fixture)",
+        ngon_ngu: "vi",
+        dia_diem: "Nhà tài trợ cá nhân/quỹ có khả năng góp khoản lớn.",
+        kien_thuc_nen: "Đọc kỹ dự toán và quy trình giám sát trước khi quyết định.",
+        moi_quan_tam: "Chi tiết dự toán, tiến độ, cách tổ chức đảm bảo tiền đúng mục đích.",
+        do_sau: "chuyen_sau",
+        tu_vung: "Ngôn ngữ chuyên nghiệp; có thể kèm số liệu chi phí chi tiết.",
+        quan_he_to_chuc: "Nhà tài trợ chiến lược tiềm năng.",
+        nhu_cau_giao_tiep: "Email riêng, chi tiết hơn câu chuyện công khai nhưng cùng fact.",
+        nhan_khau_hoc: "",
+      },
+      tacGia,
+    );
+    themDoiTuong(
+      db,
+      "seed-dt-tinh-nguyen-gq",
+      {
+        ten: "Tình nguyện viên (fixture)",
+        ngon_ngu: "vi",
+        dia_diem: "Tình nguyện viên đi hiện trường và hỗ trợ truyền thông.",
+        kien_thuc_nen: "Biết dự án qua các chuyến đi; cần nội dung dùng lại được.",
+        moi_quan_tam: "Tiến độ làng tiếp theo, việc cần làm, câu chuyện để chia sẻ.",
+        do_sau: "so_luoc",
+        tu_vung: "Thân thiện, động viên; câu ngắn.",
+        quan_he_to_chuc: "Tình nguyện viên nội bộ của tổ chức.",
+        nhu_cau_giao_tiep: "Cập nhật ngắn: tiến độ, việc cần làm, link chia sẻ.",
+        nhan_khau_hoc: "",
+      },
+      tacGia,
+    );
+    themDoiTuong(
+      db,
+      "seed-dt-cong-chung-gq",
+      {
+        ten: "Công chúng quan tâm (fixture)",
+        ngon_ngu: "vi",
+        dia_diem: "Người quan tâm công trình cộng đồng qua website và mạng xã hội.",
+        kien_thuc_nen: "Chưa biết nhiều về tổ chức; đọc câu chuyện trước số liệu.",
+        moi_quan_tam: "Câu chuyện con người, minh bạch, cách đóng góp cụ thể.",
+        do_sau: "so_luoc",
+        tu_vung: "Tránh thuật ngữ; ảnh và trích dẫn dẫn chuyện.",
+        quan_he_to_chuc: "Người ủng hộ tiềm năng chưa từng quyên góp.",
+        nhu_cau_giao_tiep: "Câu chuyện ngắn có mặt người; CTA quyên góp rõ ràng.",
+        nhan_khau_hoc: "",
+      },
+      tacGia,
+    );
+
+    themThuongHieu(
+      db,
+      "seed-th-nuoc-sach",
+      {
+        ten: "Giọt Nước Chung (fixture)",
+        nhan_dien:
+          "Tổ chức phi lợi nhuận xây công trình nước sạch cho làng vùng cao. Viết minh bạch, có bằng chứng, không phóng đại.",
+        ngon_ngu_uu_tien: ["vi", "en"],
+        vi_du_giong_van:
+          "Ba ngôi làng đã có nước sạch. Đây là bằng chứng và đây là việc còn lại.",
+        nguyen_tac:
+          "Không bịa tên người, trích dẫn hay số đo. Tác động ước tính luôn ghi rõ là ước tính. Số tiền luôn kèm đơn vị tiền tệ.",
+        claim_duyet: [
+          "Tác động chỉ dùng số liệu từ tài liệu hiện trường đã nạp.",
+          "Trích dẫn chỉ dùng lời đã ghi trong tư liệu được cung cấp.",
+          "Mục tiêu gây quỹ nêu riêng, không viết như tác động đã đạt.",
+        ],
+        claim_cam: [
+          "Khẳng định tác động chưa có bằng chứng",
+          "Hứa kết quả gây quỹ cụ thể",
+        ],
+        assets: [],
+      },
+      tacGia,
+    );
+
+    // Tư liệu hiện trường Maria cung cấp: ghi chú + số liệu + trích dẫn
+    // đã kiểm chứng cho 3 làng hoàn thành và khảo sát làng tiếp theo.
+    const nguonHienTruong = taoNguon(
+      db,
+      {
+        tieu_de: "Ghi chú hiện trường — 3 làng nước sạch (dữ liệu hư cấu)",
+        noi_dung:
+          "Ghi chú và số liệu Maria thu thập tại 3 công trình đã hoàn thành. Dữ liệu demo, hư cấu.",
+        loai: "van_ban",
+        cac_muc: [
+          {
+            id: "ht-lang-rom",
+            loai: "fact",
+            tieu_de: "Làng Bản Rọm",
+            noi_dung:
+              "Giếng khoan Làng Bản Rọm hoàn thành 2026-03. 1.240 người ở 312 hộ dùng nước sạch hằng ngày. Bà Hòa, giảng viên hưu trí: 'Trước kia cả nhà tôi phải đi 2 tiếng mỗi ngày để lấy nước. Bây giờ cháu tôi có thời gian học bài buổi tối.'",
+            assets: [],
+          },
+          {
+            id: "ht-lang-suoi",
+            loai: "fact",
+            tieu_de: "Làng Suối Lớn",
+            noi_dung:
+              "Hệ thống lọc và bể chứa Làng Suối Lớn vận hành từ 2026-05. 860 người được cấp nước sạch.",
+            assets: [],
+          },
+          {
+            id: "ht-lang-dong",
+            loai: "fact",
+            tieu_de: "Làng Đồng Kẻ",
+            noi_dung:
+              "3 điểm lấy nước cộng đồng tại Làng Đồng Kẻ phục vụ 470 người.",
+            assets: [],
+          },
+          {
+            id: "ht-tnv",
+            loai: "fact",
+            tieu_de: "Ghi chú tình nguyện viên",
+            noi_dung:
+              "Anh Tuấn, trưởng nhóm tình nguyện viên: 'Tôi đã chứng kiến giếng đầu tiên có nước. Ngày đó cả làng đứng xem tới tận tối.'",
+            assets: [],
+          },
+        ],
+      },
+      tacGia,
+      { id: "seed-nguon-hien-truong-gq" },
+    );
+    const nguonKeHoach = taoNguon(
+      db,
+      {
+        tieu_de: "Kế hoạch Làng Khe Tre — khảo sát đầu vào (dữ liệu hư cấu)",
+        noi_dung:
+          "Khảo sát ban đầu và tổng kết năm của chương trình nước sạch. Dữ liệu demo, hư cấu.",
+        loai: "van_ban",
+        cac_muc: [
+          {
+            id: "kh-khao-sat",
+            loai: "fact",
+            tieu_de: "Khảo sát Làng Khe Tre",
+            noi_dung:
+              "Khảo sát 2026-08: Làng Khe Tre có khoảng 600 người chưa có nguồn nước sạch gần nhà. Dự toán công trình giếng khoan và bể lọc khoảng 1.200.000.000 VND.",
+            assets: [],
+          },
+          {
+            id: "kh-tong-hop",
+            loai: "fact",
+            tieu_de: "Tổng kết năm",
+            noi_dung:
+              "Tổng cộng 2.570 người ở 3 làng đã có nước sạch. Chi phí trung bình một công trình khoảng 380 triệu đồng.",
+            assets: [],
+          },
+        ],
+      },
+      tacGia,
+      { id: "seed-nguon-ke-hoach-gq" },
+    );
+
+    // Ảnh hiện trường do tổ chức cung cấp — ghi chú quyền đính kèm
+    // campaign và hiển thị khi review đầu ra dùng ảnh.
+    const assetAnh = tuyChon.dataDir
+      ? ghiAssetFixture(
+          db,
+          tuyChon.dataDir,
+          nguonHienTruong.id,
+          tacGia,
+          GQ_FILE_ANH,
+          "Ảnh hiện trường do tổ chức cung cấp (ảnh mô phỏng, dữ liệu hư cấu).",
+        )
+      : null;
+
+    const cpGq = taoCampaign(
+      db,
+      {
+        loai: "gay_quy",
+        ten: "Nước sạch cho Làng Khe Tre",
+        mo_ta:
+          "Chiến dịch gây quỹ cho công trình nước sạch Làng Khe Tre. Persona demo: Maria, nhân viên truyền thông (hư cấu).",
+        muc_tieu:
+          "Gây quỹ công trình nước sạch cho Làng Khe Tre — khoảng 600 người đang chờ nguồn nước sạch gần nhà.",
+        so_tien_muc_tieu: 1200000000,
+        tien_te: "VND",
+        thong_diep_loi:
+          "Ba ngôi làng đã có nước sạch. Làng Khe Tre là làng tiếp theo — chỉ còn thiếu nguồn lực.",
+        ngon_ngu_phu: "en",
+        thuong_hieu_id: "seed-th-nuoc-sach",
+        doi_tuong_id: "seed-dt-cong-chung-gq",
+        ds_tac_dong: [
+          {
+            id: "td-gieng-rom",
+            tieu_de: "Giếng khoan Làng Bản Rọm",
+            noi_dung:
+              "Công trình hoàn thành 2026-03; 1.240 người ở 312 hộ dùng nước sạch hằng ngày.",
+            trang_thai: "da_dat",
+            so_lieu: "1.240",
+            don_vi: "người",
+            nguon_id: nguonHienTruong.id,
+            muc_id: "ht-lang-rom",
+          },
+          {
+            id: "td-loc-suoi",
+            tieu_de: "Hệ thống lọc Làng Suối Lớn",
+            noi_dung: "860 người được cấp nước sạch từ 2026-05.",
+            trang_thai: "da_dat",
+            so_lieu: "860",
+            don_vi: "người",
+            nguon_id: nguonHienTruong.id,
+            muc_id: "ht-lang-suoi",
+          },
+          {
+            id: "td-diem-dong",
+            tieu_de: "Điểm lấy nước Làng Đồng Kẻ",
+            noi_dung: "3 điểm cộng đồng phục vụ 470 người.",
+            trang_thai: "da_dat",
+            so_lieu: "470",
+            don_vi: "người",
+            nguon_id: nguonHienTruong.id,
+            muc_id: "ht-lang-dong",
+          },
+          {
+            id: "td-nguoi-khe-tre",
+            tieu_de: "Người hưởng lợi Làng Khe Tre",
+            noi_dung:
+              "Ước tính 600 người sẽ có nước sạch khi công trình hoàn thành.",
+            trang_thai: "uoc_tinh",
+            so_lieu: "600",
+            don_vi: "người",
+            nguon_id: nguonKeHoach.id,
+            muc_id: "kh-khao-sat",
+          },
+          {
+            // Cố ý không trỏ nguồn: quan sát chưa đo được — đầu ra chỉ
+            // được để [CÂU HỎI], không viết như sự thật.
+            id: "td-hoc-sinh",
+            tieu_de: "Tỉ lệ học sinh đi học đều hơn sau khi có nước",
+            noi_dung: "Chưa đo được; ghi chú hiện trường mới chỉ là quan sát.",
+            trang_thai: "uoc_tinh",
+            so_lieu: "",
+            don_vi: "",
+            nguon_id: null,
+            muc_id: null,
+          },
+        ],
+        ds_trich_dan: [
+          {
+            id: "tq-ba-hoa",
+            ten_nguoi: "Bà Hòa (giảng viên hưu trí, Làng Bản Rọm)",
+            loi: "Trước kia cả nhà tôi phải đi 2 tiếng mỗi ngày để lấy nước. Bây giờ cháu tôi có thời gian học bài buổi tối.",
+            nguon_id: nguonHienTruong.id,
+            muc_id: "ht-lang-rom",
+          },
+          {
+            id: "tq-anh-tuan",
+            ten_nguoi: "Anh Tuấn (trưởng nhóm tình nguyện viên)",
+            loi: "Tôi đã chứng kiến giếng đầu tiên có nước. Ngày đó cả làng đứng xem tới tận tối.",
+            nguon_id: nguonHienTruong.id,
+            muc_id: "ht-tnv",
+          },
+          {
+            // Cố ý không trỏ nguồn: trích dẫn chưa đối chứng tư liệu —
+            // chỉ được để [CÂU HỎI].
+            id: "tq-khe-tre",
+            ten_nguoi: "Người dân Làng Khe Tre",
+            loi: "Chúng tôi mong có nước sạch gần nhà.",
+            nguon_id: null,
+            muc_id: null,
+          },
+        ],
+        cta: [
+          {
+            id: "cta-quyen-gop",
+            nhan: "Quyên góp cho Làng Khe Tre",
+            loai: "quyen_gop",
+            url: "https://quyengop.giotnuocchung.example.com/lang-khe-tre",
+          },
+          {
+            id: "cta-tac-dong",
+            nhan: "Xem báo cáo tác động",
+            loai: "tai_lieu",
+            url: "https://giotnuocchung.example.com/tac-dong",
+          },
+        ],
+        ghi_chu_quyen: assetAnh
+          ? [
+              {
+                id: "q-anh-hien-truong",
+                asset_id: assetAnh,
+                ghi_chu:
+                  "Tổ chức sở hữu ảnh. Người trong ảnh đã đồng ý bằng văn bản; phạm vi: truyền thông gây quỹ của Giọt Nước Chung.",
+              },
+            ]
+          : [],
+        tham_chieu: [
+          {
+            id: "tc-hien-truong",
+            tham_chieu: "Ghi chú hiện trường 3 làng",
+            ban_dich: "",
+            nguon_id: nguonHienTruong.id,
+            ghi_chu: "Ghi chú, số liệu và trích dẫn đã kiểm chứng.",
+          },
+          {
+            id: "tc-ke-hoach",
+            tham_chieu: "Kế hoạch Làng Khe Tre",
+            ban_dich: "",
+            nguon_id: nguonKeHoach.id,
+            ghi_chu: "Khảo sát đầu vào và tổng kết năm.",
+          },
+        ],
+      },
+      tacGia,
+      { id: "seed-cp-gay-quy-khe-tre" },
+    );
+    capNhatCampaign(
+      db,
+      cpGq.id,
+      { ten: cpGq.ten, muc_luc: deXuatDauRaGayQuy(db, cpGq) },
+      tacGia,
+    );
+    // Nguồn fact tự động + thông điệp chủ đề pin nguồn — đầu ra demo
+    // dưới đây pin đúng chuỗi provenance.
+    dongBoNguonGayQuy(db, cpGq, tacGia);
+    const tdGq = damBaoThongDiepGayQuy(db, layCampaign(db, cpGq.id)!, tacGia);
+    const tdRevGq = tdGq.head_revision_id;
+
+    // Đầu ra demo lưu bền: báo cáo tác động (đã duyệt + đã xuất → trang
+    // /p/<id> phục vụ), câu chuyện và email NTT lớn chờ duyệt, trang
+    // campaign + cập nhật TNV + bản en đã duyệt, caption Instagram còn
+    // nháp. Marker [TD:id]/[TQ:id] pin provenance; mục uoc_tinh đi kèm
+    // tiền tố 'Ước tính:'; mục chưa xác nhận chỉ để [CÂU HỎI].
+    const mucTheoDauRaGq = new Map(
+      layCampaign(db, cpGq.id)!.muc_luc.map((m) => [
+        `${m.dinh_dang}|${m.dich_den}|${m.ngon_ngu ?? "vi"}`,
+        m,
+      ]),
+    );
+    for (const o of NOI_DUNG_DAU_RA_GAY_QUY) {
+      const muc = mucTheoDauRaGq.get(`${o.dinh_dang}|${o.dich_den}|${o.ngon_ngu}`);
+      const doiTuongTen =
+        (muc?.doi_tuong_id ? layDoiTuong(db, muc.doi_tuong_id)?.ten : null) ?? o.doi_tuong;
+      taoBanTheHien(
+        db,
+        {
+          thong_diep_id: tdGq.id,
+          dinh_dang: o.dinh_dang,
+          ngon_ngu: o.ngon_ngu,
+          doi_tuong: doiTuongTen,
+          dich_den: o.dich_den,
+        },
+        tacGia,
+        { id: o.id },
+      );
+      themRevision(
+        db,
+        {
+          ban_the_hien_id: o.id,
+          noi_dung: o.noi_dung,
+          dua_tren_revision_id: null,
+          thong_diep_revision_id: tdRevGq,
+        },
+        tacGia,
+      );
+      if (o.dinh_asset && assetAnh) {
+        datAssetBanTheHien(db, o.id, [assetAnh], tacGia);
+      }
+      if (o.trang_thai === "nhap") continue;
+      chuyenTrangThai(db, o.id, "cho_duyet", "seed: gửi duyệt", tacGia);
+      if (o.trang_thai === "cho_duyet") continue;
+      const head = layBanTheHien(db, o.id)?.head_revision_id ?? undefined;
+      chuyenTrangThai(db, o.id, "da_duyet", "seed: duyệt", tacGia, head);
+      if (o.xuat_ban) {
+        xuatBanBanTheHien(db, o.id, { dich_den: o.dich_den || undefined }, tacGia);
+      }
+    }
+    daSeed.push("story_nonprofit_gay_quy");
+  }
+
   return { da_seed: daSeed };
 }
 
-// Ghi file fixture ảnh của story #7 vào kho byte local + một dòng asset
-// (đường service luuAsset là async; seed chạy đồng bộ nên ghi file đồng bộ
-// — cùng bước validate/dedupe và cùng layout qua duongDanTepAsset, chỉ khác
-// lớp ghi async). Thiếu file fixture → bỏ qua.
+// Ghi file fixture ảnh vào kho byte local + một dòng asset (đường
+// service luuAsset là async; seed chạy đồng bộ nên ghi file đồng bộ —
+// cùng bước validate/dedupe và cùng layout qua duongDanTepAsset, chỉ
+// khác lớp ghi async). Thiếu file fixture → bỏ qua. tenFileAnh/ghiChu
+// tùy chọn để các story dùng ảnh riêng.
 function ghiAssetFixture(
   db: Database,
   dataDir: string,
   nguonId: string,
   tacGia: string,
+  tenFileAnh: string = TB_FILE_ANH,
+  ghiChu: string = "Ảnh sản phẩm do tiệm cung cấp (fixture).",
 ): string | null {
-  const tep = join(import.meta.dir, "seed-assets", TB_FILE_ANH);
+  const tep = join(import.meta.dir, "seed-assets", tenFileAnh);
   if (!existsSync(tep)) return null;
   const byte = new Uint8Array(readFileSync(tep));
-  const tenFile = sachTenFile(TB_FILE_ANH);
+  const tenFile = sachTenFile(tenFileAnh);
   const dinhNghia = kiemTraByteAsset(tenFile, byte);
   const khoaIdem = `seed:asset:${tenFile}`;
   const cu =
@@ -1182,7 +1589,7 @@ function ghiAssetFixture(
     byte.byteLength,
     checksum,
     nguonId,
-    "Ảnh sản phẩm do tiệm cung cấp (fixture).",
+    ghiChu,
     khoaIdem,
     ts,
     tacGia,
@@ -1774,6 +2181,276 @@ const NOI_DUNG_DAU_RA_PHAT_HANH: {
         "passkeys: chưa mở cho tenant region EU cũ [GH:gh-passkeys-vung]",
       ],
       tiep_theo: "Gửi khách link nâng cấp — https://app.maisuite.example.com/nang-cap",
+    }),
+  },
+];
+
+// --- Nội dung story #10: chiến dịch gây quỹ Giọt Nước Chung ---
+// Dữ liệu hiện trường hư cấu. Marker [TD:id]/[TQ:id] pin fact vào
+// con trỏ bằng chứng của campaign; mục trang_thai 'uoc_tinh' đi kèm
+// tiền tố 'Ước tính:'; mục chưa có nguồn chỉ xuất hiện dạng [CÂU HỎI].
+
+const GQ_FILE_ANH = "gieng-nuoc-hien-truong.webp";
+const GQ_CTA = "Quyên góp cho Làng Khe Tre: https://quyengop.giotnuocchung.example.com/lang-khe-tre";
+const GQ_LIEN_KET = "https://quyengop.giotnuocchung.example.com/lang-khe-tre";
+const GQ_MUC_TIEU_TIEN =
+  "Mục tiêu gây quỹ (chưa đạt): 1.200.000.000 VND cho công trình nước sạch Làng Khe Tre — khoảng 600 người đang chờ.";
+
+const NOI_DUNG_DAU_RA_GAY_QUY: {
+  id: string;
+  dinh_dang: string;
+  doi_tuong: string;
+  dich_den: string;
+  ngon_ngu: string;
+  trang_thai: "nhap" | "cho_duyet" | "da_duyet" | "tu_choi";
+  xuat_ban: boolean;
+  dinh_asset?: boolean;
+  noi_dung: string;
+}[] = [
+  {
+    // Báo cáo tác động cho nhà tài trợ — đã duyệt + đã xuất.
+    id: "seed-bth-gq-bao-cao",
+    dinh_dang: "bao-cao-tac-dong",
+    doi_tuong: "Nhà tài trợ hiện hữu (fixture)",
+    dich_den: "email",
+    ngon_ngu: "vi",
+    trang_thai: "da_duyet",
+    xuat_ban: true,
+    noi_dung: JSON.stringify({
+      tieu_de: "Báo cáo tác động — chương trình nước sạch",
+      tom_tat:
+        "Ba công trình đã hoàn thành cho 2.570 người. Chiến dịch tiếp theo: Làng Khe Tre.",
+      tac_dong_da_dat: [
+        "Giếng khoan Làng Bản Rọm — 1.240 người: Công trình hoàn thành 2026-03; 1.240 người ở 312 hộ dùng nước sạch hằng ngày. [TD:td-gieng-rom]",
+        "Hệ thống lọc Làng Suối Lớn — 860 người: 860 người được cấp nước sạch từ 2026-05. [TD:td-loc-suoi]",
+        "Điểm lấy nước Làng Đồng Kẻ — 470 người: 3 điểm cộng đồng phục vụ 470 người. [TD:td-diem-dong]",
+      ],
+      tac_dong_uoc_tinh: [
+        "Ước tính: Người hưởng lợi Làng Khe Tre — 600 người: Ước tính 600 người sẽ có nước sạch khi công trình hoàn thành. [TD:td-nguoi-khe-tre]",
+        "[CÂU HỎI: tác động 'Tỉ lệ học sinh đi học đều hơn sau khi có nước' chưa có bằng chứng nguồn — cần xác nhận trước khi công bố.]",
+      ],
+      muc_tieu: GQ_MUC_TIEU_TIEN,
+      noi_dung: `Kính gửi nhà tài trợ,
+
+Ba công trình nước sạch đã hoàn thành trong năm nay. Tổng cộng 2.570 người ở 3 làng đã có nước sạch; chi phí trung bình một công trình khoảng 380 triệu đồng.
+
+**Đã đạt được:**
+- Giếng khoan Làng Bản Rọm — 1.240 người ở 312 hộ dùng nước sạch hằng ngày. [TD:td-gieng-rom]
+- Hệ thống lọc Làng Suối Lớn — 860 người được cấp nước sạch từ 2026-05. [TD:td-loc-suoi]
+- Điểm lấy nước Làng Đồng Kẻ — 3 điểm cộng đồng phục vụ 470 người. [TD:td-diem-dong]
+
+**Ước tính (chưa đạt):**
+- Người hưởng lợi Làng Khe Tre — ước tính 600 người sẽ có nước sạch khi công trình hoàn thành. [TD:td-nguoi-khe-tre]
+- [CÂU HỎI: 'Tỉ lệ học sinh đi học đều hơn sau khi có nước' chưa có bằng chứng nguồn.]
+
+**Mục tiêu gây quỹ (chưa đạt):** ${GQ_MUC_TIEU_TIEN}
+
+${GQ_CTA}`,
+      trich_dan: [
+        '"Trước kia cả nhà tôi phải đi 2 tiếng mỗi ngày để lấy nước. Bây giờ cháu tôi có thời gian học bài buổi tối." — Bà Hòa (giảng viên hưu trí, Làng Bản Rọm) [TQ:tq-ba-hoa]',
+        '"Tôi đã chứng kiến giếng đầu tiên có nước. Ngày đó cả làng đứng xem tới tận tối." — Anh Tuấn (trưởng nhóm tình nguyện viên) [TQ:tq-anh-tuan]',
+      ],
+      cta: GQ_CTA,
+      lien_ket: GQ_LIEN_KET,
+    }),
+  },
+  {
+    // Câu chuyện nhân văn công khai — chờ duyệt; kèm ảnh hiện trường
+    // đã có ghi chú quyền để kiểm hiển thị khi review.
+    id: "seed-bth-gq-cau-chuyen",
+    dinh_dang: "cau-chuyen-nhan-van",
+    doi_tuong: "Công chúng quan tâm (fixture)",
+    dich_den: "website",
+    ngon_ngu: "vi",
+    trang_thai: "cho_duyet",
+    xuat_ban: false,
+    dinh_asset: true,
+    noi_dung: JSON.stringify({
+      tieu_de: "Ngày giếng đầu tiên có nước",
+      noi_dung: `"Tôi đã chứng kiến giếng đầu tiên có nước. Ngày đó cả làng đứng xem tới tận tối." — Anh Tuấn, trưởng nhóm tình nguyện viên, nhớ lại ngày giếng khoan Làng Bản Rọm hoàn thành.
+
+Trước giếng, Bà Hòa — giảng viên hưu trí ở làng — tả ngày ngày vất vả: "Trước kia cả nhà tôi phải đi 2 tiếng mỗi ngày để lấy nước. Bây giờ cháu tôi có thời gian học bài buổi tối."
+
+Giếng khoan Làng Bản Rọm hoàn thành 2026-03: 1.240 người ở 312 hộ dùng nước sạch hằng ngày. [TD:td-gieng-rom] Sau đó là hệ thống lọc Làng Suối Lớn cho 860 người [TD:td-loc-suoi] và 3 điểm lấy nước Làng Đồng Kẻ cho 470 người. [TD:td-diem-dong]
+
+Làng tiếp theo là Khe Tre — ước tính 600 người đang chờ nguồn nước sạch gần nhà. [TD:td-nguoi-khe-tre] ${GQ_MUC_TIEU_TIEN}
+
+[CÂU HỎI: trích dẫn của người dân Làng Khe Tre chưa đối chứng tư liệu — cần xác nhận trước khi công bố.]
+
+${GQ_CTA}`,
+      trich_dan: [
+        '"Trước kia cả nhà tôi phải đi 2 tiếng mỗi ngày để lấy nước. Bây giờ cháu tôi có thời gian học bài buổi tối." — Bà Hòa (giảng viên hưu trí, Làng Bản Rọm) [TQ:tq-ba-hoa]',
+        '"Tôi đã chứng kiến giếng đầu tiên có nước. Ngày đó cả làng đứng xem tới tận tối." — Anh Tuấn (trưởng nhóm tình nguyện viên) [TQ:tq-anh-tuan]',
+      ],
+      con_thieu: [
+        "[CÂU HỎI: tác động 'Tỉ lệ học sinh đi học đều hơn sau khi có nước' chưa có bằng chứng nguồn — cần xác nhận.]",
+        "[CÂU HỎI: trích dẫn 'Người dân Làng Khe Tre' chưa đối chứng tư liệu — cần xác nhận.]",
+      ],
+      cta: GQ_CTA,
+      lien_ket: GQ_LIEN_KET,
+    }),
+  },
+  {
+    // Email nhà tài trợ lớn — chi tiết hơn câu chuyện công khai (dự
+    // toán, chi phí trung bình) nhưng giữ nguyên fact tác động.
+    id: "seed-bth-gq-email-ntt",
+    dinh_dang: "email-tai-tro",
+    doi_tuong: "Nhà tài trợ lớn (fixture)",
+    dich_den: "email",
+    ngon_ngu: "vi",
+    trang_thai: "cho_duyet",
+    xuat_ban: false,
+    noi_dung: JSON.stringify({
+      tieu_de: "Làng Khe Tre — công trình nước sạch tiếp theo",
+      tom_tat:
+        "Ba công trình đã xong cho 2.570 người; công trình thứ tư cần 1.200.000.000 VND.",
+      phan_doan: "Nhà tài trợ chiến lược",
+      tac_dong_da_dat: [
+        "Giếng khoan Làng Bản Rọm — 1.240 người ở 312 hộ. [TD:td-gieng-rom]",
+        "Hệ thống lọc Làng Suối Lớn — 860 người. [TD:td-loc-suoi]",
+        "Điểm lấy nước Làng Đồng Kẻ — 470 người. [TD:td-diem-dong]",
+      ],
+      tac_dong_uoc_tinh: [
+        "Ước tính: Người hưởng lợi Làng Khe Tre — 600 người. [TD:td-nguoi-khe-tre]",
+        "[CÂU HỎI: 'Tỉ lệ học sinh đi học đều hơn sau khi có nước' chưa có bằng chứng nguồn.]",
+      ],
+      muc_tieu: GQ_MUC_TIEU_TIEN,
+      noi_dung: `Kính gửi quý nhà tài trợ,
+
+Chương trình nước sạch của Giọt Nước Chung đã hoàn thành 3 công trình: 2.570 người ở Bản Rọm, Suối Lớn và Đồng Kẻ đã có nước sạch. Chi phí trung bình một công trình khoảng 380 triệu đồng.
+
+Khảo sát 2026-08 cho thấy Làng Khe Tre có khoảng 600 người chưa có nguồn nước sạch gần nhà. Dự toán công trình giếng khoan và bể lọc khoảng 1.200.000.000 VND — đây là mục tiêu gây quỹ của chiến dịch, chưa phải kết quả đạt được.
+
+Tác động đã đạt (có bằng chứng hiện trường):
+- Làng Bản Rọm: 1.240 người ở 312 hộ. [TD:td-gieng-rom]
+- Làng Suối Lớn: 860 người. [TD:td-loc-suoi]
+- Làng Đồng Kẻ: 470 người. [TD:td-diem-dong]
+
+[CÂU HỎI: tác động 'Tỉ lệ học sinh đi học đều hơn sau khi có nước' chưa có bằng chứng nguồn.]
+
+${GQ_CTA}`,
+      cta: GQ_CTA,
+      lien_ket: GQ_LIEN_KET,
+    }),
+  },
+  {
+    // Trang campaign trên website — đã duyệt.
+    id: "seed-bth-gq-trang-web",
+    dinh_dang: "trang-campaign",
+    doi_tuong: "Công chúng quan tâm (fixture)",
+    dich_den: "website",
+    ngon_ngu: "vi",
+    trang_thai: "da_duyet",
+    xuat_ban: true,
+    noi_dung: JSON.stringify({
+      tieu_de: "Nước sạch cho Làng Khe Tre",
+      tac_dong_da_dat: [
+        "Giếng khoan Làng Bản Rọm — 1.240 người. [TD:td-gieng-rom]",
+        "Hệ thống lọc Làng Suối Lớn — 860 người. [TD:td-loc-suoi]",
+        "Điểm lấy nước Làng Đồng Kẻ — 470 người. [TD:td-diem-dong]",
+      ],
+      tac_dong_uoc_tinh: [
+        "Ước tính: Người hưởng lợi Làng Khe Tre — 600 người. [TD:td-nguoi-khe-tre]",
+        "[CÂU HỎI: 'Tỉ lệ học sinh đi học đều hơn sau khi có nước' chưa có bằng chứng nguồn.]",
+      ],
+      muc_tieu: GQ_MUC_TIEU_TIEN,
+      noi_dung: `Ba ngôi làng đã có nước sạch. Làng Khe Tre là làng tiếp theo — chỉ còn thiếu nguồn lực.
+
+**Đã đạt được:**
+- Giếng khoan Làng Bản Rọm — 1.240 người ở 312 hộ. [TD:td-gieng-rom]
+- Hệ thống lọc Làng Suối Lớn — 860 người. [TD:td-loc-suoi]
+- Điểm lấy nước Làng Đồng Kẻ — 470 người. [TD:td-diem-dong]
+
+**Ước tính (chưa đạt):**
+- Người hưởng lợi Làng Khe Tre — ước tính 600 người. [TD:td-nguoi-khe-tre]
+
+${GQ_MUC_TIEU_TIEN}
+
+${GQ_CTA}`,
+      trich_dan: [
+        '"Trước kia cả nhà tôi phải đi 2 tiếng mỗi ngày để lấy nước. Bây giờ cháu tôi có thời gian học bài buổi tối." — Bà Hòa (giảng viên hưu trí, Làng Bản Rọm) [TQ:tq-ba-hoa]',
+      ],
+      cta: GQ_CTA,
+      lien_ket: GQ_LIEN_KET,
+    }),
+  },
+  {
+    // Caption ảnh Instagram — còn nháp; kèm ảnh hiện trường.
+    id: "seed-bth-gq-ig",
+    dinh_dang: "caption",
+    doi_tuong: "",
+    dich_den: "instagram",
+    ngon_ngu: "vi",
+    trang_thai: "nhap",
+    xuat_ban: false,
+    dinh_asset: true,
+    noi_dung: JSON.stringify({
+      noi_dung: `Ba ngôi làng đã có nước sạch — Làng Khe Tre là làng tiếp theo.
+
+Giếng khoan Bản Rọm: 1.240 người dùng nước sạch hằng ngày. Hệ thống lọc Suối Lớn: 860 người. Điểm lấy nước Đồng Kẻ: 470 người.
+
+Mục tiêu gây quỹ (chưa đạt): 1.200.000.000 VND — khoảng 600 người đang chờ.
+
+${GQ_CTA}`,
+      hashtag: "#nuocsach #giotnuocchung #langkhetre",
+    }),
+  },
+  {
+    // Cập nhật tình nguyện viên — đã duyệt.
+    id: "seed-bth-gq-tnv",
+    dinh_dang: "cap-nhat-tinh-nguyen",
+    doi_tuong: "Tình nguyện viên (fixture)",
+    dich_den: "",
+    ngon_ngu: "vi",
+    trang_thai: "da_duyet",
+    xuat_ban: false,
+    noi_dung: JSON.stringify({
+      tieu_de: "Cập nhật chiến dịch Làng Khe Tre",
+      noi_dung: `Cảm ơn các bạn đã đồng hành. Ba công trình nước sạch đã hoàn thành cho 2.570 người ở 3 làng.
+
+Chiến dịch tiếp theo: công trình nước sạch Làng Khe Tre — ước tính 600 người đang chờ. [TD:td-nguoi-khe-tre] Mục tiêu gây quỹ: 1.200.000.000 VND.
+
+"Tôi đã chứng kiến giếng đầu tiên có nước. Ngày đó cả làng đứng xem tới tận tối." — Anh Tuấn, trưởng nhóm tình nguyện viên. [TQ:tq-anh-tuan]`,
+      cac_buoc: [
+        "Chia sẻ link chiến dịch: https://quyengop.giotnuocchung.example.com/lang-khe-tre",
+        "Đăng ký chuyến hiện trường Làng Khe Tre đợt tới.",
+        "Khi chia sẻ: chỉ dùng số liệu và trích dẫn trong tài liệu đã phát hành.",
+      ],
+      cta: GQ_CTA,
+      lien_ket: GQ_LIEN_KET,
+    }),
+  },
+  {
+    // Bản tiếng Anh của câu chuyện công khai — giữ nguyên số liệu,
+    // tiền tệ và CTA; trích dẫn giữ nguyên văn tiếng Việt.
+    id: "seed-bth-gq-en",
+    dinh_dang: "cau-chuyen-nhan-van",
+    doi_tuong: "Công chúng quan tâm (fixture)",
+    dich_den: "website",
+    ngon_ngu: "en",
+    trang_thai: "da_duyet",
+    xuat_ban: false,
+    noi_dung: JSON.stringify({
+      tieu_de: "The day the first well had water",
+      noi_dung: `Three villages now have clean water. Khe Tre is next — only funding is missing.
+
+The Bản Rọm borehole was completed in 2026-03: 1,240 people in 312 households use clean water every day. [TD:td-gieng-rom] The Suối Lớn filtration system serves 860 people [TD:td-loc-suoi], and 3 community water points in Đồng Kẻ serve 470 people. [TD:td-diem-dong]
+
+Estimated (not yet achieved): about 600 people in Khe Tre are waiting for a clean water source near home. [TD:td-nguoi-khe-tre]
+
+Fundraising goal (not yet achieved): 1,200,000,000 VND for the Khe Tre water project.
+
+[CÂU HỎI: impact item 'Tỉ lệ học sinh đi học đều hơn sau khi có nước' has no source evidence — verify before publishing.]
+
+${GQ_CTA}`,
+      trich_dan: [
+        '"Trước kia cả nhà tôi phải đi 2 tiếng mỗi ngày để lấy nước. Bây giờ cháu tôi có thời gian học bài buổi tối." — Bà Hòa (giảng viên hưu trí, Làng Bản Rọm) [TQ:tq-ba-hoa]',
+      ],
+      con_thieu: [
+        "[CÂU HỎI: quote from 'Người dân Làng Khe Tre' is not verified against source material — confirm before publishing.]",
+      ],
+      cta: GQ_CTA,
+      lien_ket: GQ_LIEN_KET,
     }),
   },
 ];

@@ -35,6 +35,10 @@ function dongThieuChungCu(ctx: ContextTask): string[] {
     // Phát hành (#9): một số fact không trỏ nguồn đã nạp hoặc nguồn đó
     // không vào chuỗi provenance — claim tính năng chưa xác nhận.
     fact_chua_xac_nhan: "bằng chứng nguồn cho một số tính năng đã khai báo",
+    // Gây quỹ (#10): tác động/trích dẫn chưa trỏ nguồn tư liệu — đầu ra
+    // để câu hỏi biên tập, không bịa số đo hay lời người thụ hưởng.
+    tac_dong_chua_xac_nhan: "bằng chứng nguồn cho một số tác động đã khai báo",
+    trich_dan_chua_nguon: "nguồn tư liệu cho một số trích dẫn đã khai báo",
   };
   return ctx.thieu_chung_cu.map(
     (t) => `[CÂU HỎI: nguồn chưa có ${nhan[t] ?? t} — cần người viết bổ sung.]`,
@@ -160,11 +164,120 @@ function noiDungTruongPhatHanh(
   return undefined;
 }
 
+// Field theo tên cho ngữ cảnh gây quỹ (#10) — trả undefined để rơi về
+// luồng chung khi field không thuộc từ điển gây quỹ.
+function noiDungTruongGayQuy(
+  t: DinhNghiaTruong,
+  ctx: ContextTask,
+): string | string[] | undefined {
+  const gq = ctx.gay_quy;
+  if (!gq) return undefined;
+  const soTien =
+    gq.so_tien_muc_tieu !== null
+      ? `${gq.so_tien_muc_tieu.toLocaleString("vi-VN")}${gq.tien_te ? ` ${gq.tien_te}` : ""}`
+      : "";
+  const ctaQuyenGop = gq.cta.find((c) => c.loai === "quyen_gop") ?? gq.cta[0];
+
+  if (t.loai === "van_ban") {
+    if (t.ten === "muc_tieu") {
+      return [gq.muc_tieu, soTien].filter(Boolean).join(" — ") || undefined;
+    }
+    if (t.ten === "phan_doan") {
+      return ctx.context_sinh?.doi_tuong?.ten || ctx.doi_tuong || "chung";
+    }
+    if (t.ten === "thong_diep_chinh") {
+      return gq.thong_diep_loi || cauDau(ctx.thong_diep.noi_dung) || ctx.thong_diep.tieu_de;
+    }
+    if (t.ten === "lien_ket") {
+      // Đích quyên góp luôn là link ngoài do tổ chức cung cấp — xem
+      // trước đầu ra hiện đúng link cuối này trước khi duyệt.
+      return ctaQuyenGop?.url;
+    }
+    if (t.ten === "cta" || t.ten === "hanh_dong" || t.ten === "tiep_theo") {
+      return ctaQuyenGop ? `${ctaQuyenGop.nhan}: ${ctaQuyenGop.url}` : undefined;
+    }
+    return undefined;
+  }
+
+  const dongTacDong = (trangThai: string) =>
+    gq.ds_tac_dong
+      .filter((x) => x.trang_thai === trangThai)
+      .map((x) => {
+        if (!x.xac_nhan) {
+          return `[CÂU HỎI: tác động '${x.tieu_de}' chưa có bằng chứng nguồn — cần xác nhận trước khi công bố.]`;
+        }
+        const soLieu = x.so_lieu ? ` — ${x.so_lieu}${x.don_vi ? ` ${x.don_vi}` : ""}` : "";
+        const tienTo = trangThai === "uoc_tinh" ? "Ước tính: " : "";
+        return `${tienTo}${x.tieu_de}${soLieu}: ${x.noi_dung} [TD:${x.id}]`;
+      });
+
+  if (t.loai === "danh_sach") {
+    if (t.ten === "tac_dong_da_dat") return dongTacDong("da_dat");
+    if (t.ten === "tac_dong_uoc_tinh") return dongTacDong("uoc_tinh");
+    if (t.ten === "trich_dan") {
+      return gq.ds_trich_dan.map((x) => {
+        if (!x.xac_nhan) {
+          return `[CÂU HỎI: trích dẫn '${x.ten_nguoi}' chưa có nguồn tư liệu — cần đối chiếu trước khi đăng.]`;
+        }
+        return `"${x.loi}" — ${x.ten_nguoi} [TQ:${x.id}]`;
+      });
+    }
+    if (t.ten === "con_thieu") {
+      const ds: string[] = [
+        ...gq.ds_tac_dong
+          .filter((x) => !x.xac_nhan)
+          .map(
+            (x) =>
+              `[CÂU HỎI: tác động '${x.tieu_de}' chưa có bằng chứng nguồn — cần xác nhận trước khi công bố.]`,
+          ),
+        ...gq.ds_trich_dan
+          .filter((x) => !x.xac_nhan)
+          .map(
+            (x) =>
+              `[CÂU HỎI: trích dẫn '${x.ten_nguoi}' chưa có nguồn tư liệu — cần đối chiếu trước khi đăng.]`,
+          ),
+      ];
+      return ds;
+    }
+    return undefined;
+  }
+
+  if (t.loai === "markdown" && t.ten === "noi_dung") {
+    // Thân đầu ra gây quỹ: thông điệp lõi → tác động đã đạt → ước tính →
+    // mục tiêu tương lai → CTA quyên góp. Đã đạt và ước tính là hai mục
+    // riêng; mục tiêu không trình bày như tác động đã đạt.
+    const dong: string[] = [
+      gq.thong_diep_loi || cauDau(ctx.thong_diep.noi_dung) || ctx.thong_diep.tieu_de,
+    ];
+    const daDat = dongTacDong("da_dat");
+    const uocTinh = dongTacDong("uoc_tinh");
+    if (daDat.length > 0) dong.push("", "**Đã đạt được:**", ...daDat.map((d) => `- ${d}`));
+    if (uocTinh.length > 0) dong.push("", "**Ước tính:**", ...uocTinh.map((d) => `- ${d}`));
+    if (gq.muc_tieu || soTien) {
+      dong.push(
+        "",
+        `**Mục tiêu gây quỹ (chưa đạt):** ${[gq.muc_tieu, soTien].filter(Boolean).join(" — ")}`,
+      );
+    }
+    const tq = gq.ds_trich_dan.filter((x) => x.xac_nhan);
+    if (tq.length > 0) {
+      dong.push("", ...tq.map((x) => `"${x.loi}" — ${x.ten_nguoi} [TQ:${x.id}]`));
+    }
+    if (ctaQuyenGop) dong.push("", `${ctaQuyenGop.nhan}: ${ctaQuyenGop.url}`);
+    return dong.join("\n");
+  }
+  return undefined;
+}
+
 // Gán nội dung cho một trường theo kiểu — deterministic từ context.
 function noiDungTruong(t: DinhNghiaTruong, ctx: ContextTask): string | string[] {
   if (ctx.phat_hanh) {
     const ph = noiDungTruongPhatHanh(t, ctx);
     if (ph !== undefined) return ph;
+  }
+  if (ctx.gay_quy) {
+    const gq = noiDungTruongGayQuy(t, ctx);
+    if (gq !== undefined) return gq;
   }
   const dongMeta = [
     `Đối tượng: ${ctx.context_sinh?.doi_tuong?.ten || ctx.doi_tuong || "chung"}`,
@@ -180,6 +293,9 @@ function noiDungTruong(t: DinhNghiaTruong, ctx: ContextTask): string | string[] 
     dongMeta.push(
       `Phát hành: ${ctx.phat_hanh.ten}${ctx.phat_hanh.phien_ban ? ` ${ctx.phat_hanh.phien_ban}` : ""}`,
     );
+  }
+  if (ctx.gay_quy) {
+    dongMeta.push(`Gây quỹ: ${ctx.gay_quy.ten}`);
   }
   const dongThieu = dongThieuChungCu(ctx);
 
