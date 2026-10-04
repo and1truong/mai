@@ -15,7 +15,7 @@ import { docHtmlDayDu } from "../modules/formats/xuat.ts";
 // trang cho tới khi xuất một record mới. Không nằm dưới /api/ — đây là
 // URL đọc được người dùng mở thẳng trong trình duyệt local.
 export function phucVuTrang(db: Database, pathname: string): Response | null {
-  const m = /^\/p\/([0-9a-f-]{8,})$/i.exec(pathname);
+  const m = /^\/p\/([a-z0-9-]{8,})$/i.exec(pathname);
   if (!m) return null;
   const bth = layBanTheHien(db, m[1]!);
   const xb = bth ? danhSachXuatBan(db, bth.id)[0] : null;

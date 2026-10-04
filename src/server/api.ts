@@ -723,8 +723,12 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       // review, cờ "đã cũ" (revision ghim thông điệp lệch head), nháp tay,
       // record xuất bản mới nhất → URL trang do server phục vụ + dòng
       // nguồn đã ghim theo chuỗi revision.
+      const dsDt = danhSachDoiTuong(c.db);
       const dsDauRa = danhSachBanTheHien(c.db, { thongDiepId: td.id }).map((b) => {
         const def = layDinhDang(b.dinh_dang);
+        // Bản thể hiện chỉ giữ tên đối tượng — resolve ngược hồ sơ để
+        // action "sinh lại" gửi đúng doi_tuong_id vào context sinh.
+        const doiTuongId = dsDt.find((d) => d.ten === b.doi_tuong)?.id ?? null;
         const headRev = b.head_revision_id ? layRevision(c.db, b.head_revision_id) : null;
         const tdRev = headRev?.thong_diep_revision_id
           ? layThongDiepRevision(c.db, headRev.thong_diep_revision_id)
@@ -738,6 +742,7 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
         return {
           ...b,
           dinh_dang_nhan: def?.nhan ?? b.dinh_dang,
+          doi_tuong_id: doiTuongId,
           head_revision_so: headRev?.so_thu_tu ?? null,
           la_cu:
             headRev?.thong_diep_revision_id != null &&
