@@ -48,18 +48,34 @@ export function khoiDongRunner(
   if (moCoi > 0) log.warn("job.requeue_mo_coi", { so: moCoi });
 
   let dangChay = false;
+  let inFlight: Promise<void> | null = null;
   const timer = setInterval(() => {
     if (dangChay) return;
     dangChay = true;
-    void chayMotJob(db, handlers)
+    const p = chayMotJob(db, handlers);
+    inFlight = p;
+    void p
       .catch((e) => log.error("job.loi_runner", { loi: String(e) }))
       .finally(() => {
         dangChay = false;
+        inFlight = null;
       });
   }, chuKyMs);
   timer.unref?.();
   log.info("job.runner_bat_dau", { chuKyMs });
-  return () => clearInterval(timer);
+
+  // Dừng runner: chờ job in-flight xong hẳn để quanh `--hot` reload job không
+  // bị requeue rồi chạy trùng ở process mới.
+  return async () => {
+    clearInterval(timer);
+    if (inFlight) {
+      try {
+        await inFlight;
+      } catch {
+        /* lỗi đã log ở trên */
+      }
+    }
+  };
 }
 
 async function chayMotJob(db: Database, handlers: Record<string, JobHandler>): Promise<void> {

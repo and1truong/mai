@@ -11,8 +11,8 @@ import { chanKhiServerChay } from "./shared.ts";
 const cauHinh = await taiCauHinh();
 const dataDir = resolve(cauHinh.dataDir);
 
-// Xóa data khi server đang chạy → mất dữ liệu. Từ chối trừ khi --chap-nhan.
-await chanKhiServerChay(cauHinh.port, process.argv.includes("--chap-nhan"), "reset");
+// Xóa data khi server đang giữ dataDir này → mất dữ liệu. Từ chối trừ khi --chap-nhan.
+chanKhiServerChay(dataDir, process.argv.includes("--chap-nhan"), "reset");
 
 if (existsSync(dataDir)) {
   rmSync(dataDir, { recursive: true, force: true });

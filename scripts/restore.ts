@@ -2,7 +2,7 @@
 // (lỗi giữa chừng không mất data hiện tại). Từ chối khi server đang chạy.
 // Cú pháp: bun run restore -- backups/<ten> [--thay-the] [--chap-nhan]
 
-import { cpSync, existsSync, renameSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { taiCauHinh } from "../src/config.ts";
 import { log } from "../src/log.ts";
@@ -26,7 +26,7 @@ if (!existsSync(join(tu, TEN_DB))) {
 const cauHinh = await taiCauHinh();
 const dataDir = resolve(cauHinh.dataDir);
 
-await chanKhiServerChay(cauHinh.port, process.argv.includes("--chap-nhan"), "restore");
+chanKhiServerChay(dataDir, process.argv.includes("--chap-nhan"), "restore");
 
 if (existsSync(dataDir) && !thayThe) {
   console.error(`Thư mục data đã tồn tại: ${dataDir}`);
@@ -41,9 +41,24 @@ for (const d of [tmp, cu]) {
 }
 
 cpSync(tu, tmp, { recursive: true });
-if (existsSync(dataDir)) renameSync(dataDir, cu);
-renameSync(tmp, dataDir);
-if (existsSync(cu)) rmSync(cu, { recursive: true, force: true });
+try {
+  if (existsSync(dataDir)) renameSync(dataDir, cu);
+  renameSync(tmp, dataDir);
+  if (existsSync(cu)) rmSync(cu, { recursive: true, force: true });
+} catch {
+  // dataDir là mountpoint (vd docker -v): không rename được → dọn nội dung
+  // rồi copy từng entry của backup vào, giữ nguyên mountpoint.
+  if (existsSync(cu)) renameSync(cu, dataDir); // khôi phục nếu đã dời
+  mkdirSync(dataDir, { recursive: true });
+  for (const entry of readdirSync(dataDir)) {
+    rmSync(join(dataDir, entry), { recursive: true, force: true });
+  }
+  for (const entry of readdirSync(tmp)) {
+    cpSync(join(tmp, entry), join(dataDir, entry), { recursive: true });
+  }
+  rmSync(tmp, { recursive: true, force: true });
+  log.warn("restore.fallback_mountpoint", { dataDir });
+}
 
 log.info("restore.xong", { tu, den: dataDir });
 console.log(`Restore xong: ${dataDir}`);

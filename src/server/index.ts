@@ -1,4 +1,5 @@
-import { resolve } from "node:path";
+import { rmSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { taiCauHinh } from "../config.ts";
 import { log } from "../log.ts";
 import { layNhaCungCap } from "../modules/generation/index.ts";
@@ -86,10 +87,18 @@ export async function startServer(tuyChon: TuyChonServer = {}) {
 
   log.info("server.khoi_dong", { port: server.port, dataDir, provider: provider.ten });
 
+  // Lockfile cho scripts (reset/restore) biết server nào đang giữ dataDir.
+  const tepLock = join(dataDir, "mai.server.lock");
+  writeFileSync(
+    tepLock,
+    JSON.stringify({ pid: process.pid, port: server.port, bat_dau_luc: new Date().toISOString() }),
+  );
+
   const dong = async () => {
-    dungRunner();
+    await dungRunner();
     server.stop(true);
     db.close();
+    rmSync(tepLock, { force: true });
   };
   if (Bun.env.MAI_HOT === "1") g[KHOA_CLEANUP] = dong;
 
