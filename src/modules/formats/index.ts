@@ -183,8 +183,8 @@ const DANG_FAQ: DinhNghiaDinhDang = {
 // thiếu niên, hỏi-đáp độc giả, chuỗi social theo số, script thảo luận.
 // Tên field giữ trung lập — định dạng dùng được ngoài ngữ cảnh tạp chí.
 
-const DANG_HOC_KINH_THANH: DinhNghiaDinhDang = {
-  id: "hoc-kinh-thanh",
+const DANG_HOC_TAI_LIEU: DinhNghiaDinhDang = {
+  id: "hoc-tai-lieu",
   phien_ban: 1,
   nhan: "Học tài liệu nền",
   mo_ta: "Bài học theo đoạn tài liệu nền: tham chiếu đoạn, nội dung học, câu hỏi thảo luận, áp dụng.",
@@ -325,7 +325,7 @@ const REGISTRY: Record<string, DinhNghiaDinhDang> = Object.fromEntries(
     DANG_GOOGLE_BUSINESS,
     DANG_EMAIL_KHACH,
     DANG_FAQ,
-    DANG_HOC_KINH_THANH,
+    DANG_HOC_TAI_LIEU,
     DANG_GIAI_THICH_THIEU_NIEN,
     DANG_HOI_DAP_DOC_GIA,
     DANG_CHUOI_SOCIAL,

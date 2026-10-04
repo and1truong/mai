@@ -75,7 +75,7 @@ describe("registry định dạng (#19)", () => {
         "faq",
         "giai-thich-thieu-nien",
         "google-business",
-        "hoc-kinh-thanh",
+        "hoc-tai-lieu",
         "hoi-dap-doc-gia",
         "newsletter",
         "script-dai",

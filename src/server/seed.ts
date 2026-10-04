@@ -1181,8 +1181,8 @@ Bạn đọc được mời đọc hai đoạn kinh văn nguyên cảnh trước
   {
     // Bài học tài liệu nền đi sát đoạn tham chiếu — chờ duyệt, nằm trong
     // hàng chờ review cấp số.
-    id: "seed-bth-so002-hoc-kt",
-    dinh_dang: "hoc-kinh-thanh",
+    id: "seed-bth-so002-hoc-tl",
+    dinh_dang: "hoc-tai-lieu",
     doi_tuong: "Độc giả Phúc Âm (fixture)",
     dich_den: "",
     trang_thai: "cho_duyet",

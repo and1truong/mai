@@ -368,7 +368,7 @@ describe("seed số báo demo 002", () => {
     expect(nd.bang_chung.length).toBe(3);
     expect(nd.vi_du.length).toBeGreaterThan(0); // đổi ví dụ cho thiếu niên
     // Hàng chờ review chứa bài học chờ duyệt.
-    expect(cp.hang_cho.some((b: { id: string }) => b.id === "seed-bth-so002-hoc-kt")).toBe(true);
+    expect(cp.hang_cho.some((b: { id: string }) => b.id === "seed-bth-so002-hoc-tl")).toBe(true);
   });
 });
 

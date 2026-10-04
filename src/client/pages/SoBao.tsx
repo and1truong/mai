@@ -196,6 +196,10 @@ function ChiTietSoBaoView({ id }: { id: string }) {
     doi_tuong_id: "",
   });
   const [mucLuc, setMucLuc] = useState<MucLuc[]>([]);
+  // dirty = user đang sửa mục lục cục bộ chưa lưu — refetch server không
+  // được ghi đè bản nháp đó (và bản nháp cũ không được ghi đè mục server
+  // vừa thêm qua POST /them).
+  const [mucLucDirty, setMucLucDirty] = useState(false);
   const [chon, setChon] = useState<Set<string>>(new Set());
   const [dsLoi, setDsLoi] = useState<string[]>([]);
   const [trangThaiLuu, setTrangThaiLuu] = useState("");
@@ -218,9 +222,25 @@ function ChiTietSoBaoView({ id }: { id: string }) {
       doi_tuong_id: cp.doi_tuong_id ?? "",
     });
     setMucLuc(cp.muc_luc);
+    setMucLucDirty(false);
     setNguonLienKet({});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chiTiet.data?.id]);
+
+  // Resync mục lục khi server đổi mà user không sửa cục bộ — giữ bản nháp
+  // đang sửa, tránh state cũ nuốt mục server vừa thêm.
+  useEffect(() => {
+    const cp = chiTiet.data;
+    if (!cp || mucLucDirty) return;
+    setMucLuc(cp.muc_luc);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chiTiet.data, mucLucDirty]);
+
+  // Mọi sửa cục bộ vào mục lục đi qua đây để đánh dấu dirty.
+  function suaMucLuc(ds: MucLuc[]) {
+    setMucLuc(ds);
+    setMucLucDirty(true);
+  }
 
   function loiText(e: unknown): string[] {
     if (e instanceof LoiApiClient) {
@@ -261,11 +281,13 @@ function ChiTietSoBaoView({ id }: { id: string }) {
   async function luuMucLuc() {
     setDsLoi([]);
     try {
-      await api(`/api/campaign/${id}/muc-luc`, {
+      const cpMoi = await api<Campaign>(`/api/campaign/${id}/muc-luc`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ muc_luc: mucLuc }),
       });
+      setMucLuc(cpMoi.muc_luc);
+      setMucLucDirty(false);
       setTrangThaiLuu(`Đã lưu mục lục ${new Date().toLocaleTimeString("vi")}`);
       chiTiet.reload();
     } catch (e) {
@@ -351,11 +373,21 @@ function ChiTietSoBaoView({ id }: { id: string }) {
   async function themMucGoiY(muc: MucLuc) {
     setDsLoi([]);
     try {
-      await api(`/api/campaign/${id}/muc-luc/them`, {
+      const cpMoi = await api<Campaign>(`/api/campaign/${id}/muc-luc/them`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ muc }),
       });
+      // Server đã ghi mục vào muc_luc đã lưu. Đang sửa cục bộ → chỉ merge
+      // mục mới vào bản nháp (giữ sửa của user); sạch → nhận mảng server.
+      if (mucLucDirty) {
+        const moi = cpMoi.muc_luc.at(-1);
+        if (moi && !mucLuc.some((m) => m.id === moi.id)) {
+          setMucLuc([...mucLuc, moi]);
+        }
+      } else {
+        setMucLuc(cpMoi.muc_luc);
+      }
       chiTiet.reload();
     } catch (e) {
       setDsLoi(loiText(e));
@@ -368,7 +400,7 @@ function ChiTietSoBaoView({ id }: { id: string }) {
     // Điền mẫu đề xuất cho chỗ còn trống theo id — mục biên tập đã thêm/
     // sửa giữ nguyên.
     const daCo = new Set(mucLuc.map((m) => m.id));
-    setMucLuc([...mucLuc, ...cp.de_xuat_muc_luc.filter((m) => !daCo.has(m.id))]);
+    suaMucLuc([...mucLuc, ...cp.de_xuat_muc_luc.filter((m) => !daCo.has(m.id))]);
   }
 
   const cp = chiTiet.data;
@@ -679,7 +711,7 @@ function ChiTietSoBaoView({ id }: { id: string }) {
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                           const ds = [...mucLuc];
                           ds[i] = { ...m, tieu_de: e.target.value };
-                          setMucLuc(ds);
+                          suaMucLuc(ds);
                         }}
                         style={{ minWidth: 200 }}
                       />
@@ -688,7 +720,7 @@ function ChiTietSoBaoView({ id }: { id: string }) {
                         onValueChange={(v) => {
                           const ds = [...mucLuc];
                           ds[i] = { ...m, dinh_dang: v };
-                          setMucLuc(ds);
+                          suaMucLuc(ds);
                         }}
                       >
                         <Select.Trigger />
@@ -705,7 +737,7 @@ function ChiTietSoBaoView({ id }: { id: string }) {
                         onValueChange={(v) => {
                           const ds = [...mucLuc];
                           ds[i] = { ...m, doi_tuong_id: v === "__chung__" ? null : v };
-                          setMucLuc(ds);
+                          suaMucLuc(ds);
                         }}
                       >
                         <Select.Trigger />
@@ -723,7 +755,7 @@ function ChiTietSoBaoView({ id }: { id: string }) {
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                           const ds = [...mucLuc];
                           ds[i] = { ...m, dich_den: e.target.value };
-                          setMucLuc(ds);
+                          suaMucLuc(ds);
                         }}
                         placeholder="Đích đến"
                         style={{ width: 120 }}
@@ -733,7 +765,7 @@ function ChiTietSoBaoView({ id }: { id: string }) {
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                           const ds = [...mucLuc];
                           ds[i] = { ...m, ly_do: e.target.value };
-                          setMucLuc(ds);
+                          suaMucLuc(ds);
                         }}
                         placeholder="Lý do"
                         style={{ flex: 1, minWidth: 160 }}
@@ -753,7 +785,7 @@ function ChiTietSoBaoView({ id }: { id: string }) {
                         size="1"
                         variant="ghost"
                         color="red"
-                        onClick={() => setMucLuc(mucLuc.filter((x) => x.id !== m.id))}
+                        onClick={() => suaMucLuc(mucLuc.filter((x) => x.id !== m.id))}
                       >
                         Xóa
                       </Button>
@@ -765,7 +797,7 @@ function ChiTietSoBaoView({ id }: { id: string }) {
                   variant="outline"
                   style={{ alignSelf: "flex-start" }}
                   onClick={() =>
-                    setMucLuc([
+                    suaMucLuc([
                       ...mucLuc,
                       {
                         id: `muc-${crypto.randomUUID().slice(0, 8)}`,

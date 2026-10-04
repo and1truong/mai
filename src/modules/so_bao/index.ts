@@ -240,7 +240,7 @@ export function deXuatMucLuc(db: Database, cp: Campaign): MucLuc[] {
     {
       id: "muc-hoc-tai-lieu",
       tieu_de: "Học tài liệu nền",
-      dinh_dang: "hoc-kinh-thanh",
+      dinh_dang: "hoc-tai-lieu",
       doi_tuong_id: dtChinh,
       dich_den: "",
       ly_do: "Bài học đi sát các đoạn tham chiếu đã khai báo.",
@@ -370,10 +370,6 @@ function danhSachNguonIdsCuaThongDiep(db: Database, thongDiepId: string): string
 
 // Tham chiếu "có văn bản" khi nguon_id trỏ tới nguồn còn tồn tại — trích
 // dẫn/tham chiếu câu đối chiếu được với nguồn thật.
-export function coVanBanThamChieu(db: Database, ref: ThamChieu): boolean {
-  return !!ref.nguon_id && !!layNguon(db, ref.nguon_id);
-}
-
 export type ThamChieuView = ThamChieu & {
   co_van_ban: boolean;
   nguon: { id: string; tieu_de: string } | null;
@@ -554,10 +550,12 @@ export type GoiYKhoangTrong = {
 
 // Bản thể hiện "phủ" một khoảng trống khi còn ở vòng đời hữu dụng:
 // nhap/cho_duyet/da_duyet hoặc đã xuất. tu_choi/thay_the KHÔNG phủ — bản bị
-// từ chối không lấp khoảng trống.
+// từ chối không lấp khoảng trống, kể cả khi nó từng được xuất trước khi
+// chuyển trạng thái.
 function bthPhu(db: Database, thongDiepId: string, dinhDang: string): boolean {
   return danhSachBanTheHien(db, { thongDiepId }).some((b) => {
     if (b.dinh_dang !== dinhDang) return false;
+    if (["tu_choi", "thay_the"].includes(b.trang_thai)) return false;
     if (["nhap", "cho_duyet", "da_duyet"].includes(b.trang_thai)) return true;
     const soXb = (
       db
@@ -615,7 +613,7 @@ export function goiYKhoangTrong(db: Database, cp: Campaign): GoiYKhoangTrong[] {
   }
 
   // 3) Có tham chiếu có văn bản nhưng chưa có bài học tài liệu nền → gợi ý.
-  if (coThamChieuCoVanBan && !bthPhu(db, td.id, "hoc-kinh-thanh")) {
+  if (coThamChieuCoVanBan && !bthPhu(db, td.id, "hoc-tai-lieu")) {
     ds.push({
       id: "goi-y-thieu-hoc-tai-lieu",
       loai: "thieu_hoc_tai_lieu",
@@ -627,7 +625,7 @@ export function goiYKhoangTrong(db: Database, cp: Campaign): GoiYKhoangTrong[] {
       de_xuat_muc: {
         id: "muc-hoc-tai-lieu",
         tieu_de: "Học tài liệu nền",
-        dinh_dang: "hoc-kinh-thanh",
+        dinh_dang: "hoc-tai-lieu",
         doi_tuong_id: cp.doi_tuong_id,
         dich_den: "",
         ly_do: "Khoảng trống phát hiện tự động — biên tập quyết định có nháp hay không.",
@@ -726,30 +724,9 @@ export function lienKetNguonThamChieu(
 
 // --- Lập trường đi vào context sinh ---
 
-// Resolve lập trường + cờ thiếu văn bản cho lần sinh: dùng bởi handler
-// sinh_ban_the_hien (payload.campaign_id ưu tiên, fallback td.campaign_id).
-export type SoBaoContext = {
-  campaign_id: string;
-  lap_truong: string | null;
-  // Tham chiếu đã khai báo mà văn bản chưa có trong context nguồn đã resolve.
-  tham_chieu_thieu: string[];
-};
-
-export function lapSoBaoContext(
-  db: Database,
-  thongDiep: ThongDiep,
-  nguonIdsTrongContext: Set<string>,
-  campaignIdPayload?: string,
-): SoBaoContext | null {
-  const cpId = campaignIdPayload ?? thongDiep.campaign_id;
-  if (!cpId) return null;
-  const cp = layCampaign(db, cpId);
-  if (!cp) return null;
-  const thieu = cp.tham_chieu
-    .filter((t) => !t.nguon_id || !nguonIdsTrongContext.has(t.nguon_id))
-    .map((t) => t.tham_chieu);
-  return { campaign_id: cp.id, lap_truong: cp.lap_truong || null, tham_chieu_thieu: thieu };
-}
+// Lập trường + cờ thiếu văn bản tham chiếu cho lần sinh nằm trong
+// lapContextNoiDung (generation/context.ts): payload.campaign_id ưu tiên,
+// fallback thong_diep.campaign_id.
 
 // Kiểm hồ sơ tham chiếu ở campaign — api.ts gọi trước khi tạo/cập nhật.
 export function kiemTraHoSoSoBao(

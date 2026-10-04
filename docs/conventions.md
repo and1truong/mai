@@ -177,5 +177,5 @@ Walkthrough chấp nhận ngắn (#20):
 - `tien_do`: `tong_muc`, `muc_co_dau_ra`, `tong_dau_ra`, `cho_duyet`, `da_duyet`, `da_xuat`, `muc[]` (mỗi mục → bản thể hiện + `da_xuat_ban`); `hang_cho` = bản `cho_duyet` của số (hàng chờ review cấp số).
 - `GET /api/campaign/:id/xuat` → ZIP (`taoBundleSoBao`): `manifest.json` (field số + tham chiếu + cờ thiếu văn bản + đầu ra + assets + hồ sơ dùng lại), `tham-chieu.md` (đánh dấu `THIẾU VĂN BẢN`), `dau-ra/NN-<dinh_dang>/noi-dung.md|html` chỉ cho bản đã xuất, `assets/` bytes đã gắn. Tên file `mai-so-<NNN>.zip`.
 - `GET /api/ban-the-hien?campaign_id=<id>` lọc đầu ra theo số (JOIN qua `thong_diep.campaign_id`).
-- Định dạng mới phien_ban 1: `hoc-kinh-thanh`, `giai-thich-thieu-nien` (bắt buộc `dien_giai` + `bang_chung` — diễn giải/bằng chứng đã duyệt), `hoi-dap-doc-gia`, `chuoi-social`, `script-thao-luan`.
+- Định dạng mới phien_ban 1: `hoc-tai-lieu`, `giai-thich-thieu-nien` (bắt buộc `dien_giai` + `bang_chung` — diễn giải/bằng chứng đã duyệt), `hoi-dap-doc-gia`, `chuoi-social`, `script-thao-luan`.
 - UI `#/so-bao` (+`?id=` chi tiết): sửa field số, bảng tham chiếu + liên kết nguồn, mục lục sửa được + tick mục → "Nháp N mục đã chọn", khối gợi ý tách riêng, tiến độ + hàng chờ + mọi đầu ra, nút tải ZIP.
