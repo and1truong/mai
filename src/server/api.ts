@@ -1007,14 +1007,20 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       const khoaIdem = url.searchParams.get("khoa_idem") || undefined;
 
       // Văn bản: nạp vào nguồn trước để asset ghi đúng liên kết. Dedupe theo
-      // khoa_idem/checksum nằm trong luuAsset + napVanBan/capNhatVanBan.
+      // khoa_idem/checksum nằm trong luuAsset + napVanBan/capNhatVanBan —
+      // khóa revision prefix 'asset:' để không đụng khóa của /api/nguon/nhap.
       const ext = "." + (ten.split(".").pop() ?? "").toLowerCase();
       let nguon: unknown = null;
       let revision: unknown = null;
       if (MIME_ASSET[ext]?.loai === "van_ban") {
         const noiDung = new TextDecoder("utf-8", { fatal: true }).decode(buf);
         const kq = nguonId
-          ? capNhatVanBan(c.db, nguonId, { noi_dung: noiDung, khoa_idem: khoaIdem }, c.actor)
+          ? capNhatVanBan(
+              c.db,
+              nguonId,
+              { noi_dung: noiDung, khoa_idem: khoaIdem ? `asset:${khoaIdem}` : undefined },
+              c.actor,
+            )
           : napVanBan(
               c.db,
               {
