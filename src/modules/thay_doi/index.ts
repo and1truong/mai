@@ -18,6 +18,7 @@
 import type { Database } from "bun:sqlite";
 import {
   capNhatThongDiep,
+  danhSachNguonCuaThongDiep,
   danhSachXuatBan,
   ghiSuKien,
   layBanTheHien,
@@ -194,8 +195,25 @@ const TRUONG_HO_SO_BO_QUA = new Set([
   "nguon_du_lieu",
 ]);
 
+// Khóa thay đổi mỗi lần ghi (thayThuatNgu xóa + chèn lại toàn bộ với id và
+// timestamp mới) — loại khỏi phần so sánh để PUT y hệt không tạo detection
+// giả. Áp dụng sâu trong object/mảng.
+const KHOA_NHANH_MAT = new Set(["id", "tao_luc", "tao_boi", "cap_nhat_luc", "cap_nhat_boi"]);
+function chuanHoaSoSanh(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(chuanHoaSoSanh);
+  if (typeof v === "object" && v !== null) {
+    const o: Record<string, unknown> = {};
+    for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+      if (!KHOA_NHANH_MAT.has(k)) o[k] = chuanHoaSoSanh(val);
+    }
+    return o;
+  }
+  return v;
+}
+
 // Diff snapshot hồ sơ theo trường. Giá trị không phải chuỗi (mảng/object)
-// so bằng JSON.stringify và hiển thị dạng JSON.
+// so bằng JSON.stringify sau khi bỏ khóa nhạy-thời-gian, và hiển thị dạng
+// JSON đã chuẩn hóa.
 export function diffSnapshotHoSo(cu: unknown, moi: unknown): MucThayDoi[] {
   const ds: MucThayDoi[] = [];
   const cuO =
@@ -212,14 +230,16 @@ export function diffSnapshotHoSo(cu: unknown, moi: unknown): MucThayDoi[] {
     if (TRUONG_HO_SO_BO_QUA.has(truong)) continue;
     const c = cuO[truong];
     const m = moiO[truong];
-    if (JSON.stringify(c) === JSON.stringify(m)) continue;
+    const cN = chuanHoaSoSanh(c);
+    const mN = chuanHoaSoSanh(m);
+    if (JSON.stringify(cN) === JSON.stringify(mN)) continue;
     ds.push({
       muc_id: truong,
       loai_muc: "truong",
       loai_thay_doi: c === undefined ? "them" : m === undefined ? "xoa" : "sua",
       tieu_de: truong,
-      cu: chuoi(c),
-      moi: chuoi(m),
+      cu: chuoi(cN),
+      moi: chuoi(mN),
     });
   }
   return ds;
@@ -332,6 +352,14 @@ function quetBthTheoHoSo(
   const daCo = new Set<string>();
   const cotId = loai === "thuong_hieu" ? "thuong_hieu_id" : "doi_tuong_id";
   const cotRev = loai === "thuong_hieu" ? "thuong_hieu_revision_id" : "doi_tuong_revision_id";
+  const laySnapshot = (id: string | null) => {
+    if (!id) return null;
+    const row = db.query("SELECT snapshot FROM ho_so_revision WHERE id = ?").get(id) as
+      | { snapshot: string }
+      | null;
+    return row?.snapshot ?? null;
+  };
+  const denSnapshot = laySnapshot(denRevId);
   const dsChinhXac = db
     .query(
       `SELECT b.id AS bth_id, cs.${cotRev} AS pinned_id
@@ -346,13 +374,22 @@ function quetBthTheoHoSo(
     const bth = layBanTheHien(db, r.bth_id);
     if (!bth) continue;
     daCo.add(r.bth_id);
+    // Diff theo đúng revision hồ sơ mà bản này đã ghim — bản ghim cũ hơn
+    // revision 'tu' của detection thấy diff tích lũy; thiếu snapshot thì dùng
+    // diff của detection.
+    let dsMuc = dsThayDoi;
+    const pinnedSnapshot = laySnapshot(r.pinned_id);
+    if (pinnedSnapshot && denSnapshot && r.pinned_id !== denRevId) {
+      const d = diffSnapshotHoSo(JSON.parse(pinnedSnapshot), JSON.parse(denSnapshot));
+      if (d.length > 0) dsMuc = d;
+    }
     ra.push({
       bth,
       do_tin: "chinh_xac",
-      ds_muc: dsThayDoi,
+      ds_muc: dsMuc,
       ly_do:
         `Context sinh ghim revision hồ sơ cũ — trường đổi: ` +
-        `${dsThayDoi.map((m) => m.tieu_de).join(", ")}`,
+        `${dsMuc.map((m) => m.tieu_de).join(", ")}`,
     });
   }
   if (loai === "doi_tuong") {
@@ -569,6 +606,14 @@ function boSungTaskChoQuet(
         { thay_doi_nguon_id: thayDoi.id, ban_the_hien_id: uv.bth.id, loai: loaiTask, do_tin: uv.do_tin },
         tacGia,
       );
+    } else {
+      // Task đã có (INSERT OR IGNORE) — cập nhật metadata cho task còn 'mo':
+      // độ tin đổi giữa 2 lần quét, hoặc bản vừa xuất bản sau khi task tạo
+      // (sinh_lai → thu_cong). Task đang làm/đã đóng giữ nguyên.
+      db.query(
+        `UPDATE task_sua SET loai = ?, do_tin = ?, ly_do = ?, ds_muc = ?, cap_nhat_luc = ?
+         WHERE thay_doi_nguon_id = ? AND ban_the_hien_id = ? AND trang_thai = 'mo'`,
+      ).run(loaiTask, uv.do_tin, lyDo, JSON.stringify(uv.ds_muc), bayGio(), thayDoi.id, uv.bth.id);
     }
     const task = db
       .query("SELECT * FROM task_sua WHERE thay_doi_nguon_id = ? AND ban_the_hien_id = ?")
@@ -752,6 +797,10 @@ export function damBaoThongDiepGhimNguonMoi(
     .map((id) => layNguonRevision(db, id))
     .find((nr) => nr !== null && nr.nguon_id === nguonId);
   if (pinned && pinned.id === nguon.head_revision_id) return false;
+  // Nguồn có thể đã bị gỡ link sau khi detection tạo — thêm lại để job sinh
+  // lại vẫn hút được nguồn mới (link thật giữ nguyên, không mất).
+  const nguonIds = danhSachNguonCuaThongDiep(db, td.id);
+  if (!nguonIds.includes(nguonId)) nguonIds.push(nguonId);
   capNhatThongDiep(
     db,
     td.id,
@@ -759,6 +808,7 @@ export function damBaoThongDiepGhimNguonMoi(
       tieu_de: td.tieu_de,
       noi_dung: td.noi_dung,
       campaign_id: td.campaign_id,
+      nguon_ids: nguonIds,
     },
     td.head_revision_id ?? "",
     tacGia,
@@ -793,8 +843,21 @@ export function deXuatSuaTask(
 
     // Tái dùng context sinh đã ghim trên head revision — hồ sơ giữ nguyên
     // (với thay đổi hồ sơ, lắp lại sẽ lấy revision mới nhất tự động).
+    // Revision tay không ghim context_sinh → mượn context của revision gần
+    // nhất có; vẫn thiếu thì fallback entity của detection để job không bỏ
+    // quên hồ sơ đã đổi.
     const head = bth.head_revision_id ? layRevision(db, bth.head_revision_id) : null;
-    const cs = head?.context_sinh_id ? layContextSinh(db, head.context_sinh_id) : null;
+    let cs = head?.context_sinh_id ? layContextSinh(db, head.context_sinh_id) : null;
+    if (!cs) {
+      const gan = db
+        .query(
+          `SELECT context_sinh_id FROM revision
+           WHERE ban_the_hien_id = ? AND context_sinh_id IS NOT NULL
+           ORDER BY so_thu_tu DESC LIMIT 1`,
+        )
+        .get(bth.id) as { context_sinh_id: string } | null;
+      cs = gan ? layContextSinh(db, gan.context_sinh_id) : null;
+    }
     let ghiDe: Record<string, unknown> = {};
     try {
       const j = JSON.parse(cs?.ghi_de ?? "{}") as unknown;
@@ -812,8 +875,12 @@ export function deXuatSuaTask(
         dinh_dang: bth.dinh_dang,
         ngon_ngu: bth.ngon_ngu,
         doi_tuong: bth.doi_tuong || undefined,
-        doi_tuong_id: cs?.doi_tuong_id ?? undefined,
-        thuong_hieu_id: cs?.thuong_hieu_id ?? undefined,
+        doi_tuong_id:
+          cs?.doi_tuong_id ??
+          (thayDoi.loai === "doi_tuong" ? thayDoi.entity_id : undefined),
+        thuong_hieu_id:
+          cs?.thuong_hieu_id ??
+          (thayDoi.loai === "thuong_hieu" ? thayDoi.entity_id : undefined),
         ghi_de: ghiDe,
         dich_den: bth.dich_den || undefined,
         campaign_id: td.campaign_id ?? undefined,
