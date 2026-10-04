@@ -262,13 +262,17 @@ export default function BanTheHienPage() {
     setDsAssetChon(khoaAssetServer ? khoaAssetServer.split(",") : []);
   }, [khoaAssetServer]);
 
-  function moBth(id: string) {
+  function moBth(id: string, ghiHash = true) {
     // Autosave còn hẹn của bản cũ → flush ngay lên nháp của bản cũ trước
     // khi đổi, không thì text soạn dở bị xóa khi chuyển.
     if (timerNhap.current) {
       clearTimeout(timerNhap.current);
       timerNhap.current = null;
       void luuNhap(noiDungMoiNhat.current, chonMoiNhat.current);
+    }
+    // Deep-link #/ban-the-hien?id=<id>: refresh/back phục hồi đúng bản.
+    if (ghiHash && window.location.hash !== `#/ban-the-hien?id=${id}`) {
+      window.location.hash = `/ban-the-hien?id=${id}`;
     }
     setChon(id);
     daNapNhap.current = false;
@@ -282,6 +286,20 @@ export default function BanTheHienPage() {
     setXungDot(null);
     setGhiChuDuyet("");
   }
+
+  // Đọc id từ hash (#/ban-the-hien?id=<uuid>) lúc mount và mỗi hashchange:
+  // link từ trang khác (kế hoạch, tổng quan) mở thẳng vào bản thể hiện.
+  useEffect(() => {
+    const doc = () => {
+      const m = window.location.hash.match(/[?&]id=([^&]+)/);
+      const id = m?.[1];
+      if (id && id !== chonMoiNhat.current) moBth(id, false);
+    };
+    doc();
+    window.addEventListener("hashchange", doc);
+    return () => window.removeEventListener("hashchange", doc);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function taiXemTruoc(revisionId: string) {
     if (!chiTiet.data) return;

@@ -3,6 +3,7 @@ import { useHashRoute } from "./api.ts";
 import AssetsPage from "./pages/Assets.tsx";
 import BanTheHienPage from "./pages/BanTheHien.tsx";
 import { HoSoPage } from "./pages/HoSo.tsx";
+import KeHoachPage from "./pages/KeHoach.tsx";
 import JobPage from "./pages/Job.tsx";
 import NguonPage from "./pages/Nguon.tsx";
 import TongQuanPage from "./pages/TongQuan.tsx";
@@ -18,7 +19,9 @@ const NAV = [
 
 export default function App() {
   const path = useHashRoute();
-  const hopLe = NAV.some((n) => n.path === path);
+  // Cắt phần query (?id=...) để so route — các trang tự đọc query trong hash.
+  const goc = path.split("?")[0] ?? "/";
+  const hopLe = [...NAV.map((n) => n.path), "/ke-hoach"].includes(goc);
 
   return (
     <Box>
@@ -32,7 +35,7 @@ export default function App() {
           </Flex>
           <TabNav.Root>
             {NAV.map((n) => (
-              <TabNav.Link key={n.path} href={`#${n.path}`} active={path === n.path}>
+              <TabNav.Link key={n.path} href={`#${n.path}`} active={goc === n.path}>
                 {n.nhan}
               </TabNav.Link>
             ))}
@@ -40,12 +43,13 @@ export default function App() {
         </Flex>
       </Box>
       <Box px="4" py="4" style={{ maxWidth: 1100, margin: "0 auto" }}>
-        {path === "/" && <TongQuanPage />}
-        {path === "/nguon" && <NguonPage />}
-        {path === "/asset" && <AssetsPage />}
-        {path === "/ban-the-hien" && <BanTheHienPage />}
-        {path === "/job" && <JobPage />}
-        {path === "/ho-so" && <HoSoPage />}
+        {goc === "/" && <TongQuanPage />}
+        {goc === "/nguon" && <NguonPage />}
+        {goc === "/asset" && <AssetsPage />}
+        {goc === "/ban-the-hien" && <BanTheHienPage />}
+        {goc === "/ke-hoach" && <KeHoachPage />}
+        {goc === "/job" && <JobPage />}
+        {goc === "/ho-so" && <HoSoPage />}
         {!hopLe && (
           <Flex justify="center" py="8">
             <Text color="gray">Không tìm thấy trang.</Text>
