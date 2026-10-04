@@ -67,6 +67,9 @@ export type JobCtx = {
   // mỗi ghi side-effect (revision, publish…) — attempt zombie (quá timeout
   // nhưng promise vẫn chạy) bị chặn tại đây thay vì commit sau khi job 'loi'.
   assertConHan: () => void;
+  // AbortSignal cháy khi attempt quá timeout — handler truyền xuống fetch/
+  // provider để hủy I/O còn treo thay vì để zombie chạy ngầm đến hết.
+  tinHieu: AbortSignal;
 };
 
 export type JobHandler = (
@@ -431,10 +434,12 @@ async function chayAttempt(
   // quaHan=true khi timeout đã thắng race: handler còn lại là "zombie" —
   // assertConHan chặn mọi ghi side-effect của nó kể cả khi job vẫn 'dang_chay'.
   let quaHan = false;
+  const abortCtl = new AbortController();
   const ctx: JobCtx = {
     db,
     job,
     lanThu: job.so_lan_thu,
+    tinHieu: abortCtl.signal,
     baoTienDo: (t) => capNhatTienDo(db, job, t),
     assertConHan: () => {
       if (quaHan) throw new LoiHetHan();
@@ -473,6 +478,7 @@ async function chayAttempt(
       new Promise<never>((_res, rej) => {
         timer = setTimeout(() => {
           quaHan = true;
+          abortCtl.abort(); // hủy I/O provider/fetch còn treo trong attempt
           rej(new LoiTimeout());
         }, job.timeout_ms);
         timer.unref?.();

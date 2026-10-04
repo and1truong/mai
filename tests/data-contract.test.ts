@@ -42,7 +42,7 @@ describe("contract dữ liệu nội dung (#4)", () => {
           { loai: "section", tieu_de: "Mở đầu", noi_dung: "Đoạn một." },
         ],
         ds_ban_the_hien: [
-          { dinh_dang: "web" },
+          { dinh_dang: "bai-viet" },
           { dinh_dang: "newsletter", doi_tuong: "Kỹ sư", dich_den: "email" },
         ],
       });
@@ -76,7 +76,7 @@ describe("contract dữ liệu nội dung (#4)", () => {
       // Dedupe danh tính đầu ra: POST lại cùng bộ → trả bản ghi cũ.
       const lai = await post(app, "/api/ban-the-hien", {
         thong_diep_id: du_lieu.thong_diep.id,
-        dinh_dang: "web",
+        dinh_dang: "bai-viet",
       });
       expect(lai.status).toBe(200);
       expect((await lai.json()).du_lieu.da_tao).toBe(false);
@@ -174,7 +174,7 @@ describe("contract dữ liệu nội dung (#4)", () => {
       const tao = await post(app, "/api/bai-viet", {
         tieu_de: "Bài duyệt",
         noi_dung: "nội dung",
-        ds_ban_the_hien: [{ dinh_dang: "web" }],
+        ds_ban_the_hien: [{ dinh_dang: "bai-viet" }],
       });
       const bthId = (await tao.json()).du_lieu.ds_ban_the_hien[0].id;
 
@@ -201,6 +201,18 @@ describe("contract dữ liệu nội dung (#4)", () => {
       expect(dsDuyet.du_lieu[0].tu_trang_thai).toBe("nhap");
       expect(dsDuyet.du_lieu[0].den_trang_thai).toBe("cho_duyet");
       expect(dsDuyet.du_lieu[0].ghi_chu).toBe("gửi duyệt");
+
+      // Chưa duyệt → chưa xuất bản được (#21): vòng đời ép phía server.
+      const chuaDuyet = await post(app, `/api/ban-the-hien/${bthId}/xuat-ban`, {});
+      expect(chuaDuyet.status).toBe(409);
+      expect((await chuaDuyet.json()).loi.ma).toBe("XUNG_DOT_TRANG_THAI");
+
+      // Duyệt ghim revision tường minh → mới xuất bản được.
+      const duyetOk = await post(app, `/api/ban-the-hien/${bthId}/trang-thai`, {
+        trang_thai: "da_duyet",
+        mong_doi_revision_id: head,
+      });
+      expect(duyetOk.status).toBe(200);
 
       // Xuất bản ghim revision head tại thời điểm đăng.
       const xb = await post(app, `/api/ban-the-hien/${bthId}/xuat-ban`, {

@@ -11,7 +11,7 @@ import {
 import { chayMigration, moDb } from "./db.ts";
 
 // Seed demo tối thiểu: 3 hồ sơ thương hiệu, 3 hồ sơ đối tượng (fixture),
-// 1 bài viết (nguồn + thông điệp + bản thể hiện 'web' revision 1).
+// 1 bài viết (nguồn + thông điệp + bản thể hiện 'bai-viet' revision 1).
 // Dùng id cố định + kiểm tra tồn tại → chạy lại nhiều lần được (idempotent).
 // la_fixture = 1 và nguon_du_lieu = 'he_thong' đánh dấu dữ liệu demo do hệ thống gợi ý.
 
@@ -168,7 +168,7 @@ export function seed(db: Database, tacGia = "demo"): { da_seed: string[] } {
   if (sauDt.c > truocDt.c) daSeed.push("ho_so_doi_tuong");
 
   // --- Bài viết demo qua service dùng chung: nguồn + thông điệp + bản
-  // thể hiện 'web' + revision 1. Đi qua service (không SQL thô) để seed tự
+  // thể hiện 'bai-viet' + revision 1. Đi qua service (không SQL thô) để seed tự
   // ghi revision/su_kien đúng contract.
   if (!db.query("SELECT id FROM nguon WHERE id = 'seed-nguon-1'").get()) {
     const nguon = taoNguon(
@@ -193,7 +193,7 @@ export function seed(db: Database, tacGia = "demo"): { da_seed: string[] } {
     );
     taoBanTheHien(
       db,
-      { thong_diep_id: thongDiep.id, dinh_dang: "web", doi_tuong: "chung" },
+      { thong_diep_id: thongDiep.id, dinh_dang: "bai-viet", doi_tuong: "chung" },
       tacGia,
       { id: "seed-bth-1" },
     );

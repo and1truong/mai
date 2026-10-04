@@ -60,7 +60,7 @@ function moTaLenLich(job: Job): string {
 export default function JobPage() {
   const jobs = useApi<Job[]>("/api/job");
   const thongDieps = useApi<ThongDiep[]>("/api/thong-diep");
-  const dinhDangs = useApi<string[]>("/api/dinh-dang");
+  const dinhDangs = useApi<{ id: string; nhan: string }[]>("/api/dinh-dang");
   const thuongHieu = useApi<HoSoThuongHieu[]>("/api/ho-so-thuong-hieu");
   const doiTuong = useApi<HoSoDoiTuong[]>("/api/ho-so-doi-tuong");
   const [thongDiepId, setThongDiepId] = useState("");
@@ -73,7 +73,7 @@ export default function JobPage() {
   const [loi, setLoi] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!dinhDang && dinhDangs.data?.[0]) setDinhDang(dinhDangs.data[0]);
+    if (!dinhDang && dinhDangs.data?.[0]) setDinhDang(dinhDangs.data[0].id);
   }, [dinhDangs.data, dinhDang]);
 
   // Tự reload khi còn job đang chờ/chạy (kể cả job lên lịch sắp tới hạn).
@@ -154,8 +154,8 @@ export default function JobPage() {
             <Select.Trigger placeholder="Định dạng" />
             <Select.Content>
               {dinhDangs.data?.map((d) => (
-                <Select.Item key={d} value={d}>
-                  {d}
+                <Select.Item key={d.id} value={d.id}>
+                  {d.nhan}
                 </Select.Item>
               ))}
             </Select.Content>

@@ -131,7 +131,22 @@ describe("trạng thái review", () => {
     expect(rac.status).toBe(400);
 
     expect((await goi("cho_duyet")).status).toBe(200);
-    expect((await goi("da_duyet")).status).toBe(200);
+    // Duyệt phải ghim revision tường minh (#21): thiếu mong_doi → 400.
+    expect((await goi("da_duyet")).status).toBe(400);
+    const chiTiet = await (await fetch(`${app.url}/api/ban-the-hien/seed-bth-1`)).json();
+    const head = chiTiet.du_lieu.head_revision_id;
+    // mong_doi sai head → request duyệt cũ lỗi sạch 409.
+    const cu = await post(app, "/api/ban-the-hien/seed-bth-1/trang-thai", {
+      trang_thai: "da_duyet",
+      mong_doi_revision_id: "rev-cu",
+    });
+    expect(cu.status).toBe(409);
+    expect((await cu.json()).loi.ma).toBe("XUNG_DOT_REVISION");
+    const okDuyet = await post(app, "/api/ban-the-hien/seed-bth-1/trang-thai", {
+      trang_thai: "da_duyet",
+      mong_doi_revision_id: head,
+    });
+    expect(okDuyet.status).toBe(200);
   });
 });
 
@@ -249,7 +264,7 @@ describe("ràng buộc unique danh tính đầu ra", () => {
         .query(
           `INSERT INTO ban_the_hien
              (id, thong_diep_id, dinh_dang, ngon_ngu, phien_ban_dinh_dang, doi_tuong, dich_den, trang_thai, head_revision_id, tao_luc, tao_boi)
-           VALUES ('trung', 'seed-td-1', 'web', 'vi', 1, 'chung', '', 'nhap', NULL, 'x', 'demo')`,
+           VALUES ('trung', 'seed-td-1', 'bai-viet', 'vi', 1, 'chung', '', 'nhap', NULL, 'x', 'demo')`,
         )
         .run(),
     ).toThrow();

@@ -266,7 +266,7 @@ describe("nội dung đã sinh giữ context đã dùng", () => {
   test("job thiếu hồ sơ tồn tại → 400 tại API", async () => {
     const res = await post("/api/job", {
       loai: "sinh_ban_the_hien",
-      payload: { thong_diep_id: "seed-td-1", dinh_dang: "web", doi_tuong_id: "khong-co" },
+      payload: { thong_diep_id: "seed-td-1", dinh_dang: "bai-viet", doi_tuong_id: "khong-co" },
     });
     expect(res.status).toBe(400);
   });
