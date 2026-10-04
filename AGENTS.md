@@ -23,6 +23,19 @@ Ngoại lệ — giữ nguyên theo convention kỹ thuật, không bắt buộc
 - Comment trong code: theo convention của file hiện có.
 - Chuỗi/log kỹ thuật mà tooling hoặc bên thứ ba yêu cầu bằng tiếng Anh.
 
+## Văn phong: theo tinh thần ASD-STE100
+
+Nội dung giao tiếp (issue, PR, comment, tài liệu) nên viết theo tinh thần **ASD-STE100** (Simplified Technical English), áp dụng cho tiếng Việt — **không cần tuân thủ 100%**:
+
+- Câu ngắn, một ý chính mỗi câu.
+- Từ ngữ đơn giản, phổ biến; tránh hoa mỹ, ẩn dụ, đại từ mơ hồ.
+- Chủ động, trực tiếp; hạn chế bị động dài.
+- Một yêu cầu/mệnh lệnh mỗi câu khi viết hướng dẫn.
+- Thuật ngữ nhất quán: cùng một khái niệm dùng cùng một từ.
+- Ưu tiên danh sách, bảng, hoặc diff/pseudocode khi liệt kê hay mô tả thay đổi.
+
+Mục tiêu: người đọc (kể cả agent và công cụ dịch tự động) hiểu đúng ngay, không phải suy đoán.
+
 ## Bảo mật
 
 Vì repo public:
@@ -32,4 +45,4 @@ Vì repo public:
 
 ---
 
-*English: this repository is public only to take advantage of GitHub's free compute. All public-facing content — issues, PRs, comments — must be written in Vietnamese. Follow the rules above.*
+*English: this repository is public only to take advantage of GitHub's free compute. All public-facing content — issues, PRs, comments — must be written in Vietnamese, in a simple ASD-STE100-like style (strict compliance not required). Follow the rules above.*
