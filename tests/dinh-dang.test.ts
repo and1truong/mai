@@ -67,7 +67,17 @@ const JSON_BAI_VIET = JSON.stringify({
 describe("registry định dạng (#19)", () => {
   test("đủ định dạng ban đầu, mỗi cái có phiên bản + schema trường + ngôn ngữ", () => {
     expect([...DANH_SACH_DINH_DANG].sort()).toEqual(
-      ["bai-viet", "caption", "faq", "newsletter", "script-dai", "script-ngan", "thread"].sort(),
+      [
+        "bai-viet",
+        "caption",
+        "email-khach",
+        "faq",
+        "google-business",
+        "newsletter",
+        "script-dai",
+        "script-ngan",
+        "thread",
+      ].sort(),
     );
     for (const id of DANH_SACH_DINH_DANG) {
       const def = layDinhDang(id)!;

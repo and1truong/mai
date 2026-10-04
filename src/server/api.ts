@@ -116,6 +116,9 @@ import {
   chonDauRa,
   danhSachBanTheHienCu,
   danhSachKeHoach,
+  docFact,
+  factThieu,
+  kiemTraFact,
   layKeHoach,
   capNhatKeHoach,
   taoKeHoach,
@@ -458,6 +461,7 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       if (nguonId && !layNguon(c.db, nguonId)) {
         dsLoi.push(`Nguồn không tồn tại: ${nguonId}`);
       }
+      const fact = kiemTraFact(body.fact, dsLoi);
       nemLoiValidation(dsLoi);
       const kh = taoKeHoach(
         c.db,
@@ -466,6 +470,7 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
           tieu_de: tuyChonChuoi(body.tieu_de) || undefined,
           nguon_id: nguonId || null,
           cta: tuyChonChuoi(body.cta),
+          fact,
         },
         c.actor,
       );
@@ -473,6 +478,7 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
         ke_hoach: kh,
         cau_hoi: cauHoiLamRo(c.db, kh),
         de_xuat: JSON.parse(kh.de_xuat_dau_ra),
+        fact_thieu: factThieu(kh),
       });
     }),
     route("GET", "/api/ke-hoach/:id", (_req, p, c) => {
@@ -486,6 +492,10 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
         de_xuat: JSON.parse(kh.de_xuat_dau_ra),
         ds_chon: JSON.parse(kh.ds_chon),
         ho_so_doi_tuong: danhSachDoiTuong(c.db),
+        // Fact đã xác nhận (parse sẵn) + danh sách ô còn thiếu mà đầu ra
+        // sự kiện cần — UI hiển thị ngày cụ thể để xác nhận (#7).
+        fact: docFact(kh.fact),
+        fact_thieu: factThieu(kh),
       });
     }),
     route("PUT", "/api/ke-hoach/:id", async (req, p, c) => {
@@ -503,6 +513,7 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       if (body.dua_tren_revision_id !== undefined && typeof body.dua_tren_revision_id !== "string") {
         dsLoi.push("dua_tren_revision_id phải là chuỗi.");
       }
+      const fact = kiemTraFact(body.fact, dsLoi);
       nemLoiValidation(dsLoi);
       const kh = capNhatKeHoach(
         c.db,
@@ -511,11 +522,12 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
           van_ban: body.van_ban as string | undefined,
           tieu_de: body.tieu_de as string | undefined,
           cta: body.cta as string | undefined,
+          fact,
           dua_tren_revision_id: body.dua_tren_revision_id as string | undefined,
         },
         c.actor,
       );
-      return ok({ ke_hoach: kh, cau_hoi: cauHoiLamRo(c.db, kh) });
+      return ok({ ke_hoach: kh, cau_hoi: cauHoiLamRo(c.db, kh), fact_thieu: factThieu(kh) });
     }),
     route("POST", "/api/ke-hoach/:id/chon", async (req, p, c) => {
       const body = await docBody(req);
@@ -716,12 +728,13 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
         .map((id) => layNguon(c.db, id))
         .filter((n): n is NonNullable<typeof n> => n !== null)
         .map((n) => ({ id: n.id, tieu_de: n.tieu_de }));
-      // Kế hoạch gắn thông điệp này (nếu đi qua luồng #5) — link quay lại.
+      // Kế hoạch gắn thông điệp này (nếu đi qua luồng #5) — link quay lại
+      // + fact đã xác nhận để trang thông điệp hiển thị lịch kèm múi giờ (#7).
       const kh = c.db
         .query(
-          "SELECT id, trang_thai FROM ke_hoach WHERE thong_diep_id = ? ORDER BY cap_nhat_luc DESC LIMIT 1",
+          "SELECT id, trang_thai, fact FROM ke_hoach WHERE thong_diep_id = ? ORDER BY cap_nhat_luc DESC LIMIT 1",
         )
-        .get(td.id) as { id: string; trang_thai: string } | null;
+        .get(td.id) as { id: string; trang_thai: string; fact: string } | null;
       // Mọi đầu ra dưới một thông điệp (#6): nhãn định dạng, trạng thái
       // review, cờ "đã cũ" (revision ghim thông điệp lệch head), nháp tay,
       // record xuất bản mới nhất → URL trang do server phục vụ + dòng
@@ -742,9 +755,14 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
           .map((n) => ({ id: n.id, nguon_id: n.nguon_id, tieu_de: n.tieu_de, so_thu_tu: n.so_thu_tu }));
         const dsXb = danhSachXuatBan(c.db, b.id);
         const xbMoi = dsXb[0] ?? null;
+        const dsAsset = danhSachAssetBanTheHien(c.db, b.id);
         return {
           ...b,
           dinh_dang_nhan: def?.nhan ?? b.dinh_dang,
+          // Gợi ý đính kèm ảnh/asset của định dạng + asset hiện có — UI
+          // hiển thị ô yêu cầu/upload khi thiếu, không bịa sẵn có ảnh (#7).
+          goi_y_asset: def?.goi_y_asset ?? null,
+          ds_asset: dsAsset.map((a) => ({ id: a.id, ten_file: a.ten_file, mime: a.mime })),
           doi_tuong_id: doiTuongId,
           head_revision_so: headRev?.so_thu_tu ?? null,
           la_cu:
@@ -764,7 +782,7 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
         campaign: td.campaign_id ? layCampaign(c.db, td.campaign_id) : null,
         nguon_ids: nguonIds,
         ds_nguon: dsNguon,
-        ke_hoach: kh,
+        ke_hoach: kh ? { ...kh, fact: docFact(kh.fact) } : null,
         ds_dau_ra: dsDauRa,
         revisions: danhSachThongDiepRevision(c.db, td.id),
       });

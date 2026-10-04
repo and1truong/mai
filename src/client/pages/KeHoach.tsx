@@ -27,10 +27,29 @@ type KeHoachDong = {
   nguon_id: string | null;
   intake: string;
   cta: string;
+  fact?: string;
   trang_thai: string;
   tao_luc: string;
   cap_nhat_luc: string;
   tieu_de?: string;
+};
+
+// Sự thật đã xác nhận của intake sự kiện (#7) — lịch dự kiến kèm múi giờ.
+type FactSuKien = {
+  ngay_gio?: string;
+  mui_gio?: string;
+  gia?: string;
+  tinh_trang?: string;
+  link_dat_hang?: string;
+};
+
+// Nhãn người đọc cho ô fact — server trả fact_thieu là key ở đây.
+const NHAN_FACT: Record<string, string> = {
+  ngay_gio: "Ngày giờ cụ thể",
+  mui_gio: "Múi giờ",
+  gia: "Giá",
+  tinh_trang: "Tình trạng hàng",
+  link_dat_hang: "Link đặt hàng",
 };
 
 type DauRa = {
@@ -48,6 +67,8 @@ type ChiTietKh = {
   de_xuat: DauRa[];
   ds_chon: DauRa[];
   ho_so_doi_tuong: { id: string; ten: string }[];
+  fact?: FactSuKien;
+  fact_thieu?: string[];
 };
 
 function khoaDauRa(d: DauRa) {
@@ -114,14 +135,26 @@ function ChiTietKhView({ id }: { id: string }) {
   const [ddThem, setDdThem] = useState("");
   const [dtThem, setDtThem] = useState("");
   const [dichDenThem, setDichDenThem] = useState("");
+  const [fact, setFact] = useState<FactSuKien>({});
 
   // Nạp intake hiện lưu vào form một lần — tiếp tục soạn đúng chỗ đã dừng.
+  // Fact đã xác nhận nạp luôn; khi chưa chọn mà đề xuất nhóm "Chung" là
+  // bundle sự kiện thì tick sẵn — người dùng nhận bundle mạch lạc đã chọn
+  // thay vì tự tích từng ô (#7).
   useEffect(() => {
     const k = chiTiet.data?.ke_hoach;
     if (k) {
       setTieuDe(chiTiet.data!.thong_diep?.tieu_de ?? "");
       setVanBan(k.intake);
       setCta(k.cta ?? "");
+      setFact(chiTiet.data!.fact ?? {});
+      if (k.trang_thai !== "da_chon" && (chiTiet.data!.ds_chon ?? []).length === 0) {
+        const m = new Map<string, DauRa>();
+        for (const dx of chiTiet.data!.de_xuat ?? []) {
+          if (dx.doi_tuong_id === null) m.set(khoaDauRa(dx), dx);
+        }
+        if (m.size > 0) setDsChon(m);
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chiTiet.data?.ke_hoach?.id]);
@@ -132,7 +165,7 @@ function ChiTietKhView({ id }: { id: string }) {
       await api(`/api/ke-hoach/${id}`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ van_ban: vanBan, tieu_de: tieuDe, cta }),
+        body: JSON.stringify({ van_ban: vanBan, tieu_de: tieuDe, cta, fact }),
       });
       setTrangThaiLuu(`Đã lưu ${new Date().toLocaleTimeString("vi")}`);
       chiTiet.reload();
@@ -192,6 +225,12 @@ function ChiTietKhView({ id }: { id: string }) {
   const d = chiTiet.data;
   const tenDt = (idDt: string | null) =>
     idDt ? (d?.ho_so_doi_tuong.find((x) => x.id === idDt)?.ten ?? idDt) : "Chung";
+  // Nhãn định dạng từ registry thay id thô — người dùng không phải hiểu
+  // "script-ngan" hay "ban_the_hien" (#7).
+  const nhanDd = (dd: string) => dsDinhDang.data?.find((x) => x.id === dd)?.nhan ?? dd;
+  const ngayGioXacNhan = fact.ngay_gio && !Number.isNaN(new Date(fact.ngay_gio).getTime())
+    ? new Date(fact.ngay_gio).toLocaleString("vi", { dateStyle: "full", timeStyle: "short" })
+    : "";
   const nhom = new Map<string, DauRa[]>();
   for (const dx of d?.de_xuat ?? []) {
     const k = dx.doi_tuong_id ?? "";
@@ -248,6 +287,71 @@ function ChiTietKhView({ id }: { id: string }) {
                 Nguồn kèm: {d.nguon.tieu_de}
               </Text>
             )}
+
+            {/* Sự thật đã xác nhận (#7): intake sự kiện hỏi ngày giờ thật
+                kèm múi giờ, giá, tình trạng hàng, link đặt hàng. Hiển thị
+                một ngày cụ thể để xác nhận thay vì ngày tương đối mơ hồ. */}
+            <Box
+              p="2"
+              style={{ border: "1px solid var(--gray-5)", borderRadius: 8 }}
+            >
+              <Text size="2" weight="bold" as="p" mb="1">
+                Sự thật đã xác nhận
+              </Text>
+              <Flex direction="column" gap="2">
+                <Flex gap="2" align="center" wrap="wrap">
+                  <TextField.Root
+                    type="datetime-local"
+                    aria-label="Ngày giờ cụ thể"
+                    value={fact.ngay_gio ?? ""}
+                    onChange={(e) => setFact({ ...fact, ngay_gio: e.target.value })}
+                    style={{ width: 230 }}
+                  />
+                  <TextField.Root
+                    aria-label="Múi giờ"
+                    placeholder="Múi giờ (vd Asia/Ho_Chi_Minh)"
+                    value={fact.mui_gio ?? ""}
+                    onChange={(e) => setFact({ ...fact, mui_gio: e.target.value })}
+                    style={{ width: 230 }}
+                  />
+                </Flex>
+                {ngayGioXacNhan && (
+                  <Text size="1" color="gray">
+                    Xác nhận: {ngayGioXacNhan}
+                    {fact.mui_gio ? ` — ${fact.mui_gio}` : ""}
+                  </Text>
+                )}
+                <Flex gap="2" wrap="wrap">
+                  <TextField.Root
+                    aria-label="Giá"
+                    placeholder="Giá (nếu có)"
+                    value={fact.gia ?? ""}
+                    onChange={(e) => setFact({ ...fact, gia: e.target.value })}
+                    style={{ flex: 1, minWidth: 140 }}
+                  />
+                  <TextField.Root
+                    aria-label="Tình trạng hàng"
+                    placeholder="Tình trạng hàng (vd còn hàng)"
+                    value={fact.tinh_trang ?? ""}
+                    onChange={(e) => setFact({ ...fact, tinh_trang: e.target.value })}
+                    style={{ flex: 1, minWidth: 140 }}
+                  />
+                  <TextField.Root
+                    aria-label="Link đặt hàng"
+                    placeholder="Link đặt hàng"
+                    value={fact.link_dat_hang ?? ""}
+                    onChange={(e) => setFact({ ...fact, link_dat_hang: e.target.value })}
+                    style={{ flex: 1, minWidth: 140 }}
+                  />
+                </Flex>
+                {d && (d.fact_thieu ?? []).length > 0 && (
+                  <Text size="1" color="amber">
+                    Đầu ra sự kiện còn thiếu: {d.fact_thieu!.map((k) => NHAN_FACT[k] ?? k).join(", ")}
+                  </Text>
+                )}
+              </Flex>
+            </Box>
+
             <Flex align="center" gap="3">
               <Button size="2" onClick={() => void luu()}>
                 Lưu
@@ -299,7 +403,7 @@ function ChiTietKhView({ id }: { id: string }) {
                           }}
                         />
                         <Text size="2">
-                          {dx.dinh_dang}
+                          {nhanDd(dx.dinh_dang)}
                           {dx.dich_den ? ` → ${dx.dich_den}` : ""}
                         </Text>
                       </label>
@@ -347,7 +451,7 @@ function ChiTietKhView({ id }: { id: string }) {
             <Flex gap="2" wrap="wrap" mb="2">
               {dsThem.map((dx) => (
                 <Badge key={khoaDauRa(dx)} color="purple" variant="soft">
-                  {tenDt(dx.doi_tuong_id)} / {dx.dinh_dang}
+                  {tenDt(dx.doi_tuong_id)} / {nhanDd(dx.dinh_dang)}
                   {dx.dich_den ? ` → ${dx.dich_den}` : ""}
                   <button
                     type="button"
@@ -381,7 +485,7 @@ function ChiTietKhView({ id }: { id: string }) {
               {d.ds_chon
                 .map(
                   (c) =>
-                    `${tenDt(c.doi_tuong_id)} / ${c.dinh_dang}${c.dich_den ? ` → ${c.dich_den}` : ""}`,
+                    `${tenDt(c.doi_tuong_id)} / ${nhanDd(c.dinh_dang)}${c.dich_den ? ` → ${c.dich_den}` : ""}`,
                 )
                 .join(", ")}
               . Sinh lại cùng lựa chọn tạo revision mới, không đụng nháp tay.

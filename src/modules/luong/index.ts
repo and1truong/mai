@@ -16,7 +16,7 @@ import {
 } from "../content/index.ts";
 import { danhSachDoiTuong, layDoiTuong, type HoSoDoiTuong } from "../context/index.ts";
 import { layDinhDang, kiemTraNgonNgu, DANH_SACH_DINH_DANG } from "../formats/index.ts";
-import { thieuChungCu } from "../generation/context.ts";
+import { RE_NGAY_CU_THE, thieuChungCu } from "../generation/context.ts";
 import { enqueueJob, type Job } from "../jobs/index.ts";
 import { LoiApi, loiRequest } from "../../loi.ts";
 
@@ -53,6 +53,7 @@ export type KeHoach = {
   nguon_id: string | null;
   intake: string;
   cta: string; // CTA của kế hoạch (đích hành động mong muốn)
+  fact: string; // JSON FactSuKien — sự thật đã xác nhận (#7), ghép vào thông điệp
   de_xuat_dau_ra: string; // JSON DauRaDeXuat[] — đề xuất tại thời điểm tạo/cập nhật
   ds_chon: string; // JSON DauRaDeXuat[] — lựa chọn đã xác nhận
   trang_thai: string; // 'nhap' (chưa chọn) | 'da_chon'
@@ -67,20 +68,144 @@ export type NhapKeHoach = {
   tieu_de?: string;
   nguon_id?: string | null;
   cta?: string;
+  fact?: FactSuKien;
 };
+
+// --- Sự thật đã xác nhận (#7) ---
+
+// Fact cấu trúc mà intake thu thập — chuỗi tự do ngắn, người dùng xác nhận
+// từng ô; ngay_gio + mui_gio là lịch dự kiến (vd "2026-10-10T08:00" +
+// "Asia/Ho_Chi_Minh"). Không có ô nào thì fact rỗng — không bịa.
+export const FACT_SU_KIEN = [
+  "ngay_gio",
+  "mui_gio",
+  "gia",
+  "tinh_trang",
+  "link_dat_hang",
+] as const;
+export type FactSuKien = Partial<Record<(typeof FACT_SU_KIEN)[number], string>>;
+
+// Đọc/validate fact JSON lưu trên ke_hoach. Chỉ giữ key đã biết, ép chuỗi
+// có trim — object lạ không nuốt lặng sang thông điệp.
+export function docFact(factJson: string | null | undefined): FactSuKien {
+  let j: unknown = null;
+  try {
+    j = JSON.parse(factJson ?? "{}");
+  } catch {
+    return {};
+  }
+  if (typeof j !== "object" || j === null || Array.isArray(j)) return {};
+  const ra: FactSuKien = {};
+  for (const k of FACT_SU_KIEN) {
+    const v = (j as Record<string, unknown>)[k];
+    if (typeof v === "string" && v.trim() !== "") ra[k] = v.trim();
+  }
+  return ra;
+}
+
+// Validate fact từ request: key lạ → lỗi từng trường, giá trị không phải
+// chuỗi hoặc quá dài → lỗi. Trả dsLoi để gom một response 400 duy nhất.
+export function kiemTraFact(body: unknown, dsLoi: string[]): FactSuKien | undefined {
+  if (body === undefined) return undefined;
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    dsLoi.push("fact phải là object các trường sự thật đã xác nhận.");
+    return undefined;
+  }
+  const fact: FactSuKien = {};
+  for (const [k, v] of Object.entries(body as Record<string, unknown>)) {
+    if (!(FACT_SU_KIEN as readonly string[]).includes(k)) {
+      dsLoi.push(`fact.${k} không nằm trong danh sách: ${FACT_SU_KIEN.join(", ")}.`);
+      continue;
+    }
+    if (v !== null && v !== undefined && typeof v !== "string") {
+      dsLoi.push(`fact.${k} phải là chuỗi.`);
+      continue;
+    }
+    const s = (v ?? "").toString().trim();
+    if (s.length > 500) {
+      dsLoi.push(`fact.${k} quá dài (tối đa 500 ký tự).`);
+      continue;
+    }
+    if (s !== "") (fact as Record<string, string>)[k] = s;
+  }
+  return fact;
+}
+
+// Intake dạng sự kiện/thông báo: ra mắt, khai trương, mở bán, ưu đãi —
+// nhóm đề xuất "Chung" đổi thành bundle thông báo đa kênh (#7).
+export const RE_SU_KIEN =
+  /ra\s+mắt|khai\s+trương|mở\s+bán|phát\s+hành|sự\s+kiện|ưu\s+đãi|giảm\s+giá|lễ\s+khai|launch|ra\s+mat|khai\s+truong|mo\s+ban|su\s+kien|uu\s+dai|giam\s+gia/iu;
+
+// Ghép fact đã xác nhận vào nội dung thông điệp: một dòng thông báo chuẩn
+// (một câu ghép gạch ngang — đầu ra sinh từ thông điệp giữ nguyên
+// ngày/sản phẩm/giá/CTA trên mọi bản), rồi khối liệt kê cho người đọc, rồi
+// intake gốc. Không có fact nào → trả nguyên intake.
+export function ghepNoiDungThongBao(vanBan: string, fact: FactSuKien, cta: string): string {
+  const f = docFact(JSON.stringify(fact));
+  const phan: string[] = [];
+  if (f.ngay_gio) phan.push(`thời gian ${f.ngay_gio}${f.mui_gio ? ` (${f.mui_gio})` : ""}`);
+  else if (f.mui_gio) phan.push(`múi giờ ${f.mui_gio}`);
+  if (f.gia) phan.push(`giá ${f.gia}`);
+  if (f.tinh_trang) phan.push(f.tinh_trang);
+  if (f.link_dat_hang) phan.push(`đặt hàng ${f.link_dat_hang}`);
+  const ctaSach = cta.trim();
+  if (ctaSach) phan.push(ctaSach);
+  if (phan.length === 0) return vanBan;
+
+  const dongChuan = phan.join(" — ");
+  const muc: string[] = [];
+  if (f.ngay_gio) {
+    muc.push(`- Thời gian: ${f.ngay_gio}${f.mui_gio ? ` (${f.mui_gio})` : ""}`);
+  } else if (f.mui_gio) {
+    muc.push(`- Múi giờ: ${f.mui_gio}`);
+  }
+  if (f.gia) muc.push(`- Giá: ${f.gia}`);
+  if (f.tinh_trang) muc.push(`- Tình trạng: ${f.tinh_trang}`);
+  if (f.link_dat_hang) muc.push(`- Đặt hàng: ${f.link_dat_hang}`);
+  if (ctaSach) muc.push(`- CTA: ${ctaSach}`);
+  return [
+    dongChuan,
+    "",
+    "## Sự thật đã xác nhận",
+    ...muc,
+    "",
+    "## Intake",
+    vanBan,
+  ].join("\n");
+}
+
+// Fact còn thiếu mà đầu ra đã chọn cần — chỉ áp cho intake sự kiện. Ngày
+// giờ cụ thể kèm múi giờ là bắt buộc mềm (hiển thị một ngày cụ thể để xác
+// nhận thay vì ngày tương đối); giá/tình trạng/link đặt hàng là gợi ý.
+export function factThieu(kh: KeHoach): string[] {
+  if (!RE_SU_KIEN.test(kh.intake)) return [];
+  const fact = docFact(kh.fact);
+  const thieu: string[] = [];
+  const coNgayCuThe = fact.ngay_gio
+    ? RE_NGAY_CU_THE.test(fact.ngay_gio)
+    : RE_NGAY_CU_THE.test(kh.intake);
+  if (!coNgayCuThe) thieu.push("ngay_gio");
+  if (fact.ngay_gio && !fact.mui_gio) thieu.push("mui_gio");
+  for (const k of ["gia", "tinh_trang", "link_dat_hang"] as const) {
+    if (!fact[k]) thieu.push(k);
+  }
+  return thieu;
+}
 
 // Câu hỏi làm rõ từ mã chứng cứ thiếu — text câu hỏi cố định phía server để
 // UI không phải suy ra; không bịa fact, chỉ hỏi.
 export const CAU_HOI_THIEU: Record<string, string> = {
   so_lieu: "Có số liệu hay con số cụ thể nào cần đưa vào không?",
   moc_thoi_gian: "Sự kiện/mốc thời gian diễn ra khi nào?",
+  ngay_gio_cu_the: "Ngày giờ cụ thể diễn ra khi nào (kèm múi giờ)?",
   gia_ca: "Có thông tin giá, chi phí hay khuyến mãi không?",
 };
 
 // Đề xuất đầu ra deterministic: gán định dạng theo từ khóa trong hồ sơ đối
 // tượng (moi_quan_tam + nhu_cau_giao_tiep + kien_thuc_nen). Không gọi AI —
-// gợi ý phải lặp lại được và giải thích được.
-const LUAT_DE_XUAT: { re: RegExp; ds_dinh_dang: string[] }[] = [
+// gợi ý phải lặp lại được và giải thích được. `dich_den` gắn sẵn kênh khi
+// luật mang nghĩa kênh (vd caption → instagram trong bundle sự kiện #7).
+const LUAT_DE_XUAT: { re: RegExp; ds_dinh_dang: (string | { dinh_dang: string; dich_den: string })[] }[] = [
   // Lãnh đạo trước: hồ sơ "lãnh đạo kỹ thuật" cũng chứa "kỹ thuật" — khớp
   // sai luật sẽ đề xuất bài chuyên sâu cho đối tượng cần bản tóm tắt (#6).
   { re: /lãnh đạo|quản lý|giám đốc|sếp|leadership/i, ds_dinh_dang: ["caption", "thread"] },
@@ -93,24 +218,43 @@ const LUAT_DE_XUAT: { re: RegExp; ds_dinh_dang: string[] }[] = [
 const DINH_DANG_MAC_DINH_DT = ["bai-viet", "caption"];
 const DINH_DANG_MAC_DINH_CHUNG = ["newsletter", "caption"];
 
+// Bundle thông báo sự kiện (#7): thông báo web → trang local, caption
+// Instagram, script TikTok, bài đăng Google Business, email khách — tất cả
+// ở nhóm "Chung" để một intake sự kiện có ngay bundle mạch lạc đã chọn.
+const DE_XUAT_SU_KIEN: DauRaDeXuat[] = [
+  { doi_tuong_id: null, dinh_dang: "bai-viet" },
+  { doi_tuong_id: null, dinh_dang: "caption", dich_den: "instagram" },
+  { doi_tuong_id: null, dinh_dang: "script-ngan", dich_den: "tiktok" },
+  { doi_tuong_id: null, dinh_dang: "google-business", dich_den: "google-business" },
+  { doi_tuong_id: null, dinh_dang: "email-khach", dich_den: "email" },
+];
+
 export function deXuatDauRaChoDoiTuong(dt: HoSoDoiTuong): string[] {
   const vanBan = `${dt.moi_quan_tam} ${dt.nhu_cau_giao_tiep} ${dt.kien_thuc_nen} ${dt.ten}`;
   for (const luat of LUAT_DE_XUAT) {
-    if (luat.re.test(vanBan)) return luat.ds_dinh_dang;
+    if (luat.re.test(vanBan)) {
+      return luat.ds_dinh_dang.map((x) => (typeof x === "string" ? x : x.dinh_dang));
+    }
   }
   return DINH_DANG_MAC_DINH_DT;
 }
 
 // Đề xuất đầy đủ cho một kế hoạch: một entry "chung" (không đối tượng) +
 // một nhóm cho mỗi hồ sơ đối tượng. Lọc theo ngôn ngữ định dạng hỗ trợ.
-export function deXuatDauRa(db: Database, ngonNgu: string): DauRaDeXuat[] {
+// `vanBan` = intake — sự kiện thì nhóm chung đổi thành bundle đa kênh (#7).
+export function deXuatDauRa(db: Database, ngonNgu: string, vanBan = ""): DauRaDeXuat[] {
   const ds: DauRaDeXuat[] = [];
   // Lọc theo ngôn ngữ của chính entry đề xuất — hồ sơ đối tượng ngôn ngữ khác
   // vẫn sinh được đề xuất chọn được.
   const hopLe = (dd: string, nn: string) =>
     layDinhDang(dd) && !kiemTraNgonNgu(layDinhDang(dd)!, nn);
-  for (const dd of DINH_DANG_MAC_DINH_CHUNG) {
-    if (hopLe(dd, ngonNgu)) ds.push({ doi_tuong_id: null, dinh_dang: dd, ngon_ngu: ngonNgu });
+  const chung = RE_SU_KIEN.test(vanBan) ? DE_XUAT_SU_KIEN : DINH_DANG_MAC_DINH_CHUNG;
+  for (const dx of chung) {
+    const dd = typeof dx === "string" ? dx : dx.dinh_dang;
+    const dichDen = typeof dx === "string" ? undefined : dx.dich_den;
+    if (hopLe(dd, ngonNgu)) {
+      ds.push({ doi_tuong_id: null, dinh_dang: dd, ngon_ngu: ngonNgu, dich_den: dichDen });
+    }
   }
   for (const dt of danhSachDoiTuong(db)) {
     const nn = dt.ngon_ngu || ngonNgu;
@@ -147,19 +291,24 @@ export function taoKeHoach(db: Database, input: NhapKeHoach, tacGia: string): Ke
     if (input.nguon_id && !layNguon(db, input.nguon_id)) {
       loiRequest(400, "VALIDATION", `Nguồn không tồn tại: ${input.nguon_id}`);
     }
+    const cta = (input.cta ?? "").trim();
+    const fact = input.fact ?? {};
+    // Ghép fact đã xác nhận vào nội dung: dòng chuẩn đứng đầu → mọi đầu ra
+    // sinh từ thông điệp giữ nguyên ngày/sản phẩm/giá/CTA trên mọi bản (#7).
+    const noiDung = ghepNoiDungThongBao(vanBan, fact, cta);
     const tieuDe = (input.tieu_de ?? "").trim() || vanBan.split("\n")[0]!.slice(0, 120);
     const td = taoThongDiep(
       db,
-      { tieu_de: tieuDe, noi_dung: vanBan, nguon_ids: input.nguon_id ? [input.nguon_id] : [] },
+      { tieu_de: tieuDe, noi_dung: noiDung, nguon_ids: input.nguon_id ? [input.nguon_id] : [] },
       tacGia,
     );
     const id = crypto.randomUUID();
     const ts = bayGio();
-    const deXuat = JSON.stringify(deXuatDauRa(db, "vi"));
+    const deXuat = JSON.stringify(deXuatDauRa(db, "vi", vanBan));
     db.query(
-      `INSERT INTO ke_hoach (id, thong_diep_id, nguon_id, intake, cta, de_xuat_dau_ra, ds_chon, trang_thai, tao_luc, tao_boi, cap_nhat_luc, cap_nhat_boi)
-       VALUES (?, ?, ?, ?, ?, ?, '[]', 'nhap', ?, ?, ?, ?)`,
-    ).run(id, td.id, input.nguon_id ?? null, vanBan, (input.cta ?? "").trim(), deXuat, ts, tacGia, ts, tacGia);
+      `INSERT INTO ke_hoach (id, thong_diep_id, nguon_id, intake, cta, fact, de_xuat_dau_ra, ds_chon, trang_thai, tao_luc, tao_boi, cap_nhat_luc, cap_nhat_boi)
+       VALUES (?, ?, ?, ?, ?, ?, ?, '[]', 'nhap', ?, ?, ?, ?)`,
+    ).run(id, td.id, input.nguon_id ?? null, vanBan, cta, JSON.stringify(fact), deXuat, ts, tacGia, ts, tacGia);
     ghiSuKien(db, "ke_hoach", id, "tao", { thong_diep_id: td.id }, tacGia);
     return layKeHoach(db, id)!;
   });
@@ -191,6 +340,7 @@ export function capNhatKeHoach(
     van_ban?: string;
     tieu_de?: string;
     cta?: string;
+    fact?: FactSuKien;
     dua_tren_revision_id?: string;
   },
   tacGia: string,
@@ -206,19 +356,28 @@ export function capNhatKeHoach(
     const vanBan = input.van_ban !== undefined ? input.van_ban.trim() : kh.intake;
     const tieuDe = input.tieu_de !== undefined ? input.tieu_de.trim() : td.tieu_de;
     const cta = input.cta !== undefined ? input.cta.trim() : kh.cta;
-    const noiDungDoi = vanBan !== kh.intake || tieuDe !== td.tieu_de;
+    // fact truyền vào thay toàn bộ — client gửi đủ các ô nó có.
+    const fact = input.fact !== undefined ? input.fact : docFact(kh.fact);
+    // Sửa sản phẩm/ngày → revision thông điệp mới: sự thay đổi fact truy về
+    // được tới nguồn thông báo và cờ các bản đã sinh là đã cũ (#7).
+    const noiDung = ghepNoiDungThongBao(vanBan, fact, cta);
+    const noiDungCu =
+      td.head_revision_id
+        ? (layThongDiepRevision(db, td.head_revision_id)?.noi_dung ?? td.noi_dung)
+        : td.noi_dung;
+    const noiDungDoi = noiDung !== noiDungCu || tieuDe !== td.tieu_de;
     if (noiDungDoi) {
       capNhatThongDiep(
         db,
         td.id,
-        { tieu_de: tieuDe, noi_dung: vanBan, nguon_ids: kh.nguon_id ? [kh.nguon_id] : [] },
+        { tieu_de: tieuDe, noi_dung: noiDung, nguon_ids: kh.nguon_id ? [kh.nguon_id] : [] },
         input.dua_tren_revision_id ?? td.head_revision_id ?? "",
         tacGia,
       );
     }
     db.query(
-      "UPDATE ke_hoach SET intake = ?, cta = ?, de_xuat_dau_ra = ?, cap_nhat_luc = ?, cap_nhat_boi = ? WHERE id = ?",
-    ).run(vanBan, cta, JSON.stringify(deXuatDauRa(db, "vi")), bayGio(), tacGia, id);
+      "UPDATE ke_hoach SET intake = ?, cta = ?, fact = ?, de_xuat_dau_ra = ?, cap_nhat_luc = ?, cap_nhat_boi = ? WHERE id = ?",
+    ).run(vanBan, cta, JSON.stringify(fact), JSON.stringify(deXuatDauRa(db, "vi", vanBan)), bayGio(), tacGia, id);
     return layKeHoach(db, id)!;
   });
 }

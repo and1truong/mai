@@ -29,6 +29,9 @@ export type DinhNghiaDinhDang = {
   mo_ta: string;
   ngon_ngu: string[];
   truong: DinhNghiaTruong[];
+  // Gợi ý đính kèm asset (vd ảnh sản phẩm cho caption Instagram) — UI hiển
+  // thị ô yêu cầu/upload khi đầu ra chưa có asset; không bắt buộc, không bịa.
+  goi_y_asset?: string;
 };
 
 // Một vấn đề validation của nội dung theo schema — trả về phản hồi sửa
@@ -77,6 +80,9 @@ const DANG_CAPTION: DinhNghiaDinhDang = {
     { ten: "noi_dung", nhan: "Nội dung", loai: "markdown", bat_buoc: true, do_dai_toi_da: 2200 },
     { ten: "hashtag", nhan: "Hashtag", loai: "van_ban", do_dai_toi_da: 500 },
   ],
+  // Caption social thường đi kèm ảnh (Instagram bắt buộc có ảnh) — gợi ý
+  // đính kèm khi chưa có; MAI không bịa ảnh sẵn có.
+  goi_y_asset: "ảnh đính kèm bài đăng",
 };
 
 const DANG_THREAD: DinhNghiaDinhDang = {
@@ -125,6 +131,34 @@ const DANG_SCRIPT_DAI: DinhNghiaDinhDang = {
   truong: TRUONG_SCRIPT,
 };
 
+const DANG_GOOGLE_BUSINESS: DinhNghiaDinhDang = {
+  id: "google-business",
+  phien_ban: 1,
+  nhan: "Bài đăng Google Business",
+  mo_ta: "Bài đăng hồ sơ Google Business: nội dung ngắn + CTA + link. Đăng tay, không tích hợp.",
+  ngon_ngu: NGON_NGU,
+  truong: [
+    { ten: "noi_dung", nhan: "Nội dung", loai: "markdown", bat_buoc: true, do_dai_toi_da: 1500 },
+    { ten: "cta", nhan: "CTA", loai: "van_ban", do_dai_toi_da: 100 },
+    { ten: "lien_ket", nhan: "Link", loai: "van_ban", do_dai_toi_da: 500 },
+  ],
+  goi_y_asset: "ảnh đính kèm bài đăng",
+};
+
+const DANG_EMAIL_KHACH: DinhNghiaDinhDang = {
+  id: "email-khach",
+  phien_ban: 1,
+  nhan: "Email khách hàng",
+  mo_ta: "Nháp email gửi khách: chủ đề, xem trước, thân email, lịch gửi dự kiến kèm múi giờ. Gửi thật là bước đăng tay ngoài MAI.",
+  ngon_ngu: NGON_NGU,
+  truong: [
+    { ten: "tieu_de", nhan: "Chủ đề", loai: "van_ban", bat_buoc: true, do_dai_toi_da: 150 },
+    { ten: "tom_tat", nhan: "Xem trước", loai: "van_ban", do_dai_toi_da: 200 },
+    { ten: "lich_gui", nhan: "Lịch gửi dự kiến", loai: "van_ban", do_dai_toi_da: 200 },
+    { ten: "noi_dung", nhan: "Nội dung", loai: "markdown", bat_buoc: true },
+  ],
+};
+
 const DANG_FAQ: DinhNghiaDinhDang = {
   id: "faq",
   phien_ban: 1,
@@ -152,6 +186,8 @@ const REGISTRY: Record<string, DinhNghiaDinhDang> = Object.fromEntries(
     DANG_THREAD,
     DANG_SCRIPT_NGAN,
     DANG_SCRIPT_DAI,
+    DANG_GOOGLE_BUSINESS,
+    DANG_EMAIL_KHACH,
     DANG_FAQ,
   ].map((d) => [d.id, d]),
 );

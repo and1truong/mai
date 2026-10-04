@@ -20,11 +20,23 @@ type DauRa = BanTheHien & {
   xuat_ban_moi_nhat: { id: string; dich_den: string; tao_luc: string } | null;
   url_trang: string | null;
   nguon: { id: string; nguon_id: string; tieu_de: string; so_thu_tu: number }[];
+  // #7: định dạng gợi ý đính kèm asset (vd ảnh cho caption Instagram) +
+  // asset hiện có — thiếu ảnh thì hiển thị ô yêu cầu/upload, không bịa.
+  goi_y_asset: string | null;
+  ds_asset: { id: string; ten_file: string; mime: string }[];
+};
+
+type FactKeHoach = {
+  ngay_gio?: string;
+  mui_gio?: string;
+  gia?: string;
+  tinh_trang?: string;
+  link_dat_hang?: string;
 };
 
 type ChiTietTd = ThongDiep & {
   ds_nguon: { id: string; tieu_de: string }[];
-  ke_hoach: { id: string; trang_thai: string } | null;
+  ke_hoach: { id: string; trang_thai: string; fact?: FactKeHoach | null } | null;
   ds_dau_ra: DauRa[];
 };
 
@@ -144,6 +156,9 @@ function TheDauRa({
           {b.la_cu && <Badge color="amber">Đã cũ — nguồn/thông điệp đổi</Badge>}
           {b.co_nhap && <Badge variant="soft">Có nháp tay</Badge>}
           {b.so_xuat_ban > 0 && <Badge color="indigo">Đã xuất ×{b.so_xuat_ban}</Badge>}
+          {/* #7: đầu ra có kênh đích là bản để đăng tay — MAI không tự
+              đăng lên nền tảng ngoài. */}
+          {b.dich_den && <Badge color="orange" variant="soft">Đăng tay</Badge>}
         </Flex>
         <Text size="1" color="gray">
           head {b.head_revision_so ? `#${b.head_revision_so}` : "—"}
@@ -161,6 +176,46 @@ function TheDauRa({
           <Text size="1" color="green">
             {ghiChu}
           </Text>
+        )}
+
+        {/* #7: định dạng gợi ý asset mà chưa có → ô yêu cầu/upload; không
+            bịa sẵn có ảnh. Asset đính kèm đi vào bundle xuất. */}
+        {b.goi_y_asset && (
+          <Flex align="center" gap="2" wrap="wrap">
+            {b.ds_asset.length > 0 ? (
+              <Text size="1" color="gray">
+                Đính kèm: {b.ds_asset.map((a) => a.ten_file).join(", ")}
+              </Text>
+            ) : (
+              <>
+                <Text size="1" color="amber">
+                  Cần {b.goi_y_asset} — chưa có ảnh đính kèm.
+                </Text>
+                <input
+                  type="file"
+                  aria-label={`Tải ${b.goi_y_asset}`}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (!f) return;
+                    void chay(async () => {
+                      const asset = await api<{ id: string }>(
+                        `/api/assets?ten=${encodeURIComponent(f.name)}&khoa_idem=${encodeURIComponent(`tai-len:${b.id}:${f.name}`)}`,
+                        { method: "POST", body: f },
+                      );
+                      await api(`/api/ban-the-hien/${b.id}/assets`, {
+                        method: "PUT",
+                        headers: { "content-type": "application/json" },
+                        body: JSON.stringify({
+                          asset_ids: [...b.ds_asset.map((a) => a.id), asset.id],
+                        }),
+                      });
+                      setGhiChu(`Đã đính kèm ${f.name}.`);
+                    });
+                  }}
+                />
+              </>
+            )}
+          </Flex>
         )}
 
         <Flex gap="2" wrap="wrap" align="center">
@@ -297,6 +352,16 @@ function ChiTietTd({ id }: { id: string }) {
                   {d.ke_hoach &&
                     ` · kế hoạch ${d.ke_hoach.trang_thai === "da_chon" ? "đã chọn" : "nháp"}`}
                 </Text>
+                {/* #7: lịch dự kiến kèm múi giờ từ fact đã xác nhận — hiển
+                    thị một ngày cụ thể thay vì ngày tương đối mơ hồ. */}
+                {d.ke_hoach?.fact?.ngay_gio && (
+                  <Text size="1" color="gray">
+                    Lịch dự kiến: {fmtLuc(d.ke_hoach.fact.ngay_gio)}
+                    {d.ke_hoach.fact.mui_gio ? ` (${d.ke_hoach.fact.mui_gio})` : ""}
+                    {d.ke_hoach.fact.gia ? ` · Giá: ${d.ke_hoach.fact.gia}` : ""}
+                    {d.ke_hoach.fact.tinh_trang ? ` · ${d.ke_hoach.fact.tinh_trang}` : ""}
+                  </Text>
+                )}
               </Flex>
             </Card>
             {d.ds_dau_ra.length === 0 && (
