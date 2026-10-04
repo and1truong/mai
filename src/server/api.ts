@@ -1241,6 +1241,10 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
         const loiNg = def ? kiemTraNgonNgu(def, ngonNgu) : null;
         if (loiNg) dsLoi.push(loiNg);
         dichDen = tuyChonChuoi(payload.dich_den);
+        // Cùng giới hạn với ds_chon của kế hoạch (#6): đích đến ≤120 ký tự.
+        if (dichDen.length > 120) {
+          dsLoi.push("payload.dich_den quá dài (tối đa 120 ký tự).");
+        }
         if (thongDiepId && !layThongDiep(c.db, thongDiepId)) {
           dsLoi.push("payload.thong_diep_id không tồn tại.");
         }
@@ -1330,12 +1334,16 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
               (dtBtId ? layDoiTuong(c.db, dtBtId)?.ten : undefined) ??
               tuyChonChuoi(bienThe.doi_tuong) ??
               tuyChonChuoi(payload.doi_tuong);
+            const dichDenBt = tuyChonChuoi(bienThe.dich_den) || dichDen;
+            if (dichDenBt.length > 120) {
+              throw new LoiApi(400, "VALIDATION", "payload.fan_out[].dich_den quá dài (tối đa 120 ký tự).");
+            }
             const khoaBt = {
               thong_diep_id: thongDiepId,
               dinh_dang: ddBt,
               ngon_ngu: nnBt,
               doi_tuong: tenDtBt,
-              dich_den: tuyChonChuoi(bienThe.dich_den) || dichDen,
+              dich_den: dichDenBt,
             };
             const bthBt = timBanTheHien(c.db, khoaBt) ?? taoBanTheHien(c.db, khoaBt, c.actor);
             const { fan_out: _bo, ...payloadCha } = payload;

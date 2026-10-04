@@ -40,7 +40,8 @@ function txn<T>(db: Database, fn: () => T): T {
 export type DauRaDeXuat = {
   doi_tuong_id: string | null;
   dinh_dang: string;
-  ngon_ngu: string;
+  // Tùy chọn — API và chonDauRa mặc định "vi" khi vắng mặt.
+  ngon_ngu?: string;
   // Kênh đích tự do (vd "linkedin", "youtube") — hai đầu ra cùng định
   // dạng vẫn tách nhau khi đích khác nhau (#6: ba script video ngắn).
   dich_den?: string;
@@ -241,7 +242,9 @@ export function chonDauRa(
     // Lọc lựa chọn trùng ngay đầu — response không đếm hai lần cùng đầu ra.
     const daCo = new Set<string>();
     dsChon = dsChon.filter((c) => {
-      const k = `${c.doi_tuong_id ?? ""}|${c.dinh_dang}|${c.ngon_ngu ?? ""}|${c.dich_den ?? ""}`;
+      // Khóa dedupe chuẩn hóa giống khóa bản thể hiện (dich_den trim) —
+      // "linkedin" và " linkedin " phải tính trùng, không đếm hai lần.
+      const k = `${c.doi_tuong_id ?? ""}|${c.dinh_dang}|${c.ngon_ngu ?? ""}|${(c.dich_den ?? "").trim()}`;
       if (daCo.has(k)) return false;
       daCo.add(k);
       return true;

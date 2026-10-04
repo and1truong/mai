@@ -214,6 +214,42 @@ describe("Story #6 — creator solo: phân phối ý tưởng kỹ thuật", () 
     }
   });
 
+  test("POST /api/job — dich_den >120 bị từ chối cho payload chính và fan_out", async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "mai-test-"));
+    const db = moDb(dataDir);
+    chayMigration(db);
+    seed(db);
+    db.close();
+    const app = await startServer({ port: 0, dataDir, chuKyJobMs: 10 });
+    try {
+      const dai = "x".repeat(121);
+      const post = (body: unknown) =>
+        fetch(`${app.url}/api/job`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        });
+      const chinh = await post({
+        loai: "sinh_ban_the_hien",
+        payload: { thong_diep_id: "seed-td-retry", dinh_dang: "script-ngan", dich_den: dai },
+      });
+      expect(chinh.status).toBe(400);
+      expect((await chinh.json()).loi.ma).toBe("VALIDATION");
+      const fanOut = await post({
+        loai: "sinh_ban_the_hien",
+        payload: {
+          thong_diep_id: "seed-td-retry",
+          dinh_dang: "script-ngan",
+          fan_out: [{ dinh_dang: "script-ngan", dich_den: dai }],
+        },
+      });
+      expect(fanOut.status).toBe(400);
+      expect((await fanOut.json()).loi.ma).toBe("VALIDATION");
+    } finally {
+      await app.dong();
+    }
+  });
+
   test("chonDauRa: ba script-ngan ba đích → ba bản thể hiện riêng + validate dich_den", () => {
     const { db } = moDbTam();
     seed(db);
