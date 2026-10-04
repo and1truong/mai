@@ -1010,28 +1010,41 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       const ghiChu = url.searchParams.get("ghi_chu") ?? "";
       const khoaIdem = url.searchParams.get("khoa_idem") || undefined;
 
-      // Retry/đăng lại cùng byte: đã có asset (kể cả khi khóa idem khác) →
-      // không ingest thêm, trả về asset + nguồn đã gắn từ lần trước.
+      // Retry/đăng lại cùng byte: đã có asset → không ghi lại byte, không
+      // ingest thêm — TRỪ khi caller nhắm nguồn khác với nguồn asset đang
+      // gắn (đó là request mới, vẫn phải tạo revision trên nguồn đích).
       const tonTai = timAssetTheoChecksum(c.db, buf);
       if (tonTai) {
+        let nguon: unknown = null;
+        let revision: unknown = null;
+        if (
+          dinhNghia.loai === "van_ban" &&
+          nguonId &&
+          nguonId !== tonTai.nguon_id
+        ) {
+          const noiDung = new TextDecoder("utf-8").decode(buf);
+          const kq = capNhatVanBan(
+            c.db,
+            nguonId,
+            { noi_dung: noiDung, khoa_idem: khoaIdem ? `asset:${khoaIdem}` : undefined },
+            c.actor,
+          );
+          nguon = kq.nguon;
+          revision = kq.revision;
+        } else {
+          const nguonCu = tonTai.nguon_id ? layNguon(c.db, tonTai.nguon_id) : null;
+          nguon = nguonCu;
+          revision = nguonCu?.head_revision_id
+            ? layNguonRevision(c.db, nguonCu.head_revision_id)
+            : null;
+        }
         const { asset } = await luuAsset(
           c.db,
           kho,
           { tenFile: ten, byte: buf, nguonId, ghiChu, khoaIdem },
           c.actor,
         );
-        const nguonCu = asset.nguon_id ? layNguon(c.db, asset.nguon_id) : null;
-        return ok(
-          {
-            ...asset,
-            nguon: nguonCu,
-            revision: nguonCu?.head_revision_id
-              ? layNguonRevision(c.db, nguonCu.head_revision_id)
-              : null,
-            da_tao: false,
-          },
-          200,
-        );
+        return ok({ ...asset, nguon, revision, da_tao: false }, 200);
       }
 
       // Văn bản: nạp vào nguồn trước để asset ghi đúng liên kết. Dedupe

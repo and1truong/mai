@@ -241,6 +241,21 @@ describe("API nạp nguồn + asset", () => {
     expect(a2.nguon.id).toBe(a1.nguon.id); // cùng nguồn đã gắn lần đầu
   });
 
+  test("upload cùng byte lên nguồn KHÁC → vẫn tạo revision trên đích, asset không ghi lại", async () => {
+    const md = "# Byte chung\nnội dung";
+    const lan1 = await upload(app, "ten=chung.md", md);
+    const { du_lieu: a1 } = await lan1.json();
+    // Asset đã gắn nguồn A; upload lại nhắm nguồn B (seed-nguon-1) →
+    // capNhatVanBan chạy trên B, asset giữ nguyên id + liên kết đầu tiên.
+    const lan2 = await upload(app, `ten=chung.md&nguon_id=seed-nguon-1`, md);
+    const { du_lieu: a2 } = await lan2.json();
+    expect(lan2.status).toBe(200);
+    expect(a2.id).toBe(a1.id);
+    expect(a2.nguon.id).toBe("seed-nguon-1");
+    expect(a2.revision.nguon_id).toBe("seed-nguon-1");
+    expect(a2.nguon_id).toBe(a1.nguon.id); // liên kết đầu tiên thắng
+  });
+
   test("GET /api/assets mặc định ẩn asset lưu trữ; ?trang_thai=tat_ca hiện lại", async () => {
     const up = await upload(app, "ten=sau-nay-luu-tru.png", new Uint8Array([3, 3, 3]));
     const { du_lieu: asset } = await up.json();
