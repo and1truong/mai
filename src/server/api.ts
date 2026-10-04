@@ -15,7 +15,7 @@ import {
 } from "../modules/content/index.ts";
 import { capNhatContext, layContext } from "../modules/context/index.ts";
 import { DANH_SACH_DINH_DANG, laDinhDang } from "../modules/formats/index.ts";
-import { laTrangThai, chuyenHopLe } from "../modules/review/index.ts";
+import { DANH_SACH_TRANG_THAI, laTrangThai, chuyenHopLe } from "../modules/review/index.ts";
 import { danhSachJob, taoJob } from "../modules/jobs/index.ts";
 import { LOAI_JOB_HO_TRO } from "../modules/jobs/handlers.ts";
 import { docBody, loi, ok } from "./http.ts";
@@ -129,7 +129,7 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       const body = await docBody(req);
       const den = body.trang_thai;
       if (!laTrangThai(den)) {
-        loiRequest(400, "VALIDATION", "trang_thai không hợp lệ.", [`Cho phép: ${DANH_SACH_DINH_DANG.join(", ")}`]);
+        loiRequest(400, "VALIDATION", "trang_thai không hợp lệ.", [`Cho phép: ${DANH_SACH_TRANG_THAI.join(", ")}`]);
       }
       const bth = layBanTheHien(c.db, p.id!);
       if (!bth) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy bản thể hiện.");
