@@ -46,6 +46,7 @@ import {
   xoaCampaign,
   xoaNhapSoan,
   xuatBanBanTheHien,
+  type MucLuc,
   type MucNguon,
   type NhapBanTheHien,
 } from "../modules/content/index.ts";
@@ -109,6 +110,20 @@ import {
   nhatKyJob,
   thuLaiJob,
 } from "../modules/jobs/index.ts";
+import {
+  chonMucLuc,
+  deXuatMucLuc,
+  docThamChieuView,
+  goiYKhoangTrong,
+  kiemTraHoSoSoBao,
+  kiemTraMucLuc,
+  kiemTraThamChieu,
+  lienKetNguonThamChieu,
+  themMucLuc,
+  tienDoSoBao,
+  thongDiepChuDe,
+} from "../modules/so_bao/index.ts";
+import { taoBundleSoBao } from "../modules/so_bao/xuat.ts";
 import { LOAI_JOB_HO_TRO } from "../modules/jobs/handlers.ts";
 import { danhSachSuDungSinh } from "../modules/generation/index.ts";
 import {
@@ -283,6 +298,30 @@ function docGhiDe(v: unknown, dsLoi: string[]): GhiDeCampaign {
     ketQua[k] = sach;
   }
   return ketQua as GhiDeCampaign;
+}
+
+// Đọc so_thu_tu của số báo: absent → undefined (PUT giữ giá trị cũ),
+// null/rỗng → null (xóa), còn lại phải là số nguyên >= 0.
+function docSoThuTu(v: unknown, dsLoi: string[]): number | null | undefined {
+  if (v === undefined) return undefined;
+  if (v === null || v === "") return null;
+  const n = typeof v === "string" ? Number(v) : v;
+  if (typeof n !== "number" || !Number.isInteger(n) || n < 0) {
+    dsLoi.push("so_thu_tu phải là số nguyên >= 0.");
+    return undefined;
+  }
+  return n;
+}
+
+// Đọc ngay_phat_hanh: absent → undefined; chuỗi trống = chưa đặt; còn lại
+// phải dạng YYYY-MM-DD.
+function docNgayPhatHanh(v: unknown, dsLoi: string[]): string | undefined {
+  if (v === undefined) return undefined;
+  const s = tuyChonChuoi(v);
+  if (s && !/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    dsLoi.push("ngay_phat_hanh phải có dạng YYYY-MM-DD.");
+  }
+  return s;
 }
 
 // Đọc cac_muc: mảng mục nguồn có cấu trúc {id, loai: section|fact, tieu_de?,
@@ -654,37 +693,125 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
     }),
 
     // --- Campaign: nhóm mục tiêu tùy chọn chứa nhiều thông điệp ---
+    // Số báo (#8): campaign mang thêm field số báo (số thứ tự, ngày phát
+    // hành, chủ đề, lập trường, chủ biên, hồ sơ dùng lại, tham chiếu nguồn
+    // đã khai báo, mục lục). Field vắng mặt trên PUT giữ giá trị đã lưu.
     route("GET", "/api/campaign", (_req, _p, c) => ok(danhSachCampaign(c.db))),
     route("POST", "/api/campaign", async (req, _p, c) => {
       const body = await docBody(req);
       const dsLoi: string[] = [];
       const ten = batBuocChuoi(body.ten, "ten", dsLoi);
       const ghiDe = body.ghi_de !== undefined ? docGhiDe(body.ghi_de, dsLoi) : undefined;
+      const soThuTu = docSoThuTu(body.so_thu_tu, dsLoi) ?? null;
+      const ngayPhatHanh = docNgayPhatHanh(body.ngay_phat_hanh, dsLoi) ?? "";
+      kiemTraHoSoSoBao(c.db, body, dsLoi);
+      const thamChieu = kiemTraThamChieu(c.db, body.tham_chieu, dsLoi) ?? [];
+      const mucLuc = kiemTraMucLuc(c.db, body.muc_luc, dsLoi) ?? [];
       nemLoiValidation(dsLoi);
       return ok(
-        taoCampaign(c.db, { ten, mo_ta: tuyChonChuoi(body.mo_ta), ghi_de: ghiDe }, c.actor),
+        taoCampaign(
+          c.db,
+          {
+            ten,
+            mo_ta: tuyChonChuoi(body.mo_ta),
+            ghi_de: ghiDe,
+            so_thu_tu: soThuTu,
+            ngay_phat_hanh: ngayPhatHanh,
+            chu_de: tuyChonChuoi(body.chu_de),
+            lap_truong: tuyChonChuoi(body.lap_truong),
+            chu_bien: tuyChonChuoi(body.chu_bien),
+            thuong_hieu_id: tuyChonChuoi(body.thuong_hieu_id) || null,
+            doi_tuong_id: tuyChonChuoi(body.doi_tuong_id) || null,
+            tham_chieu: thamChieu,
+            muc_luc: mucLuc,
+          },
+          c.actor,
+        ),
         201,
       );
     }),
     route("GET", "/api/campaign/:id", (_req, p, c) => {
       const cp = layCampaign(c.db, p.id!);
       if (!cp) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy campaign.");
-      return ok({ ...cp, thong_diep: danhSachThongDiep(c.db, cp.id) });
+      const td = thongDiepChuDe(c.db, cp);
+      return ok({
+        ...cp,
+        thong_diep: danhSachThongDiep(c.db, cp.id),
+        thong_diep_chu_de: td ? { id: td.id, tieu_de: td.tieu_de } : null,
+        tham_chieu_view: docThamChieuView(c.db, cp),
+        de_xuat_muc_luc: deXuatMucLuc(c.db, cp),
+        goi_y: goiYKhoangTrong(c.db, cp),
+        tien_do: tienDoSoBao(c.db, cp),
+        hang_cho: danhSachBanTheHien(c.db, { campaignId: cp.id, trangThai: "cho_duyet" }),
+      });
     }),
     route("PUT", "/api/campaign/:id", async (req, p, c) => {
       const body = await docBody(req);
       const dsLoi: string[] = [];
       const ten = batBuocChuoi(body.ten, "ten", dsLoi);
       const ghiDe = body.ghi_de !== undefined ? docGhiDe(body.ghi_de, dsLoi) : undefined;
+      const soThuTu = docSoThuTu(body.so_thu_tu, dsLoi);
+      const ngayPhatHanh = docNgayPhatHanh(body.ngay_phat_hanh, dsLoi);
+      kiemTraHoSoSoBao(c.db, body, dsLoi);
+      const thamChieu = kiemTraThamChieu(c.db, body.tham_chieu, dsLoi);
+      const mucLuc = kiemTraMucLuc(c.db, body.muc_luc, dsLoi);
       nemLoiValidation(dsLoi);
       return ok(
         capNhatCampaign(
           c.db,
           p.id!,
-          { ten, mo_ta: tuyChonChuoi(body.mo_ta), ghi_de: ghiDe },
+          {
+            ten,
+            mo_ta: tuyChonChuoi(body.mo_ta),
+            ghi_de: ghiDe,
+            so_thu_tu: soThuTu,
+            ngay_phat_hanh: ngayPhatHanh,
+            chu_de: tuyChonChuoi(body.chu_de),
+            lap_truong: tuyChonChuoi(body.lap_truong),
+            chu_bien: tuyChonChuoi(body.chu_bien),
+            thuong_hieu_id: body.thuong_hieu_id === undefined ? undefined : tuyChonChuoi(body.thuong_hieu_id) || null,
+            doi_tuong_id: body.doi_tuong_id === undefined ? undefined : tuyChonChuoi(body.doi_tuong_id) || null,
+            tham_chieu: thamChieu,
+            muc_luc: mucLuc,
+          },
           c.actor,
         ),
       );
+    }),
+    route("PUT", "/api/campaign/:id/muc-luc", async (req, p, c) => {
+      const body = await docBody(req);
+      const dsLoi: string[] = [];
+      const mucLuc = kiemTraMucLuc(c.db, body.muc_luc, dsLoi);
+      nemLoiValidation(dsLoi);
+      const cp = layCampaign(c.db, p.id!);
+      if (!cp) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy campaign.");
+      return ok(capNhatCampaign(c.db, p.id!, { ten: cp.ten, muc_luc: mucLuc }, c.actor));
+    }),
+    route("POST", "/api/campaign/:id/muc-luc/them", async (req, p, c) => {
+      const body = await docBody(req);
+      return ok(themMucLuc(c.db, p.id!, (body.muc ?? body) as MucLuc, c.actor));
+    }),
+    route("POST", "/api/campaign/:id/chon", async (req, p, c) => {
+      const body = await docBody(req);
+      const dsMucId = tuyChonMangChuoi(body.ds_muc_id);
+      return ok(chonMucLuc(c.db, p.id!, dsMucId, c.actor));
+    }),
+    route("POST", "/api/campaign/:id/tham-chieu/:refId/nguon", async (req, p, c) => {
+      const body = await docBody(req);
+      const nguonId = tuyChonChuoi(body.nguon_id);
+      if (!nguonId) loiRequest(400, "VALIDATION", "nguon_id bắt buộc.");
+      return ok(lienKetNguonThamChieu(c.db, p.id!, p.refId!, nguonId, c.actor));
+    }),
+    route("GET", "/api/campaign/:id/xuat", async (_req, p, c) => {
+      const cp = layCampaign(c.db, p.id!);
+      if (!cp) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy campaign.");
+      const { tenFile, byte } = await taoBundleSoBao(c.db, cp, kho);
+      return new Response(new Blob([byte]), {
+        headers: {
+          "content-type": "application/zip",
+          "content-disposition": `attachment; filename="${tenFile}"`,
+        },
+      });
     }),
     route("DELETE", "/api/campaign/:id", (_req, p, c) => {
       xoaCampaign(c.db, p.id!);
@@ -957,6 +1084,7 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
           thongDiepId: url.searchParams.get("thong_diep_id") ?? undefined,
           nguonId: url.searchParams.get("nguon_id") ?? undefined,
           trangThai: url.searchParams.get("trang_thai") ?? undefined,
+          campaignId: url.searchParams.get("campaign_id") ?? undefined,
         }),
       );
     }),

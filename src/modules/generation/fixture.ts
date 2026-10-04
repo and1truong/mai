@@ -29,6 +29,9 @@ function dongThieuChungCu(ctx: ContextTask): string[] {
     moc_thoi_gian: "mốc thời gian",
     ngay_gio_cu_the: "ngày giờ cụ thể (kèm múi giờ)",
     gia_ca: "thông tin giá",
+    // Số báo (#8): tham chiếu đã khai báo trên campaign nhưng văn bản nguồn
+    // chưa có — provider gắn cờ thay vì bịa trích dẫn.
+    van_ban_tham_chieu: "văn bản nguồn của tham chiếu đã khai báo",
   };
   return ctx.thieu_chung_cu.map(
     (t) => `[CÂU HỎI: nguồn chưa có ${nhan[t] ?? t} — cần người viết bổ sung.]`,
@@ -54,6 +57,9 @@ function noiDungTruong(t: DinhNghiaTruong, ctx: ContextTask): string | string[] 
   ];
   if (ctx.context_sinh?.thuong_hieu?.ten) {
     dongMeta.push(`Thương hiệu: ${ctx.context_sinh.thuong_hieu.ten}`);
+  }
+  if (ctx.lap_truong) {
+    dongMeta.push(`Lập trường: ${ctx.lap_truong}`);
   }
   const dongThieu = dongThieuChungCu(ctx);
 

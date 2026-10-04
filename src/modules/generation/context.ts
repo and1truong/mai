@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { loiRequest } from "../../loi.ts";
 import {
   layBanTheHien,
+  layCampaign,
   layNguonRevision,
   layThongDiep,
   layThongDiepRevision,
@@ -79,6 +80,9 @@ export function lapContextNoiDung(
     context_sinh: ContextSinhSnapshot | null;
     doi_tuong: string;
     gioi_han?: Partial<GioiHanContext>;
+    // Campaign/số báo tường minh từ payload job (#8); vắng mặt → theo
+    // thong_diep.campaign_id.
+    campaign_id?: string;
   },
 ): ContextTask {
   const gioiHan: GioiHanContext = { ...MAC_DINH_GIOI_HAN_CONTEXT, ...input.gioi_han };
@@ -117,6 +121,19 @@ export function lapContextNoiDung(
     ...ds_nguon.map((n) => n.noi_dung),
   ].join("\n");
 
+  // Số báo (#8): thông điệp thuộc campaign số báo → lập trường biên tập đi
+  // vào context; tham chiếu đã khai báo mà văn bản không có trong nguồn đã
+  // resolve là chứng cứ thiếu — provider gắn cờ thay vì bịa trích dẫn.
+  const cpId = input.campaign_id ?? thongDiep.campaign_id;
+  const cp = cpId ? layCampaign(db, cpId) : null;
+  const thieuCc = thieuChungCu(vanBanNguon);
+  if (cp && cp.tham_chieu.length > 0) {
+    const nguonIds = new Set(ds_nguon.map((n) => n.nguon_id));
+    if (cp.tham_chieu.some((t) => !t.nguon_id || !nguonIds.has(t.nguon_id))) {
+      thieuCc.push("van_ban_tham_chieu");
+    }
+  }
+
   return {
     task: input.task,
     thong_diep: {
@@ -129,7 +146,8 @@ export function lapContextNoiDung(
     doi_tuong: input.doi_tuong,
     ngon_ngu: bth.ngon_ngu,
     context_sinh: input.context_sinh,
-    thieu_chung_cu: thieuChungCu(vanBanNguon),
+    lap_truong: cp?.lap_truong || null,
+    thieu_chung_cu: thieuCc,
     gioi_han_dau_ra: gioiHan.toi_da_ky_tu_dau_ra,
   };
 }
