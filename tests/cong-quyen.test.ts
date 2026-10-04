@@ -545,3 +545,82 @@ describe("kiểm chứng đầu ra công quyền", () => {
     expect(ktThieuNgay.canh_bao.join(" | ")).toContain("ngày hiệu lực");
   });
 });
+
+// Finding review PR #49: campaign CQ hợp lệ nhưng thiếu yêu cầu
+// 'bat_buoc' (ds_yeu_cau rỗng, hoặc chỉ khai báo giải thích) làm fixture
+// trả các field ràng buộc (yeu_cau/hoi_dap/cac_buoc/nghia_vu) rỗng →
+// kiểm chứng lỗi cứng và job sinh lỗi vĩnh viễn. Fix: field rỗng rơi về
+// một dòng [CÂU HỎI] thẩm quyền — mơ hồ/thiếu là câu hỏi review, không
+// phải luật bịa cũng không phải lỗi job.
+describe("campaign CQ thiếu yêu cầu bắt buộc vẫn sinh được", () => {
+  moApp();
+
+  const DAU_RA = [
+    { id: "m-faq", tieu_de: "FAQ", dinh_dang: "faq-cong-dan", ngon_ngu: "vi" },
+    { id: "m-check", tieu_de: "Checklist", dinh_dang: "checklist-doanh-nghiep", ngon_ngu: "vi" },
+    { id: "m-th", tieu_de: "Trường học", dinh_dang: "giai-thich-truong-hoc", ngon_ngu: "vi" },
+    { id: "m-nt", tieu_de: "Nhà thầu", dinh_dang: "tom-tat-nha-thau", ngon_ngu: "vi" },
+    { id: "m-bd", tieu_de: "Bản dịch", dinh_dang: "ban-dich-gian-di", ngon_ngu: "vi" },
+  ];
+
+  const taoCpSinh = async (duLieuThem: Record<string, unknown>) => {
+    const res = await post("/api/campaign", {
+      ten: "CQ thiếu yêu cầu bắt buộc",
+      ngay_hieu_luc: "2027-06-01",
+      pham_vi_quyen_han: "Địa bàn test",
+      muc_luc: DAU_RA,
+      ...duLieuThem,
+    });
+    expect(res.status).toBe(201);
+    const cp = (await res.json()).du_lieu;
+    const chon = await post(`/api/campaign/${cp.id}/chon`, {
+      ds_muc_id: DAU_RA.map((m) => m.id),
+    });
+    expect(chon.status).toBe(200);
+    return (await chon.json()).du_lieu;
+  };
+
+  const choTatCaJob = async (dsJob: { id: string }[]) => {
+    for (const job of dsJob) {
+      const xong = await choJob(job.id);
+      expect(xong.trang_thai).toBe("xong");
+    }
+  };
+
+  const noiDungDauRa = (dsBth: { id: string; dinh_dang: string }[], dd: string) => {
+    const bth = dsBth.find((b) => b.dinh_dang === dd)!;
+    const rev = layRevision(app.db, layBanTheHien(app.db, bth.id)!.head_revision_id!)!;
+    return JSON.parse(rev.noi_dung) as Record<string, unknown>;
+  };
+
+  test("ds_yeu_cau rỗng → 5 job xong; field ràng buộc là câu hỏi thẩm quyền", async () => {
+    const d = await taoCpSinh({ ds_yeu_cau: [] });
+    await choTatCaJob(d.ds_job);
+    const faq = noiDungDauRa(d.ds_bth, "faq-cong-dan");
+    expect((faq.yeu_cau as string[])[0]).toContain("CÂU HỎI");
+    expect((faq.hoi_dap as string[])[0]).toContain("CÂU HỎI");
+    const check = noiDungDauRa(d.ds_bth, "checklist-doanh-nghiep");
+    expect((check.cac_buoc as string[])[0]).toContain("CÂU HỎI");
+    const nt = noiDungDauRa(d.ds_bth, "tom-tat-nha-thau");
+    expect((nt.nghia_vu as string[])[0]).toContain("CÂU HỎI");
+  });
+
+  test("chỉ yêu cầu giai_thich → 5 job xong; cac_buoc/nghia_vu vẫn là câu hỏi", async () => {
+    const d = await taoCpSinh({
+      ds_yeu_cau: [
+        {
+          id: "yc-gt",
+          loai: "giai_thich",
+          noi_dung: "Chính sách khuyến khích phân loại rác tại nguồn.",
+          doi_tuong_ap_dung: "",
+        },
+      ],
+    });
+    await choTatCaJob(d.ds_job);
+    const check = noiDungDauRa(d.ds_bth, "checklist-doanh-nghiep");
+    expect((check.cac_buoc as string[])[0]).toContain("CÂU HỎI");
+    expect((check.yeu_cau as string[]).join("\n")).toContain("phân loại rác");
+    const nt = noiDungDauRa(d.ds_bth, "tom-tat-nha-thau");
+    expect((nt.nghia_vu as string[])[0]).toContain("CÂU HỎI");
+  });
+});

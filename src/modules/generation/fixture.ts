@@ -321,6 +321,12 @@ function noiDungTruongCongQuyen(
       (d) =>
         `[CÂU HỎI: điều khoản nguồn mơ hồ — '${d.slice(0, 120)}' cần thẩm quyền diễn giải, đầu ra không được bịa luật.]`,
     );
+  // Chính sách chưa khai báo yêu cầu bắt buộc (ds_yeu_cau rỗng hoặc chỉ
+  // có giải thích): field ràng buộc rơi về một dòng câu hỏi thẩm quyền
+  // thay vì để kiểm chứng lỗi cứng — mơ hồ/thiếu thành câu hỏi review,
+  // không phải lỗi vĩnh viễn.
+  const CAU_HOI_CHUA_CO_YEU_CAU =
+    "[CÂU HỎI: chính sách chưa khai báo yêu cầu bắt buộc — cần thẩm quyền xác nhận nghĩa vụ hoặc bổ sung yêu cầu trước khi công bố.]";
 
   if (t.loai === "van_ban") {
     if (t.ten === "tieu_de") return `Chính sách ${cq.ten}`;
@@ -344,7 +350,10 @@ function noiDungTruongCongQuyen(
   }
 
   if (t.loai === "danh_sach") {
-    if (t.ten === "yeu_cau") return dongYeuCau();
+    if (t.ten === "yeu_cau") {
+      const ds = dongYeuCau();
+      return ds.length > 0 ? ds : [CAU_HOI_CHUA_CO_YEU_CAU];
+    }
     if (t.ten === "ngoai_le") return dongNgoaiLe();
     if (t.ten === "hoi_dap") {
       const ds = cq.ds_yeu_cau.map((y) => {
@@ -357,11 +366,11 @@ function noiDungTruongCongQuyen(
         if (!nl.xac_nhan) continue;
         ds.push(`Hỏi: có ngoại lệ nào? Đáp: ${nl.noi_dung} [NL:${nl.id}]`);
       }
-      return ds;
+      return ds.length > 0 ? ds : [CAU_HOI_CHUA_CO_YEU_CAU];
     }
     if (t.ten === "cac_buoc" || t.ten === "nghia_vu") {
       const ds = dongYeuCau("bat_buoc");
-      return ds.length > 0 ? ds : undefined;
+      return ds.length > 0 ? ds : [CAU_HOI_CHUA_CO_YEU_CAU];
     }
     if (t.ten === "goi_y_hoat_dong") {
       const ds = dongYeuCau("giai_thich");
