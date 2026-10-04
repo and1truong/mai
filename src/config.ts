@@ -8,12 +8,14 @@ export type CauHinh = {
   port: number;
   dataDir: string;
   ai: { provider: string };
+  jobs: { concurrency: number; chuKyMs: number };
 };
 
 const MAC_DINH: CauHinh = {
   port: 3000,
   dataDir: "./data",
   ai: { provider: "fixture" },
+  jobs: { concurrency: 2, chuKyMs: 500 },
 };
 
 export async function taiCauHinh(env: Record<string, string | undefined> = Bun.env): Promise<CauHinh> {
@@ -27,6 +29,16 @@ export async function taiCauHinh(env: Record<string, string | undefined> = Bun.e
     dataDir: resolve(env.MAI_DATA_DIR ?? tuFile.dataDir ?? MAC_DINH.dataDir),
     ai: {
       provider: env.MAI_AI_PROVIDER ?? tuFile.ai?.provider ?? MAC_DINH.ai.provider,
+    },
+    jobs: {
+      concurrency: Math.max(
+        1,
+        Number(env.MAI_JOB_CONCURRENCY ?? tuFile.jobs?.concurrency ?? MAC_DINH.jobs.concurrency),
+      ),
+      chuKyMs: Math.max(
+        10,
+        Number(env.MAI_JOB_CHU_KY_MS ?? tuFile.jobs?.chuKyMs ?? MAC_DINH.jobs.chuKyMs),
+      ),
     },
   };
 }

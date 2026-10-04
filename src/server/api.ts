@@ -10,13 +10,22 @@ import {
   layBanTheHien,
   layNguon,
   capNhatTrangThai,
+  taoBanTheHien,
   taoNguon,
   themRevision,
+  type BanTheHien,
 } from "../modules/content/index.ts";
 import { capNhatContext, layContext } from "../modules/context/index.ts";
 import { DANH_SACH_DINH_DANG, laDinhDang } from "../modules/formats/index.ts";
 import { DANH_SACH_TRANG_THAI, laTrangThai, chuyenHopLe } from "../modules/review/index.ts";
-import { danhSachJob, taoJob } from "../modules/jobs/index.ts";
+import {
+  danhSachJob,
+  enqueueJob,
+  huyJob,
+  layJob,
+  nhatKyJob,
+  thuLaiJob,
+} from "../modules/jobs/index.ts";
 import { LOAI_JOB_HO_TRO } from "../modules/jobs/handlers.ts";
 import { docBody, kiemTraByteDaDoc, kiemTraGioiHanBody, loi, ok } from "./http.ts";
 
@@ -50,6 +59,46 @@ function route(method: string, duongDan: string, handler: Handler): Route {
 }
 
 const EXT_ASSET_CHO_PHEP = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".txt", ".md", ".pdf"]);
+
+// Chuẩn hóa một thời điểm nhận từ client (ISO hoặc datetime-local) về ISO UTC.
+// Trả null khi field vắng; push lỗi vào dsLoi khi không parse được.
+function chuanHoaThoiDiem(v: unknown, ten: string, dsLoi: string[]): string | null {
+  const s = tuyChonChuoi(v);
+  if (!s) return null;
+  const t = Date.parse(s);
+  if (!Number.isFinite(t)) {
+    dsLoi.push(`${ten} không phải thời điểm hợp lệ (ISO 8601).`);
+    return null;
+  }
+  return new Date(t).toISOString();
+}
+
+// Kiểm tên timezone theo danh mục IANA mà runtime hỗ trợ.
+function laMuiGio(ten: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: ten });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Tham số số nguyên tùy chọn trong [min, max]; undefined → undefined.
+function tuyChonSo(
+  v: unknown,
+  min: number,
+  max: number,
+  ten: string,
+  dsLoi: string[],
+): number | undefined {
+  if (v === undefined || v === null || v === "") return undefined;
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < min || n > max) {
+    dsLoi.push(`${ten} phải là số nguyên trong [${min}, ${max}].`);
+    return undefined;
+  }
+  return n;
+}
 
 export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
   const routes: Route[] = [
@@ -144,7 +193,10 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
     }),
 
     // --- Job ---
-    route("GET", "/api/job", (_req, _p, c) => ok(danhSachJob(c.db))),
+    route("GET", "/api/job", (req, _p, c) => {
+      const trangThai = new URL(req.url).searchParams.get("trang_thai") ?? undefined;
+      return ok(danhSachJob(c.db, trangThai));
+    }),
     route("POST", "/api/job", async (req, _p, c) => {
       const body = await docBody(req);
       const dsLoi: string[] = [];
@@ -153,21 +205,88 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
         dsLoi.push(`loai không hỗ trợ. Cho phép: ${LOAI_JOB_HO_TRO.join(", ")}.`);
       }
       const payload = (body.payload ?? {}) as Record<string, unknown>;
+      if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
+        dsLoi.push("payload phải là một JSON object.");
+      }
+      const khoaIdem = tuyChonChuoi(body.khoa_idem) || undefined;
+      const chaySomNhat = chuanHoaThoiDiem(body.chay_som_nhat, "chay_som_nhat", dsLoi);
+      const muiGio = tuyChonChuoi(body.mui_gio);
+      if (muiGio && !laMuiGio(muiGio)) {
+        dsLoi.push("mui_gio không phải tên timezone IANA hợp lệ.");
+      }
+      const soLanThuToiDa = tuyChonSo(body.so_lan_thu_toi_da, 1, 20, "so_lan_thu_toi_da", dsLoi);
+      const timeoutMs = tuyChonSo(body.timeout_ms, 100, 3_600_000, "timeout_ms", dsLoi);
+      const entityLoai = tuyChonChuoi(body.entity_loai);
+      const entityId = tuyChonChuoi(body.entity_id);
+      let revisionId = tuyChonChuoi(body.revision_id) || null;
+
+      let nguonId = "";
+      let dinhDang = "web";
       if (loai === "sinh_ban_the_hien") {
-        batBuocChuoi(payload.nguon_id, "payload.nguon_id", dsLoi);
-        const dinhDang = tuyChonChuoi(payload.dinh_dang) || "web";
+        nguonId = batBuocChuoi(payload.nguon_id, "payload.nguon_id", dsLoi);
+        dinhDang = tuyChonChuoi(payload.dinh_dang) || "web";
         if (!laDinhDang(dinhDang)) {
           dsLoi.push(`payload.dinh_dang không hợp lệ. Cho phép: ${DANH_SACH_DINH_DANG.join(", ")}.`);
-        } else {
-          payload.dinh_dang = dinhDang;
         }
-        if (dsLoi.length === 0 && !layNguon(c.db, String(payload.nguon_id))) {
+        if (nguonId && !layNguon(c.db, nguonId)) {
           dsLoi.push("payload.nguon_id không tồn tại.");
         }
       }
       nemLoiValidation(dsLoi);
-      return ok(taoJob(c.db, loai, payload), 201);
+
+      // Lưu state request + enqueue nguyên tử: bản thể hiện đích được tạo/tìm
+      // trong cùng transaction với dòng job. Entity/revision job ghim vào
+      // (bản thể hiện, head lúc enqueue); handler kiểm lại khi commit.
+      c.db.exec("BEGIN IMMEDIATE");
+      try {
+        let bthId = entityId;
+        if (loai === "sinh_ban_the_hien") {
+          let bth = c.db
+            .query("SELECT * FROM ban_the_hien WHERE nguon_id = ? AND dinh_dang = ? LIMIT 1")
+            .get(nguonId, dinhDang) as BanTheHien | null;
+          if (!bth) {
+            bth = taoBanTheHien(
+              c.db,
+              { nguon_id: nguonId, dinh_dang: dinhDang, doi_tuong: tuyChonChuoi(payload.doi_tuong) },
+              c.actor,
+            );
+          }
+          if (revisionId && revisionId !== (bth.head_revision_id ?? null)) {
+            throw new LoiApi(409, "XUNG_DOT_REVISION", "Bản thể hiện đã có revision mới hơn. Tải lại rồi thử lại.", {
+              head_revision_id: bth.head_revision_id,
+            });
+          }
+          revisionId = bth.head_revision_id ?? null;
+          bthId = bth.id;
+          payload.ban_the_hien_id = bth.id;
+          payload.dinh_dang = dinhDang;
+        }
+        const { job, da_tao } = enqueueJob(c.db, {
+          loai,
+          payload,
+          khoaIdem: khoaIdem ?? (loai === "sinh_ban_the_hien" ? `sinh_ban_the_hien:${bthId}` : undefined),
+          entityLoai: loai === "sinh_ban_the_hien" ? "ban_the_hien" : entityLoai,
+          entityId: bthId,
+          revisionId,
+          chaySomNhat: chaySomNhat,
+          muiGio,
+          soLanThuToiDa: soLanThuToiDa,
+          timeoutMs: timeoutMs,
+        });
+        c.db.exec("COMMIT");
+        return ok({ ...job, da_tao }, da_tao ? 201 : 200);
+      } catch (e) {
+        c.db.exec("ROLLBACK");
+        throw e;
+      }
     }),
+    route("GET", "/api/job/:id", (_req, p, c) => {
+      const job = layJob(c.db, p.id!);
+      if (!job) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy job.");
+      return ok({ ...job, nhat_ky: nhatKyJob(c.db, job.id) });
+    }),
+    route("POST", "/api/job/:id/huy", (_req, p, c) => ok(huyJob(c.db, p.id!))),
+    route("POST", "/api/job/:id/thu-lai", (_req, p, c) => ok(thuLaiJob(c.db, p.id!))),
 
     // --- Asset upload ---
     route("POST", "/api/assets", async (req, _p, c) => {
