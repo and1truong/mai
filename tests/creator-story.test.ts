@@ -6,6 +6,7 @@ import { chayMigration, moDb } from "../src/server/db.ts";
 import { startServer } from "../src/server/index.ts";
 import { seed } from "../src/server/seed.ts";
 import { chonDauRa } from "../src/modules/luong/index.ts";
+import { taoDoiTuong } from "../src/modules/context/index.ts";
 import { LoiApi } from "../src/loi.ts";
 import {
   capNhatThongDiep,
@@ -291,6 +292,40 @@ describe("Story #6 — creator solo: phân phối ý tưởng kỹ thuật", () 
       }
       expect(loi).toBeInstanceOf(LoiApi);
       expect((loi as LoiApi).ma).toBe("VALIDATION");
+    } finally {
+      db.close();
+    }
+  });
+
+  test("chonDauRa: khóa dedupe theo danh tính chuẩn hóa — không đếm thừa đầu ra", () => {
+    const { db } = moDbTam();
+    seed(db);
+    try {
+      // "vi" ngầm định vs "vi" tường minh → cùng một bản thể hiện.
+      const kq = chonDauRa(
+        db,
+        "seed-kh-retry",
+        [
+          { doi_tuong_id: null, dinh_dang: "script-ngan", dich_den: "clip-x" },
+          { doi_tuong_id: null, dinh_dang: "script-ngan", ngon_ngu: "vi", dich_den: "clip-x" },
+        ],
+        "demo",
+      );
+      expect(kq.ds_bth.length).toBe(1);
+      expect(kq.ds_job.length).toBe(1);
+      // Hai hồ sơ trùng tên → cùng một đầu ra (danh tính theo tên đã resolve).
+      const dt2 = taoDoiTuong(db, { ten: "Kỹ sư (fixture)" }, "demo");
+      const kq2 = chonDauRa(
+        db,
+        "seed-kh-retry",
+        [
+          { doi_tuong_id: "seed-dt-ky-su", dinh_dang: "script-ngan", dich_den: "clip-y" },
+          { doi_tuong_id: dt2.id, dinh_dang: "script-ngan", dich_den: "clip-y" },
+        ],
+        "demo",
+      );
+      expect(kq2.ds_bth.length).toBe(1);
+      expect(kq2.ds_job.length).toBe(1);
     } finally {
       db.close();
     }
