@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { taoServerTam, duyetBth } from "./helpers.ts";
-import { themRevision } from "../src/modules/content/index.ts";
+import { capNhatThongDiep, themRevision } from "../src/modules/content/index.ts";
 import { luuContextSinh } from "../src/modules/context/index.ts";
 
 // Test phát hiện thay đổi nguồn + task sửa đầu ra (#14):
@@ -423,6 +423,100 @@ describe("phát hiện thay đổi nguồn", () => {
       // Head mới ghim context có đối tượng revision ≥ đích → task tự đóng.
       const { json: jt } = await getJson(app, `/api/task-sua/${task.id}`);
       expect(jt.du_lieu.trang_thai).toBe("xong");
+    } finally {
+      await app.dong();
+    }
+  });
+
+  test("PUT chỉ đổi tiêu đề nguồn → vẫn tạo detection (tiêu đề đi vào context)", async () => {
+    const app = await taoServerTam();
+    try {
+      const nguon = await taoNguonFact(app);
+      const { bth } = await taoDauRa(app, nguon.id, "bai-viet");
+      const r = await post(
+        app,
+        `/api/nguon/${nguon.id}`,
+        {
+          tieu_de: "Ra mắt sản phẩm X — đợt 2",
+          noi_dung: "Ngày ra mắt: 10/01/2026. Giá: 25000.",
+          loai: "fact",
+          cac_muc: MUC_NGUON,
+          dua_tren_revision_id: nguon.head_revision_id,
+        },
+        "PUT",
+      );
+      const ph = (await r.json()).du_lieu.phat_hien;
+      expect(ph).not.toBeNull();
+      expect(ph.thay_doi).not.toBeNull();
+      const muc = ph.thay_doi.ds_thay_doi.find(
+        (m: { muc_id: string | null }) => m.muc_id === "tieu_de",
+      );
+      expect(muc).not.toBeUndefined();
+      expect(muc.loai_muc).toBe("truong");
+      expect(muc.moi).toBe("Ra mắt sản phẩm X — đợt 2");
+      const task = ph.ds_task.find(
+        (t: { ban_the_hien_id: string }) => t.ban_the_hien_id === bth.id,
+      );
+      expect(task).not.toBeUndefined();
+    } finally {
+      await app.dong();
+    }
+  });
+
+  test("đề xuất task thu_cong → 409 (bản đã xuất bản sửa bằng tay)", async () => {
+    const app = await taoServerTam();
+    try {
+      const nguon = await taoNguonFact(app);
+      const { bth } = await taoDauRa(app, nguon.id, "bai-viet");
+      await duyetBth(app, bth.id);
+      await post(app, `/api/ban-the-hien/${bth.id}/xuat-ban`, {});
+      const put = await doiGiaNguon(app, nguon);
+      const task = put.phat_hien.ds_task[0];
+      expect(task.loai).toBe("thu_cong");
+
+      const dx = await post(app, `/api/task-sua/${task.id}/de-xuat`, {});
+      expect(dx.status).toBe(409);
+      expect((await dx.json()).loi.ma).toBe("XUNG_DOT_TRANG_THAI");
+    } finally {
+      await app.dong();
+    }
+  });
+
+  test("đề xuất khi bản đã ghim nguồn mới qua đường khác → task tự đóng, 409 không job dư", async () => {
+    const app = await taoServerTam();
+    try {
+      const nguon = await taoNguonFact(app);
+      const { td, bth } = await taoDauRa(app, nguon.id, "bai-viet");
+      const put = await doiGiaNguon(app, nguon);
+      const task = put.phat_hien.ds_task[0];
+      expect(task.trang_thai).toBe("mo");
+
+      // Sửa qua đường khác: revision thông điệp mới ghim head nguồn mới,
+      // rồi revision bản thể hiện mới ghim thông điệp đó.
+      capNhatThongDiep(
+        app.db,
+        td.id,
+        { tieu_de: td.tieu_de, noi_dung: td.noi_dung },
+        td.head_revision_id,
+        "test",
+      );
+      const { json: chiTiet } = await getJson(app, `/api/ban-the-hien/${bth.id}`);
+      themRevision(
+        app.db,
+        {
+          ban_the_hien_id: bth.id,
+          noi_dung: JSON.stringify({ tieu_de: "x", noi_dung: "sửa bằng tay" }),
+          dua_tren_revision_id: chiTiet.du_lieu.head_revision_id,
+        },
+        "test",
+      );
+
+      // GET tự đóng task (lazy-close) — rồi de-xuat bị chặn 409, không job.
+      const dx = await post(app, `/api/task-sua/${task.id}/de-xuat`, {});
+      expect(dx.status).toBe(409);
+      const { json: jt } = await getJson(app, `/api/task-sua/${task.id}`);
+      expect(jt.du_lieu.trang_thai).toBe("xong");
+      expect(jt.du_lieu.job_id).toBeNull();
     } finally {
       await app.dong();
     }
