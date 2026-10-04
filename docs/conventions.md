@@ -74,7 +74,7 @@ Chuyển sai → 409 `XUNG_DOT_TRANG_THAI`.
 ## Seed / fixture
 
 - Seed dùng id cố định + kiểm tra tồn tại → chạy lại được.
-- Provider `fixture` deterministic: cùng input → cùng output, không gọi mạng.
+- Provider `fixture` deterministic: cùng input → cùng output, không gọi mạng; mọi task trả `noi_dung` dạng canonical JSON và cắt theo giới hạn trường của schema (`do_dai_toi_da`/`so_muc_toi_da`) — input dài không làm output tự vi phạm.
 - Tên loại job, handler: snake_case (vd `sinh_ban_the_hien`).
 
 ## Job nền
@@ -125,3 +125,24 @@ Chuyển sai → 409 `XUNG_DOT_TRANG_THAI`.
 - Export: `GET /api/ban-the-hien/:id/xuat-ban/:xbId/tai-ve` → ZIP (`modules/formats/xuat.ts` + `zip.ts`) gồm `noi-dung.md`, `noi-dung.html`, `manifest.json` (dòng nguồn: định dạng + phiên bản, revision đã ghim, thông điệp, nguồn revisions, asset metadata) và `assets/<ten_file>` chỉ cho asset trong `xuat_ban.asset_ids` lúc đăng (asset trùng tên được suffix id; asset thiếu byte hoặc đã xóa ghi `thieu: true` trong manifest). Tiêu đề thông điệp trong manifest lấy từ `thong_diep_revision` đã ghim trong revision nội dung. STORE không nén + timestamp cố định + entry sort → cùng record → cùng byte. Ghi chú duyệt/xuất bản và record thư viện khác không vào bundle.
 - Định dạng tách khỏi đích đến: `dinh_dang` là schema/render, `dich_den` là chuỗi tự do trên bản thể hiện/bản xuất bản.
 - Endpoint: `GET /api/dinh-dang` (đủ def), `GET /api/dinh-dang/:id`.
+
+## Sinh nội dung (#20)
+
+- Contract provider (`src/modules/generation/index.ts`): `NhaCungCap.sinh(ctx: ContextTask, tinHieu?) → KetQuaTask {noi_dung (canonical JSON theo schema), trich_dan[], canh_bao[], model?, token_vao?, token_ra?}`. `KetQuaTask` giống nhau cho fixture và live — mọi kiểm chứng đi qua `hop_le.ts`, không qua adapter.
+- Task có phiên bản (`generation/task.ts`): `nhap_ban_the_hien`, `lap_ke_hoach`, `localize`, `de_xuat_revision` — mỗi cái `id` + `phien_ban` + `mo_ta` contract. Provenance job ghi `task.id/phien_ban` vào `ket_qua` và bảng `su_dung_sinh`.
+- Provider: `layNhaCungCap(cauHinh.ai)` → `fixture` (deterministic, offline, mặc định cho local/CI) hoặc `openai` (`generation/live.ts`, endpoint OpenAI-compatible). `GET /api/health` trả `{provider: {ten, la_fixture, model}}`; Tổng quan hiển thị badge `fixture`/`live`.
+- Adapter live đọc key từ env `MAI_AI_API_KEY` (tên env cấu hình qua `ai.api_key_env`) **lúc gọi**, phía server — không serialize, không log, không vào `ket_qua`/`context_sinh`/bundle. Prompt ghi rõ dữ liệu nguồn là DỮ LIỆU, không phải chỉ dẫn; provider không có năng lực xuất bản/thanh toán. Thiếu key, 4xx → `LoiProvider(vinh_vien)`; 429/5xx/mạng hỏng/timeout → lỗi tạm thời retry được; output không phải JSON hoặc sai hình dạng → `LoiProvider(sua_duoc)` đi vào vòng sửa.
+- Bộ dựng context (`generation/context.ts` `lapContextNoiDung`): resolve revision thông điệp head → revision nguồn đã ghim qua `nguon_revision_ids` (giữ thứ tự), cắt gọn theo `toi_da_ky_tu_nguon`/`toi_da_ky_tu_context` (đánh dấu `da_cat_gon`), báo `thieu_chung_cu` (`so_lieu`/`moc_thoi_gian`/`gia_ca` — heuristic deterministic) để provider để `[CÂU HỎI: ...]` thay vì bịa.
+- Kiểm chứng (`generation/hop_le.ts` `kiemTraDauRa`): lỗi cứng = `kiemTraNoiDung` vi phạm schema hoặc chứa `claim_cam`; cảnh báo review = `trich_dan` không resolve tới revision nguồn đã đưa vào, hoặc thuật ngữ `giu_nguyen` có trong nguồn mà đầu ra bỏ. Schema hợp lệ một mình không chứng minh đúng sự thật.
+- Handler `sinh_ban_the_hien` (`jobs/handlers.ts`): ghim head khi enqueue → kiểm lại trước commit (trôi → `LoiVinhVien`, retry mới ghim head mới — sửa tay không bị ghi đè). Vòng sinh → `kiemTraDauRa` → sửa có biên **một lần** kèm `sua_loi` → vẫn lỗi → fail vĩnh viễn (kể cả khi provider trả lỗi `sua_duoc` ở lần gọi cuối — không đốt attempt). `thong_diep_revision_id` ghi từ revision mà `lapContextNoiDung` thực sự dùng. Commit `context_sinh` + `revision` trong cùng transaction.
+- Usage (`su_dung_sinh`, migration 0008): một dòng mỗi lần gọi provider — `job_id`, `lan_thu`, provider/model/task+phien_ban, `token_vao/ra` khi provider báo, `ms`, `trang_thai` ok/loi, `loi`. `GET /api/su-dung-sinh?job_id=` đọc. `chi_phi_uoc_tinh` **chỉ** điền khi `ai.gia_moi_1k_token_vao/ra` cấu hình tường minh.
+- Giới hạn cấu hình (`config.ts` `CauHinhAi`, file `mai.config.json` + env `MAI_AI_*`): `timeout_ms` (mặc định 60s), `toi_da_ky_tu_nguon` (4000), `toi_da_ky_tu_context` (16000), `toi_da_ky_tu_dau_ra` (12000), `toi_da_fan_out` (8). `payload.fan_out` trong `POST /api/job` tạo thêm bản thể hiện + job cho mỗi biến thể (không lồng); response kèm `ds_job_fan_out`.
+- `JobCtx.tinHieu` (AbortSignal) cháy khi attempt quá `timeout_ms` — handler truyền xuống `provider.sinh` để hủy fetch còn treo, không để zombie gọi mạng ngầm.
+- Đường lỗi deterministic: timeout → `loi`; JSON hỏng → repair rồi `loi`; rate limit → retry backoff; hủy → `huy` không revision. Coverage của job timeout vẫn là `timeout_ms` của attempt — timeout provider nằm trong đó.
+
+Walkthrough chấp nhận ngắn (#20):
+
+1. `bun run build && bun src/server/index.ts` (mặc định `ai.provider=fixture`) → `GET /api/health` trả `provider.la_fixture=true`, Tổng quan hiển thị badge `fixture`.
+2. `POST /api/job {loai:"sinh_ban_the_hien", payload:{thong_diep_id:"seed-td-1", dinh_dang:"bai-viet"}}` → job `xong` → revision head là canonical JSON hợp lệ `kiemTraNoiDung`; `GET /api/su-dung-sinh?job_id=` có đúng một dòng `ok`.
+3. `payload.fan_out:[{dinh_dang:"caption"}]` → `ds_job_fan_out` có một job phụ; `> toi_da_fan_out` → 400.
+4. Live: đặt `MAI_AI_PROVIDER=openai` + `MAI_AI_API_KEY` (+ tùy chọn `MAI_AI_BASE_URL`/`MAI_AI_MODEL`) → cùng contract; thiếu key → job `loi` vĩnh viễn với thông điệp rõ, không retry.

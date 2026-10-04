@@ -2,7 +2,15 @@
   "port": 3000,
   "dataDir": "./data",
   "ai": {
-    "provider": "fixture"
+    "provider": "fixture",
+    "base_url": "https://api.openai.com/v1",
+    "model": "gpt-4o-mini",
+    "api_key_env": "MAI_AI_API_KEY",
+    "timeout_ms": 60000,
+    "toi_da_ky_tu_nguon": 4000,
+    "toi_da_ky_tu_context": 16000,
+    "toi_da_ky_tu_dau_ra": 12000,
+    "toi_da_fan_out": 8
   },
   "jobs": {
     "concurrency": 2,
