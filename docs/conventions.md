@@ -118,3 +118,10 @@ Chuyển sai → 409 `XUNG_DOT_TRANG_THAI`.
 - Giới hạn cấu hình (`config.ts` `CauHinhAi`, file `mai.config.json` + env `MAI_AI_*`): `timeout_ms` (mặc định 60s), `toi_da_ky_tu_nguon` (4000), `toi_da_ky_tu_context` (16000), `toi_da_ky_tu_dau_ra` (12000), `toi_da_fan_out` (8). `payload.fan_out` trong `POST /api/job` tạo thêm bản thể hiện + job cho mỗi biến thể (không lồng); response kèm `ds_job_fan_out`.
 - `JobCtx.tinHieu` (AbortSignal) cháy khi attempt quá `timeout_ms` — handler truyền xuống `provider.sinh` để hủy fetch còn treo, không để zombie gọi mạng ngầm.
 - Đường lỗi deterministic: timeout → `loi`; JSON hỏng → repair rồi `loi`; rate limit → retry backoff; hủy → `huy` không revision. Coverage của job timeout vẫn là `timeout_ms` của attempt — timeout provider nằm trong đó.
+
+Walkthrough chấp nhận ngắn (#20):
+
+1. `bun run build && bun src/server/index.ts` (mặc định `ai.provider=fixture`) → `GET /api/health` trả `provider.la_fixture=true`, Tổng quan hiển thị badge `fixture`.
+2. `POST /api/job {loai:"sinh_ban_the_hien", payload:{thong_diep_id:"seed-td-1", dinh_dang:"bai-viet"}}` → job `xong` → revision head là canonical JSON hợp lệ `kiemTraNoiDung`; `GET /api/su-dung-sinh?job_id=` có đúng một dòng `ok`.
+3. `payload.fan_out:[{dinh_dang:"caption"}]` → `ds_job_fan_out` có một job phụ; `> toi_da_fan_out` → 400.
+4. Live: đặt `MAI_AI_PROVIDER=openai` + `MAI_AI_API_KEY` (+ tùy chọn `MAI_AI_BASE_URL`/`MAI_AI_MODEL`) → cùng contract; thiếu key → job `loi` vĩnh viễn với thông điệp rõ, không retry.
