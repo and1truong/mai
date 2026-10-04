@@ -541,7 +541,8 @@ function ghiThongDiepRevisionTrongTxn(
 ): ThongDiepRevision {
   const td = layThongDiep(db, thongDiepId)!;
   assertDuaTren(td.head_revision_id, duaTren);
-  const nguonRevIds = headRevisionCuaDsNguon(db, snapshot.nguon_ids);
+  const nguonIds = [...new Set(snapshot.nguon_ids)];
+  const nguonRevIds = headRevisionCuaDsNguon(db, nguonIds);
   const soTiep =
     ((
       db
@@ -566,7 +567,7 @@ function ghiThongDiepRevisionTrongTxn(
     tacGia,
   );
   db.query("DELETE FROM thong_diep_nguon WHERE thong_diep_id = ?").run(thongDiepId);
-  for (const nid of snapshot.nguon_ids) {
+  for (const nid of nguonIds) {
     db.query("INSERT INTO thong_diep_nguon (thong_diep_id, nguon_id) VALUES (?, ?)").run(
       thongDiepId,
       nid,
