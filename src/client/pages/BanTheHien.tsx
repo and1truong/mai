@@ -31,10 +31,22 @@ type ContextSinhDaDoc = {
 };
 
 type RevisionKemContext = Revision & { context_sinh: ContextSinhDaDoc | null };
+
+// Task sửa mở trên bản này (#14) — banner cảnh báo đầu ra bị nguồn đổi.
+type TaskSuaMo = {
+  id: string;
+  loai: "sinh_lai" | "thu_cong";
+  do_tin: "chinh_xac" | "khong_chac";
+  ly_do: string;
+  trang_thai: string;
+  thay_doi_nguon_id: string;
+  thay_doi_nguon: { id: string; loai: string } | null;
+};
 type ChiTiet = BanTheHien & {
   revisions: RevisionKemContext[];
   assets: Asset[];
   ds_xuat_ban: XuatBan[];
+  ds_task_mo: TaskSuaMo[];
   thong_diep: { tieu_de: string } | null;
 };
 
@@ -489,6 +501,76 @@ export default function BanTheHienPage() {
                     {chiTiet.data.thong_diep?.tieu_de ?? ""} · head{" "}
                     {revHead ? `#${revHead.so_thu_tu}` : "—"}
                   </Text>
+
+                  {/* Nguồn/hồ sơ đã đổi sau khi bản này sinh (#14) — đề
+                      xuất sinh lại qua job, hoặc bỏ qua. */}
+                  {(chiTiet.data.ds_task_mo ?? []).map((t) => (
+                    <Callout.Root
+                      key={t.id}
+                      color={t.do_tin === "khong_chac" ? "orange" : "red"}
+                    >
+                      <Callout.Text>
+                        {t.do_tin === "khong_chac"
+                          ? "Nguồn có thể đã đổi — phụ thuộc không chứng minh được. "
+                          : "Nguồn đã đổi — bản này có thể đã cũ. "}
+                        {t.ly_do}
+                      </Callout.Text>
+                      <Flex gap="2" mt="2" align="center">
+                        {t.loai === "sinh_lai" && t.trang_thai === "mo" && (
+                          <Button
+                            size="1"
+                            onClick={async () => {
+                              await api(`/api/task-sua/${t.id}/de-xuat`, {
+                                method: "POST",
+                                headers: { "content-type": "application/json" },
+                                body: "{}",
+                              });
+                              chiTiet.reload();
+                            }}
+                          >
+                            Đề xuất sinh lại
+                          </Button>
+                        )}
+                        {t.loai === "thu_cong" && (
+                          <Button
+                            size="1"
+                            color="green"
+                            variant="soft"
+                            onClick={async () => {
+                              await api(`/api/task-sua/${t.id}/trang-thai`, {
+                                method: "POST",
+                                headers: { "content-type": "application/json" },
+                                body: JSON.stringify({ trang_thai: "xong" }),
+                              });
+                              chiTiet.reload();
+                            }}
+                          >
+                            Đã sửa tay
+                          </Button>
+                        )}
+                        {t.trang_thai === "mo" && (
+                          <Button
+                            size="1"
+                            variant="soft"
+                            color="gray"
+                            onClick={async () => {
+                              await api(`/api/task-sua/${t.id}/trang-thai`, {
+                                method: "POST",
+                                headers: { "content-type": "application/json" },
+                                body: JSON.stringify({ trang_thai: "bo_qua" }),
+                              });
+                              chiTiet.reload();
+                            }}
+                          >
+                            Bỏ qua
+                          </Button>
+                        )}
+                        <a href={`#/thay-doi?id=${t.thay_doi_nguon_id}`}>
+                          <Text size="1">Xem thay đổi</Text>
+                        </a>
+                      </Flex>
+                    </Callout.Root>
+                  ))}
 
                   {/* Lệnh vòng đời — server ép chuỗi chuyển + ghim revision. */}
                   <Flex gap="2" wrap="wrap" align="center">

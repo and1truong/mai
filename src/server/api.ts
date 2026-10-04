@@ -125,6 +125,20 @@ import {
 } from "../modules/so_bao/index.ts";
 import { taoBundleSoBao } from "../modules/so_bao/xuat.ts";
 import { LOAI_JOB_HO_TRO } from "../modules/jobs/handlers.ts";
+import {
+  DANH_SACH_LOAI_THAY_DOI,
+  chuyenTrangThaiTask,
+  danhSachTaskCuaThayDoi,
+  danhSachTaskSua,
+  danhSachThayDoi,
+  deXuatSuaTask,
+  dongTaskTuDong,
+  layTaskSua,
+  layThayDoi,
+  phatHienThayDoiHoSo,
+  phatHienThayDoiNguon,
+  type TaskSua,
+} from "../modules/thay_doi/index.ts";
 import { danhSachSuDungSinh } from "../modules/generation/index.ts";
 import {
   cauHoiLamRo,
@@ -452,6 +466,31 @@ function docContextSinh(cs: ContextSinh) {
   };
 }
 
+// Serialize task_sua kèm bản thể hiện (định dạng/đối tượng/trạng thái/url
+// trang/số bản xuất) + detection tóm tắt — list và detail trả cùng shape.
+function docTaskView(db: Database, task: TaskSua) {
+  const bth = layBanTheHien(db, task.ban_the_hien_id);
+  const td = bth ? layThongDiep(db, bth.thong_diep_id) : null;
+  const tdn = db
+    .query(
+      "SELECT id, loai, entity_id, tu_revision_id, den_revision_id, tao_luc, tao_boi FROM thay_doi_nguon WHERE id = ?",
+    )
+    .get(task.thay_doi_nguon_id) as Record<string, unknown> | null;
+  return {
+    ...task,
+    ban_the_hien: bth
+      ? {
+          ...bth,
+          thong_diep_tieu_de: td?.tieu_de ?? "",
+          // /p chỉ phục vụ bản đã xuất — bản chưa xuất không có trang.
+          url_trang: danhSachXuatBan(db, bth.id).length > 0 ? `/p/${bth.id}` : null,
+          so_xuat_ban: danhSachXuatBan(db, bth.id).length,
+        }
+      : null,
+    thay_doi_nguon: tdn,
+  };
+}
+
 export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
   // Kho byte trên đĩa local, gốc <dataDir>/assets — interface hẹp để test
   // được bằng kho in-memory (modules/nap).
@@ -487,6 +526,12 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
         viec_gan_day: viecGanDay(c.db),
         bth_cho_duyet: danhSachBanTheHien(c.db, { trangThai: "cho_duyet" }).slice(0, 20),
         bth_cu: danhSachBanTheHienCu(c.db),
+        // #14: task sửa còn mở từ phát hiện thay đổi nguồn.
+        task_sua_mo: danhSachTaskSua(c.db, { trangThai: ["mo", "dang_lam"] }).length,
+        ds_task_sua: danhSachTaskSua(c.db, {
+          trangThai: ["mo", "dang_lam"],
+          gioiHan: 10,
+        }).map((t) => docTaskView(c.db, t)),
       }),
     ),
 
@@ -620,7 +665,10 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       const ten = batBuocChuoi(body.ten, "ten", dsLoi);
       const nguonDuLieu = docNguonDuLieu(body, dsLoi);
       nemLoiValidation(dsLoi);
-      return ok(capNhatThuongHieu(c.db, p.id!, docNhapThuongHieu(body, ten), c.actor, nguonDuLieu));
+      const hoSo = capNhatThuongHieu(c.db, p.id!, docNhapThuongHieu(body, ten), c.actor, nguonDuLieu);
+      // #14: revision hồ sơ mới → đánh dấu bản thể hiện phụ thuộc cần review.
+      const phatHien = phatHienThayDoiHoSo(c.db, "thuong_hieu", p.id!, c.actor);
+      return ok({ ...hoSo, phat_hien: phatHien });
     }),
     route("DELETE", "/api/ho-so-thuong-hieu/:id", (_req, p, c) => {
       xoaThuongHieu(c.db, p.id!);
@@ -636,7 +684,11 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       const ds = docDanhSachThuatNgu(body.thuat_ngu, dsLoi);
       const nguonDuLieu = docNguonDuLieu(body, dsLoi);
       nemLoiValidation(dsLoi);
-      return ok(thayThuatNgu(c.db, p.id!, ds, c.actor, nguonDuLieu));
+      const hoSo = thayThuatNgu(c.db, p.id!, ds, c.actor, nguonDuLieu);
+      // #14: thay thuật ngữ ghi revision hồ sơ mới → đánh dấu phụ thuộc.
+      // Giữ nguyên payload mảng thuật ngữ — client đang dùng du_lieu là list.
+      phatHienThayDoiHoSo(c.db, "thuong_hieu", p.id!, c.actor);
+      return ok(hoSo);
     }),
 
     // --- Hồ sơ đối tượng ---
@@ -662,7 +714,10 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       const doSau = docDoSau(body, dsLoi);
       const nguonDuLieu = docNguonDuLieu(body, dsLoi);
       nemLoiValidation(dsLoi);
-      return ok(capNhatDoiTuong(c.db, p.id!, docNhapDoiTuong(body, ten, doSau), c.actor, nguonDuLieu));
+      const hoSo = capNhatDoiTuong(c.db, p.id!, docNhapDoiTuong(body, ten, doSau), c.actor, nguonDuLieu);
+      // #14: revision hồ sơ đối tượng mới → đánh dấu phụ thuộc cần review.
+      const phatHien = phatHienThayDoiHoSo(c.db, "doi_tuong", p.id!, c.actor);
+      return ok({ ...hoSo, phat_hien: phatHien });
     }),
     route("DELETE", "/api/ho-so-doi-tuong/:id", (_req, p, c) => {
       xoaDoiTuong(c.db, p.id!);
@@ -966,7 +1021,16 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
     route("GET", "/api/nguon/:id", (_req, p, c) => {
       const nguon = layNguon(c.db, p.id!);
       if (!nguon) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy nguồn.");
-      return ok({ ...nguon, revisions: danhSachNguonRevision(c.db, nguon.id) });
+      const dsThayDoi = danhSachThayDoi(c.db, { loai: "nguon", entityId: nguon.id });
+      return ok({
+        ...nguon,
+        revisions: danhSachNguonRevision(c.db, nguon.id),
+        ds_thay_doi: dsThayDoi,
+        so_task_mo: danhSachTaskSua(c.db, {
+          entityId: nguon.id,
+          trangThai: ["mo", "dang_lam"],
+        }).length,
+      });
     }),
     route("PUT", "/api/nguon/:id", async (req, p, c) => {
       const body = await docBody(req);
@@ -977,15 +1041,17 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       const loai = tuyChonChuoi(body.loai) || undefined;
       const cacMuc = body.cac_muc !== undefined ? docCacMuc(body.cac_muc, dsLoi) : undefined;
       nemLoiValidation(dsLoi);
-      return ok(
-        capNhatNguon(
-          c.db,
-          p.id!,
-          { tieu_de: tieuDe, noi_dung: noiDung, loai, cac_muc: cacMuc },
-          duaTren,
-          c.actor,
-        ),
+      const nguon = capNhatNguon(
+        c.db,
+        p.id!,
+        { tieu_de: tieuDe, noi_dung: noiDung, loai, cac_muc: cacMuc },
+        duaTren,
+        c.actor,
       );
+      // #14: revision nguồn mới → phát hiện đầu ra phụ thuộc ngay trong
+      // request (idempotent — gọi lại an toàn).
+      const phatHien = phatHienThayDoiNguon(c.db, nguon.id, c.actor);
+      return ok({ ...nguon, phat_hien: phatHien });
     }),
     route("GET", "/api/nguon/:id/revision", (_req, p, c) => {
       const nguon = layNguon(c.db, p.id!);
@@ -996,6 +1062,99 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       const rev = layNguonRevision(c.db, p.id!);
       if (!rev) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy revision nguồn.");
       return ok(rev);
+    }),
+
+    // --- Phát hiện thay đổi nguồn (#14): diff revision + task sửa đầu ra ---
+    // Chạy lại phát hiện bằng tay — idempotent: cùng revision đích không tạo
+    // detection/task trùng, chỉ bổ sung task cho bản mới xuất hiện sau đó.
+    route("POST", "/api/phat-hien", async (req, _p, c) => {
+      const body = await docBody(req);
+      const dsLoi: string[] = [];
+      const loai = batBuocChuoi(body.loai, "loai", dsLoi);
+      const entityId = batBuocChuoi(body.entity_id, "entity_id", dsLoi);
+      if (loai && !(DANH_SACH_LOAI_THAY_DOI as readonly string[]).includes(loai)) {
+        dsLoi.push(`loai không hợp lệ. Cho phép: ${DANH_SACH_LOAI_THAY_DOI.join(", ")}.`);
+      }
+      nemLoiValidation(dsLoi);
+      if (loai === "nguon") {
+        if (!layNguon(c.db, entityId)) {
+          loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy nguồn.");
+        }
+        return ok(phatHienThayDoiNguon(c.db, entityId, c.actor));
+      }
+      const hoSo =
+        loai === "thuong_hieu" ? layThuongHieu(c.db, entityId) : layDoiTuong(c.db, entityId);
+      if (!hoSo) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy hồ sơ.");
+      return ok(phatHienThayDoiHoSo(c.db, loai as "thuong_hieu" | "doi_tuong", entityId, c.actor));
+    }),
+    route("GET", "/api/thay-doi", (req, _p, c) => {
+      const url = new URL(req.url);
+      const loai = url.searchParams.get("loai") || undefined;
+      const entityId = url.searchParams.get("entity_id") || undefined;
+      const ds = danhSachThayDoi(c.db, { loai, entityId });
+      // Kèm số task còn mở + tên entity để list tự đủ không cần N+1 gọi lại.
+      return ok(
+        ds.map((d) => {
+          const soMo = danhSachTaskSua(c.db, {
+            trangThai: ["mo", "dang_lam"],
+          }).filter((t) => t.thay_doi_nguon_id === d.id).length;
+          const tenEntity =
+            d.loai === "nguon"
+              ? (layNguon(c.db, d.entity_id)?.tieu_de ?? d.entity_id)
+              : d.loai === "thuong_hieu"
+                ? (layThuongHieu(c.db, d.entity_id)?.ten ?? d.entity_id)
+                : (layDoiTuong(c.db, d.entity_id)?.ten ?? d.entity_id);
+          return { ...d, so_task_mo: soMo, ten_entity: tenEntity };
+        }),
+      );
+    }),
+    route("GET", "/api/thay-doi/:id", (_req, p, c) => {
+      const d = layThayDoi(c.db, p.id!);
+      if (!d) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy thay đổi nguồn.");
+      const tenEntity =
+        d.loai === "nguon"
+          ? (layNguon(c.db, d.entity_id)?.tieu_de ?? d.entity_id)
+          : d.loai === "thuong_hieu"
+            ? (layThuongHieu(c.db, d.entity_id)?.ten ?? d.entity_id)
+            : (layDoiTuong(c.db, d.entity_id)?.ten ?? d.entity_id);
+      return ok({
+        ...d,
+        ten_entity: tenEntity,
+        ds_task: danhSachTaskCuaThayDoi(c.db, d.id).map((t) => docTaskView(c.db, t)),
+      });
+    }),
+    route("GET", "/api/task-sua", (req, _p, c) => {
+      const url = new URL(req.url);
+      // Mặc định chỉ task còn mở; ?trang_thai=tat_ca hoặc danh sách cụ thể.
+      const tt = url.searchParams.get("trang_thai");
+      const trangThai =
+        tt === "tat_ca" ? undefined : tt ? tt.split(",").filter(Boolean) : ["mo", "dang_lam"];
+      return ok(
+        danhSachTaskSua(c.db, {
+          trangThai,
+          banTheHienId: url.searchParams.get("ban_the_hien_id") || undefined,
+          entityId: url.searchParams.get("entity_id") || undefined,
+        }).map((t) => docTaskView(c.db, t)),
+      );
+    }),
+    route("GET", "/api/task-sua/:id", (_req, p, c) => {
+      const taskTruoc = layTaskSua(c.db, p.id!);
+      if (!taskTruoc) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy task sửa.");
+      // Lazy close: sinh_lai tự đóng khi head đã ghim revision nguồn mới.
+      const task = dongTaskTuDong(c.db, taskTruoc);
+      const thayDoi = layThayDoi(c.db, task.thay_doi_nguon_id);
+      return ok({ ...docTaskView(c.db, task), thay_doi_nguon: thayDoi });
+    }),
+    route("POST", "/api/task-sua/:id/de-xuat", (_req, p, c) => {
+      const kq = deXuatSuaTask(c.db, p.id!, c.actor);
+      return ok({ task: docTaskView(c.db, kq.task), job: kq.job, da_tao_job: kq.da_tao_job });
+    }),
+    route("POST", "/api/task-sua/:id/trang-thai", async (req, p, c) => {
+      const body = await docBody(req);
+      const dsLoi: string[] = [];
+      const den = batBuocChuoi(body.trang_thai, "trang_thai", dsLoi);
+      nemLoiValidation(dsLoi);
+      return ok(docTaskView(c.db, chuyenTrangThaiTask(c.db, p.id!, den, c.actor)));
     }),
 
     // --- Nạp nguồn từ text (#17): dán text mới → nguồn + cac_muc chuẩn hóa;
@@ -1033,7 +1192,9 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
         },
         c.actor,
       );
-      return ok(kq, kq.da_tao ? 201 : 200);
+      // #14: nạp lại tạo revision nguồn mới → phát hiện phụ thuộc.
+      const phatHien = kq.da_tao ? phatHienThayDoiNguon(c.db, p.id!, c.actor) : null;
+      return ok({ ...kq, phat_hien: phatHien }, kq.da_tao ? 201 : 200);
     }),
 
     // --- Nhập bài viết: dán một bài tạo nguồn + thông điệp + nhiều bản thể hiện ---
@@ -1141,6 +1302,11 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
         revisions,
         ds_xuat_ban: danhSachXuatBan(c.db, bth.id),
         assets: danhSachAssetBanTheHien(c.db, bth.id),
+        // #14: task sửa còn mở của bản này — editor hiện banner cảnh báo.
+        ds_task_mo: danhSachTaskSua(c.db, {
+          banTheHienId: bth.id,
+          trangThai: ["mo", "dang_lam"],
+        }).map((t) => docTaskView(c.db, t)),
       });
     }),
     route("POST", "/api/ban-the-hien/:id/revision", async (req, p, c) => {
@@ -1570,6 +1736,7 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
           );
           nguon = kq.nguon;
           revision = kq.revision;
+          if (kq.da_tao) phatHienThayDoiNguon(c.db, nguonId, c.actor); // #14
         } else {
           const nguonCu = tonTai.nguon_id ? layNguon(c.db, tonTai.nguon_id) : null;
           nguon = nguonCu;
@@ -1612,6 +1779,10 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
         nguon = kq.nguon;
         revision = kq.revision;
         nguonId = kq.nguon.id;
+        // #14: nạp file văn bản tạo revision nguồn mới → phát hiện phụ thuộc.
+        if (kq.da_tao && url.searchParams.get("nguon_id")) {
+          phatHienThayDoiNguon(c.db, nguonId, c.actor);
+        }
       }
       const { asset, da_tao } = await luuAsset(
         c.db,
