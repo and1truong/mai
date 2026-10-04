@@ -550,19 +550,11 @@ export function phatHienThayDoiNguon(
     });
   }
 
-  // tieu_de/loai cũng đi vào context sinh — đổi chúng cũng là thay đổi
-  // nguồn, diff như trường snapshot hồ sơ.
-  const dsThayDoi = [
-    ...diffSnapshotHoSo(
-      { tieu_de: tu.tieu_de, loai: tu.loai },
-      { tieu_de: den.tieu_de, loai: den.loai },
-    ),
-    ...diffCacMuc(tu.cac_muc, den.cac_muc),
-  ];
-  if (dsThayDoi.length === 0 && tu.noi_dung !== den.noi_dung) {
+  const dsMucDiff = diffCacMuc(tu.cac_muc, den.cac_muc);
+  if (dsMucDiff.length === 0 && tu.noi_dung !== den.noi_dung) {
     // cac_muc trùng nhau nhưng toàn văn đổi (sửa tay cac_muc không khớp) —
     // ghi một mục tổng để người dùng thấy có đổi.
-    dsThayDoi.push({
+    dsMucDiff.push({
       muc_id: null,
       loai_muc: "noi_dung",
       loai_thay_doi: "sua",
@@ -571,6 +563,15 @@ export function phatHienThayDoiNguon(
       moi: den.noi_dung,
     });
   }
+  // tieu_de/loai cũng đi vào context sinh — đổi chúng cũng là thay đổi
+  // nguồn, diff như trường snapshot hồ sơ.
+  const dsThayDoi = [
+    ...diffSnapshotHoSo(
+      { tieu_de: tu.tieu_de, loai: tu.loai },
+      { tieu_de: den.tieu_de, loai: den.loai },
+    ),
+    ...dsMucDiff,
+  ];
   // Nội dung hệt nhau (PUT lặp) → không có thay đổi thật, không ghi detection.
   if (dsThayDoi.length === 0) return { thay_doi: null, ds_task: [] };
 
@@ -839,27 +840,29 @@ export function deXuatSuaTask(
   taskId: string,
   tacGia: string,
 ): { task: TaskSua; job: Job; da_tao_job: boolean } {
+  // Lazy-close + chặn loại task TRƯỚC transaction ghi — đóng task phải
+  // persist kể cả khi sau đó trả 409 (throw trong txn sẽ rollback mất).
+  const taskTruoc = layTaskSua(db, taskId);
+  if (!taskTruoc) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy task sửa.");
+  if (taskTruoc.trang_thai === "xong" || taskTruoc.trang_thai === "bo_qua") {
+    throw new LoiApi(409, "XUNG_DOT_TRANG_THAI", "Task đã đóng — mở lại trước khi đề xuất.");
+  }
+  // Kiểm lại trước khi enqueue: bản có thể đã ghim revision mới qua
+  // đường khác → task tự đóng, không cần job sinh lại dư.
+  const task = dongTaskTuDong(db, taskTruoc);
+  if (task.trang_thai === "xong") {
+    throw new LoiApi(409, "XUNG_DOT_TRANG_THAI", "Bản đã sửa xong — task vừa tự đóng.");
+  }
+  // Task sửa tay = bản đã xuất bản ra ngoài; sinh lại trong MAI không
+  // sửa được bản copy ngoài — endpoint từ chối giống UI đã ẩn nút.
+  if (task.loai === "thu_cong") {
+    throw new LoiApi(
+      409,
+      "XUNG_DOT_TRANG_THAI",
+      "Task sửa tay (bản đã xuất bản) — đề xuất sinh lại không áp dụng.",
+    );
+  }
   return txn(db, () => {
-    const taskTruoc = layTaskSua(db, taskId);
-    if (!taskTruoc) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy task sửa.");
-    if (taskTruoc.trang_thai === "xong" || taskTruoc.trang_thai === "bo_qua") {
-      throw new LoiApi(409, "XUNG_DOT_TRANG_THAI", "Task đã đóng — mở lại trước khi đề xuất.");
-    }
-    // Kiểm lại trước khi enqueue: bản có thể đã ghim revision mới qua
-    // đường khác → task tự đóng, không cần job sinh lại dư.
-    const task = dongTaskTuDong(db, taskTruoc);
-    if (task.trang_thai === "xong") {
-      throw new LoiApi(409, "XUNG_DOT_TRANG_THAI", "Bản đã sửa xong — task vừa tự đóng.");
-    }
-    // Task sửa tay = bản đã xuất bản ra ngoài; sinh lại trong MAI không
-    // sửa được bản copy ngoài — endpoint từ chối giống UI đã ẩn nút.
-    if (task.loai === "thu_cong") {
-      throw new LoiApi(
-        409,
-        "XUNG_DOT_TRANG_THAI",
-        "Task sửa tay (bản đã xuất bản) — đề xuất sinh lại không áp dụng.",
-      );
-    }
     const thayDoi = layThayDoi(db, task.thay_doi_nguon_id);
     const bth = layBanTheHien(db, task.ban_the_hien_id);
     if (!thayDoi || !bth) loiRequest(404, "KHONG_TIM_THAY", "Task trỏ tới dữ liệu đã xóa.");

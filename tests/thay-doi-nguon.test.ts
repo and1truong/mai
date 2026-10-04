@@ -463,6 +463,54 @@ describe("phát hiện thay đổi nguồn", () => {
     }
   });
 
+  test("PUT đổi tiêu đề + toàn văn cùng lúc → diff có cả hai; PUT thiếu loai giữ loại cũ", async () => {
+    const app = await taoServerTam();
+    try {
+      const nguon = await taoNguonFact(app);
+      const r = await post(
+        app,
+        `/api/nguon/${nguon.id}`,
+        {
+          tieu_de: "Tiêu đề mới",
+          // cac_muc y hệt nhưng toàn văn đổi — cả hai đổi phải cùng hiện
+          // trong ds_thay_doi (không nuốt mục 'Toàn văn').
+          noi_dung: "Toàn văn viết lại hoàn toàn.",
+          loai: "fact",
+          cac_muc: MUC_NGUON,
+          dua_tren_revision_id: nguon.head_revision_id,
+        },
+        "PUT",
+      );
+      const ph = (await r.json()).du_lieu.phat_hien;
+      const ids = ph.thay_doi.ds_thay_doi.map((m: { muc_id: string | null }) => m.muc_id);
+      expect(ids).toContain("tieu_de");
+      expect(ph.thay_doi.ds_thay_doi.some((m: { loai_muc: string }) => m.loai_muc === "noi_dung")).toBe(
+        true,
+      );
+
+      // PUT thiếu field `loai` → giữ 'fact' của head, không detection giả.
+      const nguon2 = await taoNguonFact(app, "26000");
+      const head2 = (await getJson(app, `/api/nguon/${nguon2.id}`)).json.du_lieu
+        .head_revision_id;
+      const r2 = await post(
+        app,
+        `/api/nguon/${nguon2.id}`,
+        {
+          tieu_de: "Ra mắt sản phẩm X",
+          noi_dung: "Ngày ra mắt: 10/01/2026. Giá: 26000.",
+          cac_muc: MUC_NGUON.map((m) => (m.id === "gia" ? { ...m, noi_dung: "26000" } : m)),
+          dua_tren_revision_id: head2,
+        },
+        "PUT",
+      );
+      const put2 = (await r2.json()).du_lieu;
+      expect(put2.loai).toBe("fact");
+      expect(put2.phat_hien.thay_doi).toBeNull();
+    } finally {
+      await app.dong();
+    }
+  });
+
   test("đề xuất task thu_cong → 409 (bản đã xuất bản sửa bằng tay)", async () => {
     const app = await taoServerTam();
     try {
