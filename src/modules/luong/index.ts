@@ -259,19 +259,21 @@ export function chonDauRa(
     }
     if (dsLoi.length > 0) throw new LoiApi(400, "VALIDATION", "ds_chon không hợp lệ.", dsLoi);
 
+    const dtTen = (dtId: string | null) =>
+      dtId ? (layDoiTuong(db, dtId)?.ten ?? dtId) : "";
+
     // Lọc lựa chọn trùng sau validate — dich_den đã chắc là chuỗi ở đây.
-    // Khóa chuẩn hóa giống khóa bản thể hiện (dich_den trim): "linkedin"
-    // và " linkedin " tính trùng, response không đếm hai lần.
+    // Khóa dedupe = khóa danh tính bản thể hiện đã chuẩn hóa: ngon_ngu
+    // mặc định "vi", dich_den trim, doi_tuong theo tên đã resolve.
+    // Hai lựa chọn khác nhau trên giấy cùng về một đầu ra phải tính trùng.
     const daCo = new Set<string>();
     dsChon = dsChon.filter((c) => {
-      const k = `${c.doi_tuong_id ?? ""}|${c.dinh_dang}|${c.ngon_ngu ?? ""}|${(c.dich_den ?? "").trim()}`;
+      const k = `${dtTen(c.doi_tuong_id)}|${c.dinh_dang}|${c.ngon_ngu || "vi"}|${(c.dich_den ?? "").trim()}`;
       if (daCo.has(k)) return false;
       daCo.add(k);
       return true;
     });
 
-    const dtTen = (dtId: string | null) =>
-      dtId ? (layDoiTuong(db, dtId)?.ten ?? dtId) : "";
     const dsBth: BanTheHien[] = [];
     const dsJob: Job[] = [];
     for (const chon of dsChon) {
