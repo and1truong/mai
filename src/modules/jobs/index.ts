@@ -36,11 +36,17 @@ export function danhSachJob(db: Database, gioiHan = 50): Job[] {
 }
 
 // Khởi động runner trong process. Trả về hàm dừng runner.
+// Requeue job 'dang_chay' mồ côi (server restart giữa chừng) về 'cho'.
 export function khoiDongRunner(
   db: Database,
   handlers: Record<string, JobHandler>,
   chuKyMs = 500,
 ): () => void {
+  const moCoi = db
+    .query("UPDATE job SET trang_thai = 'cho' WHERE trang_thai = 'dang_chay'")
+    .run().changes;
+  if (moCoi > 0) log.warn("job.requeue_mo_coi", { so: moCoi });
+
   let dangChay = false;
   const timer = setInterval(() => {
     if (dangChay) return;
