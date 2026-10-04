@@ -14,11 +14,13 @@ import {
   kiemTraDauRa,
   lapContextNoiDung,
   LoiProvider,
+  MAC_DINH_GIOI_HAN_CONTEXT,
   TASK,
   type ContextTask,
   type KetQuaTask,
   type NhaCungCap,
 } from "../src/modules/generation/index.ts";
+import { catGon } from "../src/modules/generation/context.ts";
 import { taoAdapterOpenAI, dungPrompt } from "../src/modules/generation/live.ts";
 import { lapContextSinh } from "../src/modules/context/index.ts";
 import { kiemTraNoiDung, layDinhDang } from "../src/modules/formats/index.ts";
@@ -140,6 +142,29 @@ describe("bộ dựng context có nguồn", () => {
       gioi_han: { toi_da_ky_tu_context: 10 },
     });
     expect(ctxCat.ds_nguon.length).toBe(1);
+    db.close();
+  });
+
+  test("gioi_han có key undefined → giữ mặc định, nguồn không bị cắt (3dbd929)", () => {
+    const { db } = moDbTam();
+    const { bth } = dayChuyen(db, "Nội dung nguồn ngắn.");
+    const ctx = lapContextNoiDung(db, {
+      bth,
+      task: TASK.nhap_ban_the_hien,
+      context_sinh: null,
+      doi_tuong: "chung",
+      // Server truyền key với giá trị undefined khi chưa cấu hình MAI_AI_*.
+      // Bug cũ: undefined đè mặc định → toiDa = NaN → mọi nguồn bị cắt
+      // thành "[...]".
+      gioi_han: { toi_da_ky_tu_nguon: undefined },
+    });
+    expect(ctx.ds_nguon.length).toBe(1);
+    expect(ctx.ds_nguon[0]!.da_cat_gon).toBe(false);
+    expect(ctx.ds_nguon[0]!.noi_dung).toBe("Nội dung nguồn ngắn.");
+    expect(ctx.gioi_han_dau_ra).toBe(MAC_DINH_GIOI_HAN_CONTEXT.toi_da_ky_tu_dau_ra);
+    // catGon với trần không hữu hạn/<=0 cũng trả nguyên văn.
+    expect(catGon("abc", Number.NaN)).toEqual({ text: "abc", daCat: false });
+    expect(catGon("abc", 0)).toEqual({ text: "abc", daCat: false });
     db.close();
   });
 });

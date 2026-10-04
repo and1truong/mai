@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { lapContextNoiDung, TASK } from "../src/modules/generation/index.ts";
 import { seed } from "../src/server/seed.ts";
-import { taoServerTam } from "./helpers.ts";
+import { duyetBth, taoServerTam } from "./helpers.ts";
 
 // Test module số báo (#8): field campaign số báo, validation tham
 // chiếu/mục lục, chọn mục → sinh, gợi ý khoảng trống tách khỏi nội dung,
@@ -255,6 +255,61 @@ describe("gợi ý khoảng trống + liên kết nguồn tham chiếu", () => {
     // Ref lạ → 404.
     const rSai = await post(`/api/campaign/${id}/tham-chieu/ao/nguon`, { nguon_id: nguonId });
     expect(rSai.status).toBe(404);
+  });
+
+  test("bản đã xuất sửa sau duyệt (thay_the) → không phủ khoảng trống (3dbd929)", async () => {
+    const id = await taoSoBao({
+      tham_chieu: [
+        {
+          id: "t1",
+          tham_chieu: "Khải Huyền 7:9-17",
+          ban_dich: "Bản dịch truyền thống",
+          nguon_id: "seed-nguon-kh7-002",
+          ghi_chu: "",
+        },
+      ],
+      muc_luc: [
+        {
+          id: "m1",
+          tieu_de: "Học tài liệu nền",
+          dinh_dang: "hoc-tai-lieu",
+          doi_tuong_id: "seed-dt-doc-gia-phuc-am",
+          dich_den: "",
+          ly_do: "",
+        },
+      ],
+    });
+    const chon = await post(`/api/campaign/${id}/chon`, { ds_muc_id: ["m1"] });
+    const bth = (await chon.json()).du_lieu.ds_bth[0];
+    // Bản nhap đang phục vụ → phủ khoảng trống học tài liệu.
+    let j = await getJ(`/api/campaign/${id}`);
+    expect(
+      j.du_lieu.goi_y.some((g: { loai: string }) => g.loai === "thieu_hoc_tai_lieu"),
+    ).toBe(false);
+    // Job fixture ghi revision đầu tiên → duyệt → xuất bản.
+    let head: string | null = null;
+    for (let i = 0; i < 200 && !head; i++) {
+      const res = await getJ(`/api/ban-the-hien/${bth.id}`);
+      head = res.du_lieu.head_revision_id;
+      if (!head) await Bun.sleep(20);
+    }
+    expect(head).toBeTruthy();
+    const { duyet } = await duyetBth(app, bth.id);
+    expect(duyet.status).toBe(200);
+    expect((await post(`/api/ban-the-hien/${bth.id}/xuat-ban`, {})).status).toBe(201);
+    // Sửa sau duyệt → revision mới → trạng thái thay_the tự động.
+    const rev = await post(`/api/ban-the-hien/${bth.id}/revision`, {
+      noi_dung: JSON.stringify({ dien_giai: "d", bang_chung: "b" }),
+      dua_tren_revision_id: head,
+    });
+    expect(rev.status).toBe(201);
+    const bthMoi = await getJ(`/api/ban-the-hien/${bth.id}`);
+    expect(bthMoi.du_lieu.trang_thai).toBe("thay_the");
+    // Bản từng xuất nhưng trạng thái thay_the → không phủ → gợi ý trở lại.
+    j = await getJ(`/api/campaign/${id}`);
+    expect(
+      j.du_lieu.goi_y.some((g: { loai: string }) => g.loai === "thieu_hoc_tai_lieu"),
+    ).toBe(true);
   });
 });
 
