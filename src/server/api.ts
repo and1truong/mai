@@ -1,6 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { existsSync } from "node:fs";
-import { basename, extname, join } from "node:path";
+import { join } from "node:path";
 import {
   LoiApi,
   batBuocChuoi,
@@ -73,6 +72,22 @@ import {
 } from "../modules/context/index.ts";
 import { DANH_SACH_DINH_DANG, laDinhDang } from "../modules/formats/index.ts";
 import {
+  capNhatVanBan,
+  danhSachAsset,
+  danhSachAssetBanTheHien,
+  datAssetBanTheHien,
+  dsAssetIdBanTheHien,
+  khoByteLocal,
+  kiemTraByteAsset,
+  layAsset,
+  luuAsset,
+  luuTruAsset,
+  napVanBan,
+  sachTenFile,
+  timAssetTheoChecksum,
+  xoaAsset,
+} from "../modules/nap/index.ts";
+import {
   danhSachJob,
   enqueueJob,
   huyJob,
@@ -111,8 +126,6 @@ function route(method: string, duongDan: string, handler: Handler): Route {
   );
   return { method, pattern, keys, handler };
 }
-
-const EXT_ASSET_CHO_PHEP = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".txt", ".md", ".pdf"]);
 
 // --- Helper đọc input hồ sơ ---
 
@@ -363,6 +376,9 @@ function docContextSinh(cs: ContextSinh) {
 }
 
 export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
+  // Kho byte trên đĩa local, gốc <dataDir>/assets — interface hẹp để test
+  // được bằng kho in-memory (modules/nap).
+  const kho = khoByteLocal(join(ctx.dataDir, "assets"));
   const routes: Route[] = [
     route("GET", "/api/health", (_req, _p, c) =>
       ok({ trang_thai: "hoat_dong", provider: c.provider }),
@@ -638,6 +654,44 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       return ok(rev);
     }),
 
+    // --- Nạp nguồn từ text (#17): dán text mới → nguồn + cac_muc chuẩn hóa;
+    // nạp lại lên nguồn có sẵn → revision mới. khoa_idem chặn retry tạo trùng.
+    route("POST", "/api/nguon/nhap", async (req, _p, c) => {
+      const body = await docBody(req);
+      const dsLoi: string[] = [];
+      const tieuDe = batBuocChuoi(body.tieu_de, "tieu_de", dsLoi);
+      const noiDung = batBuocChuoi(body.noi_dung, "noi_dung", dsLoi);
+      nemLoiValidation(dsLoi);
+      const kq = napVanBan(
+        c.db,
+        {
+          tieu_de: tieuDe,
+          noi_dung: noiDung,
+          loai: tuyChonChuoi(body.loai) || undefined,
+          khoa_idem: tuyChonChuoi(body.khoa_idem) || undefined,
+        },
+        c.actor,
+      );
+      return ok(kq, kq.da_tao ? 201 : 200);
+    }),
+    route("POST", "/api/nguon/:id/nhap", async (req, p, c) => {
+      const body = await docBody(req);
+      const dsLoi: string[] = [];
+      const noiDung = batBuocChuoi(body.noi_dung, "noi_dung", dsLoi);
+      nemLoiValidation(dsLoi);
+      const kq = capNhatVanBan(
+        c.db,
+        p.id!,
+        {
+          noi_dung: noiDung,
+          dua_tren_revision_id: tuyChonChuoi(body.dua_tren_revision_id) || undefined,
+          khoa_idem: tuyChonChuoi(body.khoa_idem) || undefined,
+        },
+        c.actor,
+      );
+      return ok(kq, kq.da_tao ? 201 : 200);
+    }),
+
     // --- Nhập bài viết: dán một bài tạo nguồn + thông điệp + nhiều bản thể hiện ---
     route("POST", "/api/bai-viet", async (req, _p, c) => {
       const body = await docBody(req);
@@ -736,6 +790,7 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
         thong_diep: thongDiep,
         revisions,
         ds_xuat_ban: danhSachXuatBan(c.db, bth.id),
+        assets: danhSachAssetBanTheHien(c.db, bth.id),
       });
     }),
     route("POST", "/api/ban-the-hien/:id/revision", async (req, p, c) => {
@@ -767,19 +822,36 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       if (!bth) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy bản thể hiện.");
       return ok(danhSachDuyet(c.db, bth.id));
     }),
-    // Record xuất bản tách khỏi trạng thái nội dung: ghim revision head tại
-    // thời điểm đăng. Vòng đời đầy đủ (chỉ đăng khi đã duyệt) nằm ở #21.
+    // Record xuất bản tách khỏi trạng thái nội dung: ghim revision head +
+    // snapshot asset được chọn tại thời điểm đăng (#17). Vòng đời đầy đủ
+    // (chỉ đăng khi đã duyệt) nằm ở #21.
     route("POST", "/api/ban-the-hien/:id/xuat-ban", async (req, p, c) => {
       const body = await docBody(req);
       return ok(
         xuatBanBanTheHien(
           c.db,
           p.id!,
-          { dich_den: tuyChonChuoi(body.dich_den), ghi_chu: tuyChonChuoi(body.ghi_chu) },
+          {
+            dich_den: tuyChonChuoi(body.dich_den),
+            ghi_chu: tuyChonChuoi(body.ghi_chu),
+            asset_ids: dsAssetIdBanTheHien(c.db, p.id!),
+          },
           c.actor,
         ),
         201,
       );
+    }),
+
+    // Asset đính kèm một đầu ra: chọn tường minh, replace toàn bộ (#17).
+    route("PUT", "/api/ban-the-hien/:id/assets", async (req, p, c) => {
+      const body = await docBody(req);
+      const dsLoi: string[] = [];
+      if (body.asset_ids !== undefined && !Array.isArray(body.asset_ids)) {
+        dsLoi.push("asset_ids phải là một mảng chuỗi.");
+      }
+      const assetIds = tuyChonMangChuoi(body.asset_ids);
+      nemLoiValidation(dsLoi);
+      return ok(datAssetBanTheHien(c.db, p.id!, assetIds, c.actor));
     }),
     route("GET", "/api/ban-the-hien/:id/xuat-ban", (_req, p, c) => {
       const bth = layBanTheHien(c.db, p.id!);
@@ -921,33 +993,131 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
     route("POST", "/api/job/:id/huy", (_req, p, c) => ok(huyJob(c.db, p.id!))),
     route("POST", "/api/job/:id/thu-lai", (_req, p, c) => ok(thuLaiJob(c.db, p.id!))),
 
-    // --- Asset upload ---
+    // --- Asset (#17): metadata trong DB, byte trên đĩa local ---
+    // Upload: body = byte thô + query ten/nguon_id/ghi_chu/khoa_idem.
+    // File .txt/.md còn được nạp thành nguồn (tạo mới hoặc revision mới khi
+    // gửi nguon_id) và asset được liên kết nguồn đó.
     route("POST", "/api/assets", async (req, _p, c) => {
       const url = new URL(req.url);
-      const ten = basename(url.searchParams.get("ten") ?? "asset");
-      const ext = extname(ten).toLowerCase() || ".bin";
-      if (!EXT_ASSET_CHO_PHEP.has(ext)) {
-        loiRequest(400, "VALIDATION", "Đuôi file không hỗ trợ.", [
-          `Cho phép: ${[...EXT_ASSET_CHO_PHEP].join(", ")}`,
-        ]);
-      }
+      const ten = sachTenFile(url.searchParams.get("ten") ?? "asset");
       kiemTraGioiHanBody(req);
-      const buf = await req.arrayBuffer();
+      const buf = new Uint8Array(await req.arrayBuffer());
       kiemTraByteDaDoc(buf.byteLength);
-      if (buf.byteLength === 0) loiRequest(400, "VALIDATION", "Body rỗng.");
-      const file = `${crypto.randomUUID()}${ext}`;
-      await Bun.write(join(c.dataDir, "assets", file), buf);
-      log.info("asset.luu", { file, bytes: buf.byteLength });
-      return ok({ file }, 201);
-    }),
-    route("GET", "/api/assets/:ten", (_req, p, c) => {
-      const ten = basename(p.ten!);
-      const tep = join(c.dataDir, "assets", ten);
-      if (basename(tep) !== ten || !existsSync(tep)) {
-        loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy asset.");
+      // Validate TRƯỚC mọi mutation: file hỏng (đuôi lạ/rỗng/quá lớn/không
+      // UTF-8) không được để lại nguồn/revision rỗng.
+      const dinhNghia = kiemTraByteAsset(ten, buf);
+      let nguonId = url.searchParams.get("nguon_id") || null;
+      const ghiChu = url.searchParams.get("ghi_chu") ?? "";
+      const khoaIdem = url.searchParams.get("khoa_idem") || undefined;
+
+      // Retry/đăng lại cùng byte: đã có asset → không ghi lại byte. Với
+      // văn bản nhắm nguồn rõ vẫn chạy capNhatVanBan (tự no-op khi head đã
+      // trùng nội dung file) để re-upload đưa head về nội dung file kể cả
+      // sau khi sửa tay. Không nguon_id = retry thuần → trả nguồn đã gắn.
+      const tonTai = timAssetTheoChecksum(c.db, buf);
+      if (tonTai) {
+        let nguon: unknown = null;
+        let revision: unknown = null;
+        if (dinhNghia.loai === "van_ban" && nguonId) {
+          const noiDung = new TextDecoder("utf-8").decode(buf);
+          const kq = capNhatVanBan(
+            c.db,
+            nguonId,
+            { noi_dung: noiDung, khoa_idem: khoaIdem ? `asset:${khoaIdem}` : undefined },
+            c.actor,
+          );
+          nguon = kq.nguon;
+          revision = kq.revision;
+        } else {
+          const nguonCu = tonTai.nguon_id ? layNguon(c.db, tonTai.nguon_id) : null;
+          nguon = nguonCu;
+          revision = nguonCu?.head_revision_id
+            ? layNguonRevision(c.db, nguonCu.head_revision_id)
+            : null;
+        }
+        const { asset } = await luuAsset(
+          c.db,
+          kho,
+          { tenFile: ten, byte: buf, nguonId, ghiChu, khoaIdem },
+          c.actor,
+        );
+        return ok({ ...asset, nguon, revision, da_tao: false }, 200);
       }
-      return new Response(Bun.file(tep));
+
+      // Văn bản: nạp vào nguồn trước để asset ghi đúng liên kết. Dedupe
+      // khoa_idem nằm trong napVanBan/capNhatVanBan — khóa revision prefix
+      // 'asset:' để không đụng khóa của /api/nguon/nhap.
+      let nguon: unknown = null;
+      let revision: unknown = null;
+      if (dinhNghia.loai === "van_ban") {
+        const noiDung = new TextDecoder("utf-8").decode(buf);
+        const kq = nguonId
+          ? capNhatVanBan(
+              c.db,
+              nguonId,
+              { noi_dung: noiDung, khoa_idem: khoaIdem ? `asset:${khoaIdem}` : undefined },
+              c.actor,
+            )
+          : napVanBan(
+              c.db,
+              {
+                tieu_de: url.searchParams.get("tieu_de") || ten,
+                noi_dung: noiDung,
+                khoa_idem: khoaIdem ? `asset:${khoaIdem}` : undefined,
+              },
+              c.actor,
+            );
+        nguon = kq.nguon;
+        revision = kq.revision;
+        nguonId = kq.nguon.id;
+      }
+      const { asset, da_tao } = await luuAsset(
+        c.db,
+        kho,
+        { tenFile: ten, byte: buf, nguonId, ghiChu, khoaIdem },
+        c.actor,
+      );
+      return ok({ ...asset, nguon, revision, da_tao }, da_tao ? 201 : 200);
     }),
+    route("GET", "/api/assets", (req, _p, c) => {
+      const url = new URL(req.url);
+      const trangThai = url.searchParams.get("trang_thai");
+      return ok(
+        danhSachAsset(c.db, {
+          nguonId: url.searchParams.get("nguon_id") ?? undefined,
+          // Mặc định chỉ asset hoạt động; ?trang_thai=tat_ca xem cả lưu trữ.
+          trangThai: trangThai === "tat_ca" ? undefined : (trangThai ?? "hoat_dong"),
+        }),
+      );
+    }),
+    route("GET", "/api/assets/:id", (_req, p, c) => {
+      const asset = layAsset(c.db, p.id!);
+      if (!asset) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy asset.");
+      return ok(asset);
+    }),
+    // Serve byte an toàn: text/MD trả text/plain (không render HTML/script),
+    // ảnh trả đúng mime; nosniff + tên file sạch trong disposition.
+    route("GET", "/api/assets/:id/noi-dung", async (_req, p, c) => {
+      const asset = layAsset(c.db, p.id!);
+      if (!asset) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy asset.");
+      const byte = await kho.doc(asset.duong_dan);
+      if (!byte) loiRequest(404, "KHONG_TIM_THAY", "File asset không còn trên đĩa.");
+      const mime = asset.loai === "van_ban" ? "text/plain" : asset.mime;
+      const tenAnToan = asset.ten_file.replace(/["\\]/g, "_");
+      return new Response(byte, {
+        headers: {
+          "content-type": `${mime}; charset=utf-8`,
+          "x-content-type-options": "nosniff",
+          "content-disposition": `inline; filename="${tenAnToan}"; filename*=UTF-8''${encodeURIComponent(asset.ten_file)}`,
+        },
+      });
+    }),
+    // Xóa chỉ khi không còn tham chiếu; còn tham chiếu → 409, dùng lưu trữ.
+    route("DELETE", "/api/assets/:id", async (_req, p, c) => {
+      await xoaAsset(c.db, kho, p.id!, c.actor);
+      return ok({ da_xoa: true });
+    }),
+    route("POST", "/api/assets/:id/luu-tru", (_req, p, c) => ok(luuTruAsset(c.db, p.id!, c.actor))),
 
     // --- Danh mục dùng chung cho UI ---
     route("GET", "/api/dinh-dang", () => ok(DANH_SACH_DINH_DANG)),
