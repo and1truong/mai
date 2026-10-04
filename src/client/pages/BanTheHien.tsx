@@ -3,15 +3,24 @@ import { useState } from "react";
 import { api, fmtLuc, LoiApiClient, useApi } from "../api.ts";
 import { TrangThai } from "../components/TrangThai.tsx";
 import type { BanTheHien, Revision } from "../../modules/content/index.ts";
-import type { ContextSinh, ContextSinhSnapshot } from "../../modules/context/index.ts";
+import type { ContextSinhSnapshot } from "../../modules/context/index.ts";
 
-type RevisionKemContext = Revision & { context_sinh: ContextSinh | null };
+// API trả context_sinh đã parse: ghi_de/snapshot là object, không phải chuỗi.
+type ContextSinhDaDoc = {
+  id: string;
+  thuong_hieu_id: string | null;
+  doi_tuong_id: string | null;
+  ghi_de: unknown;
+  snapshot: ContextSinhSnapshot;
+  tao_luc: string;
+};
+
+type RevisionKemContext = Revision & { context_sinh: ContextSinhDaDoc | null };
 type ChiTiet = BanTheHien & { revisions: RevisionKemContext[] };
 
-function moTaContextSinh(cs: ContextSinh): string {
-  const snap = JSON.parse(cs.snapshot) as ContextSinhSnapshot;
-  const th = snap.thuong_hieu?.ten ?? "—";
-  const dt = snap.doi_tuong?.ten ?? "—";
+function moTaContextSinh(cs: ContextSinhDaDoc): string {
+  const th = cs.snapshot.thuong_hieu?.ten ?? "—";
+  const dt = cs.snapshot.doi_tuong?.ten ?? "—";
   return `thương hiệu: ${th} · đối tượng: ${dt}`;
 }
 
@@ -114,7 +123,7 @@ export default function BanTheHienPage() {
                           <details style={{ display: "inline" }}>
                             <summary>xem snapshot</summary>
                             <pre style={{ whiteSpace: "pre-wrap", fontSize: 11 }}>
-                              {JSON.stringify(JSON.parse(r.context_sinh.snapshot), null, 2)}
+                              {JSON.stringify(r.context_sinh.snapshot, null, 2)}
                             </pre>
                           </details>
                         </Text>

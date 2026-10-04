@@ -119,6 +119,18 @@ describe("hồ sơ thương hiệu: CRUD + revision + chủ sở hữu", () => {
       thuat_ngu: [{ ban_dich: {} }],
     });
     expect(loi.status).toBe(400);
+
+    // Trùng thuat_ngu trong cùng payload → 400 (không phải 500 UNIQUE).
+    const trung = await put(`/api/ho-so-thuong-hieu/${id}/thuat-ngu`, {
+      thuat_ngu: [{ thuat_ngu: "Phúc Âm" }, { thuat_ngu: "Phúc Âm" }],
+    });
+    expect(trung.status).toBe(400);
+
+    // giu_nguyen sai kiểu (chuỗi "false") → 400 thay vì ngấm thành true.
+    const saiKieu = await put(`/api/ho-so-thuong-hieu/${id}/thuat-ngu`, {
+      thuat_ngu: [{ thuat_ngu: "Phúc Âm", giu_nguyen: "false" }],
+    });
+    expect(saiKieu.status).toBe(400);
   });
 });
 
@@ -182,6 +194,25 @@ describe("xem trước context sinh", () => {
     expect(loi.status).toBe(404);
   });
 
+  test("ghi đè sai kiểu → 400; trường không whitelist bị bỏ khỏi snapshot", async () => {
+    // do_sau phải là chuỗi — số bị reject thay vì bị bỏ âm thầm.
+    const sai = await post("/api/context-sinh/xem-truoc", {
+      doi_tuong_id: "seed-dt-ky-su",
+      ghi_de: { doi_tuong: { do_sau: 123 } },
+    });
+    expect(sai.status).toBe(400);
+
+    const okRes = await post("/api/context-sinh/xem-truoc", {
+      doi_tuong_id: "seed-dt-ky-su",
+      ghi_de: { doi_tuong: { do_sau: "so_luoc", truong_la: "bo qua" } },
+    });
+    expect(okRes.status).toBe(200);
+    const j = (await okRes.json()).du_lieu;
+    // Snapshot chỉ ghi phần thật sự áp — trường lạ không lọt vào.
+    expect(j.ghi_de.doi_tuong.truong_la).toBeUndefined();
+    expect(j.ghi_de.doi_tuong.do_sau).toBe("so_luoc");
+  });
+
   test("xem trước không ghi DB", async () => {
     const truoc = (
       app.db.query("SELECT COUNT(*) AS c FROM context_sinh").get() as { c: number }
@@ -217,10 +248,19 @@ describe("nội dung đã sinh giữ context đã dùng", () => {
     // Fixture ghi thông tin context vào nội dung
     expect(rev.noi_dung).toContain("Người đọc không chuyên");
     expect(rev.noi_dung).toContain("Creator solo");
-    // Snapshot lưu đủ: revision id của hai hồ sơ tại thời điểm sinh
-    const snapshot = JSON.parse(rev.context_sinh.snapshot);
-    expect(snapshot.thuong_hieu.ho_so_id).toBe("seed-th-creator");
-    expect(snapshot.doi_tuong.ho_so_id).toBe("seed-dt-khong-chuyen");
+    // Snapshot lưu đủ: revision id của hai hồ sơ tại thời điểm sinh.
+    // context_sinh trả đã parse (ghi_de + snapshot là object), khớp GET /api/context-sinh/:id.
+    const cs = rev.context_sinh;
+    expect(typeof cs.snapshot).toBe("object");
+    expect(typeof cs.ghi_de).toBe("object");
+    expect(cs.snapshot.thuong_hieu.ho_so_id).toBe("seed-th-creator");
+    expect(cs.snapshot.doi_tuong.ho_so_id).toBe("seed-dt-khong-chuyen");
+    expect(cs.thuong_hieu_id).toBe("seed-th-creator");
+    expect(cs.doi_tuong_id).toBe("seed-dt-khong-chuyen");
+
+    // GET trực tiếp trả cùng shape.
+    const csTruc = await (await get(`/api/context-sinh/${cs.id}`)).json();
+    expect(csTruc.du_lieu.snapshot.thuong_hieu.ho_so_id).toBe("seed-th-creator");
   });
 
   test("job thiếu hồ sơ tồn tại → 400 tại API", async () => {

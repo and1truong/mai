@@ -41,6 +41,9 @@ import {
   thayThuatNgu,
   xoaDoiTuong,
   xoaThuongHieu,
+  TRUONG_GHI_DE_DOI_TUONG,
+  TRUONG_GHI_DE_THUONG_HIEU,
+  type ContextSinh,
   type GhiDeCampaign,
   type NguonDuLieu,
   type NhapThuatNgu,
@@ -144,6 +147,7 @@ function docDanhSachThuatNgu(v: unknown, dsLoi: string[]): NhapThuatNgu[] {
     return [];
   }
   const ds: NhapThuatNgu[] = [];
+  const daCo = new Set<string>();
   for (const [i, dong] of v.entries()) {
     if (typeof dong !== "object" || dong === null) {
       dsLoi.push(`thuat_ngu[${i}] phải là object.`);
@@ -152,7 +156,18 @@ function docDanhSachThuatNgu(v: unknown, dsLoi: string[]): NhapThuatNgu[] {
     const t = dong as Record<string, unknown>;
     const thuatNgu = typeof t.thuat_ngu === "string" ? t.thuat_ngu.trim() : "";
     if (!thuatNgu) dsLoi.push(`thuat_ngu[${i}].thuat_ngu là bắt buộc.`);
-    const giuNguyen = t.giu_nguyen !== false && t.giu_nguyen !== 0;
+    // Trùng trong cùng payload → UNIQUE violation ở DB; chặn từ đây thành 400.
+    if (thuatNgu && daCo.has(thuatNgu)) {
+      dsLoi.push(`thuat_ngu[${i}].thuat_ngu "${thuatNgu}" trùng với một dòng khác.`);
+    }
+    daCo.add(thuatNgu);
+    // giu_nguyen chỉ nhận boolean hoặc 0/1; kiểu khác (vd "false" chuỗi) → lỗi.
+    let giuNguyen = true;
+    if (t.giu_nguyen !== undefined && t.giu_nguyen !== null) {
+      if (typeof t.giu_nguyen === "boolean") giuNguyen = t.giu_nguyen;
+      else if (t.giu_nguyen === 0 || t.giu_nguyen === 1) giuNguyen = t.giu_nguyen === 1;
+      else dsLoi.push(`thuat_ngu[${i}].giu_nguyen phải là boolean hoặc 0/1.`);
+    }
     const banDich = tuyChonObject(t.ban_dich);
     for (const [k, x] of Object.entries(banDich)) {
       if (!k.trim() || typeof x !== "string") {
@@ -171,16 +186,37 @@ function docDanhSachThuatNgu(v: unknown, dsLoi: string[]): NhapThuatNgu[] {
   return ds;
 }
 
+// Đọc ghi đè campaign: key lạ → bỏ qua (ghi_de là phần mở, campaign sau này
+// có thể thêm phần); sai kiểu → lỗi validation thay vì bị apGhiDe bỏ âm thầm
+// mà snapshot vẫn ghi "đã áp".
 function docGhiDe(v: unknown, dsLoi: string[]): GhiDeCampaign {
   const ghiDe = tuyChonObject(v);
-  for (const k of Object.keys(ghiDe)) {
+  const ketQua: Record<string, Record<string, unknown>> = {};
+  for (const [k, sub] of Object.entries(ghiDe)) {
     if (k !== "thuong_hieu" && k !== "doi_tuong") {
       dsLoi.push(`ghi_de.${k} không hỗ trợ. Cho phép: thuong_hieu, doi_tuong.`);
       continue;
     }
-    ghiDe[k] = tuyChonObject(ghiDe[k]);
+    const choPhep = k === "thuong_hieu" ? TRUONG_GHI_DE_THUONG_HIEU : TRUONG_GHI_DE_DOI_TUONG;
+    if (typeof sub !== "object" || sub === null || Array.isArray(sub)) {
+      dsLoi.push(`ghi_de.${k} phải là object {truong: gia_tri}.`);
+      continue;
+    }
+    const sach: Record<string, unknown> = {};
+    for (const [truong, gt] of Object.entries(sub as Record<string, unknown>)) {
+      if (!choPhep.has(truong)) continue; // trường không nằm trong whitelist → bỏ
+      const hopLe =
+        typeof gt === "string" ||
+        (Array.isArray(gt) && gt.every((x) => typeof x === "string"));
+      if (!hopLe) {
+        dsLoi.push(`ghi_de.${k}.${truong} phải là chuỗi hoặc mảng chuỗi.`);
+        continue;
+      }
+      sach[truong] = gt;
+    }
+    ketQua[k] = sach;
   }
-  return ghiDe as GhiDeCampaign;
+  return ketQua as GhiDeCampaign;
 }
 
 // Chuẩn hóa một thời điểm nhận từ client (ISO hoặc datetime-local) về ISO UTC.
@@ -221,6 +257,16 @@ function tuyChonSo(
     return undefined;
   }
   return n;
+}
+
+// Serialize một row context_sinh ra API: ghi_de + snapshot parse sẵn JSON —
+// mọi endpoint trả cùng một shape.
+function docContextSinh(cs: ContextSinh) {
+  return {
+    ...cs,
+    ghi_de: JSON.parse(cs.ghi_de) as unknown,
+    snapshot: JSON.parse(cs.snapshot) as unknown,
+  };
 }
 
 export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
@@ -334,7 +380,7 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
     route("GET", "/api/context-sinh/:id", (_req, p, c) => {
       const cs = layContextSinh(c.db, p.id!);
       if (!cs) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy context sinh.");
-      return ok({ ...cs, snapshot: JSON.parse(cs.snapshot) as unknown });
+      return ok(docContextSinh(cs));
     }),
 
     // --- Nguồn ---
@@ -359,10 +405,10 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       const bth = layBanTheHien(c.db, p.id!);
       if (!bth) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy bản thể hiện.");
       // Mỗi revision kèm context sinh đã dùng (null = nhập tay).
-      const revisions = danhSachRevision(c.db, bth.id).map((r) => ({
-        ...r,
-        context_sinh: r.context_sinh_id ? layContextSinh(c.db, r.context_sinh_id) : null,
-      }));
+      const revisions = danhSachRevision(c.db, bth.id).map((r) => {
+        const cs = r.context_sinh_id ? layContextSinh(c.db, r.context_sinh_id) : null;
+        return { ...r, context_sinh: cs ? docContextSinh(cs) : null };
+      });
       return ok({ ...bth, revisions });
     }),
     route("POST", "/api/ban-the-hien/:id/revision", async (req, p, c) => {
@@ -441,8 +487,13 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
         if (doiTuongId && !layDoiTuong(c.db, doiTuongId)) {
           dsLoi.push("payload.doi_tuong_id không tồn tại.");
         }
-        if (payload.ghi_de !== undefined && (typeof payload.ghi_de !== "object" || payload.ghi_de === null || Array.isArray(payload.ghi_de))) {
-          dsLoi.push("payload.ghi_de phải là object { thuong_hieu?, doi_tuong? }.");
+        if (payload.ghi_de !== undefined) {
+          if (typeof payload.ghi_de !== "object" || payload.ghi_de === null || Array.isArray(payload.ghi_de)) {
+            dsLoi.push("payload.ghi_de phải là object { thuong_hieu?, doi_tuong? }.");
+          } else {
+            // Validate + làm sạch: job chỉ lưu phần ghi đè thật sự áp được.
+            payload.ghi_de = docGhiDe(payload.ghi_de, dsLoi);
+          }
         }
       }
       nemLoiValidation(dsLoi);
@@ -458,9 +509,15 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
             .query("SELECT * FROM ban_the_hien WHERE nguon_id = ? AND dinh_dang = ? LIMIT 1")
             .get(nguonId, dinhDang) as BanTheHien | null;
           if (!bth) {
+            // Tên hiển thị của đối tượng: hồ sơ được chọn thì lấy tên hồ sơ,
+            // không thì giữ chuỗi doi_tuong tự nhập như cũ.
+            const dtId = tuyChonChuoi(payload.doi_tuong_id);
+            const tenHienThi =
+              (dtId ? layDoiTuong(c.db, dtId)?.ten : undefined) ??
+              tuyChonChuoi(payload.doi_tuong);
             bth = taoBanTheHien(
               c.db,
-              { nguon_id: nguonId, dinh_dang: dinhDang, doi_tuong: tuyChonChuoi(payload.doi_tuong) },
+              { nguon_id: nguonId, dinh_dang: dinhDang, doi_tuong: tenHienThi },
               c.actor,
             );
           }
