@@ -421,6 +421,63 @@ describe("context sinh + kiểm chứng đầu ra phát hành", () => {
     expect(ctx.thieu_chung_cu).toContain("fact_chua_xac_nhan");
   });
 
+  test("sửa nguồn xóa mục rồi /chon ngay (không PUT campaign) → re-pin, xac_nhan=false (02893d8)", async () => {
+    // Kịch bản đường lệch: re-pin trước đây chỉ xảy ra trong POST/PUT
+    // campaign (damBaoThongDiepPhatHanh); /chon qua damBaoThongDiepChuDe
+    // chỉ union link → pin cũ còn mục đã xóa → context xac_nhan=true
+    // trong khi view co_bang_chung=false.
+    const nguonId = await taoNguonBangChung();
+    const id = await taoPhatHanh(nguonId);
+    const j = await getJ(`/api/campaign/${id}`);
+    const mucDev = j.du_lieu.de_xuat_muc_luc.find(
+      (m: { id: string }) => m.id === "ph-dev",
+    );
+    await put(`/api/campaign/${id}`, {
+      ten: "Phát hành test",
+      muc_luc: [mucDev],
+    });
+    const r = await post(`/api/campaign/${id}/chon`, { ds_muc_id: ["ph-dev"] });
+    expect(r.status).toBe(200);
+    const bthId = (await r.json()).du_lieu.ds_bth[0].id as string;
+    const bth = layBanTheHien(app.db, bthId)!;
+    const lam = () =>
+      lapContextNoiDung(app.db, {
+        bth,
+        task: TASK.nhap_ban_the_hien,
+        context_sinh: null,
+        doi_tuong: "dev",
+        campaign_id: id,
+      });
+    const truoc = new Map(lam().phat_hanh!.ds_fact.map((f) => [f.id, f.xac_nhan]));
+    expect(truoc.get("f-passkeys")).toBe(true);
+    const tdTruoc = thongDiepChuDe(app.db, layCampaign(app.db, id)!)!;
+
+    // Revision nguồn mới xóa mục cl-passkeys — KHÔNG PUT campaign.
+    const nguon = layNguon(app.db, nguonId)!;
+    const up = await put(`/api/nguon/${nguonId}`, {
+      tieu_de: nguon.tieu_de,
+      noi_dung: nguon.noi_dung,
+      dua_tren_revision_id: nguon.head_revision_id,
+      cac_muc: nguon.cac_muc.filter((m) => m.id !== "cl-passkeys"),
+    });
+    expect(up.status).toBe(200);
+
+    // /chon phải tự ghim revision thông điệp mới trên head nguồn mới.
+    const r2 = await post(`/api/campaign/${id}/chon`, { ds_muc_id: ["ph-dev"] });
+    expect(r2.status).toBe(200);
+    const tdSau = thongDiepChuDe(app.db, layCampaign(app.db, id)!)!;
+    expect(tdSau.head_revision_id).not.toBe(tdTruoc.head_revision_id);
+
+    const ctx = lam();
+    const map = new Map(ctx.phat_hanh!.ds_fact.map((f) => [f.id, f.xac_nhan]));
+    expect(map.get("f-passkeys")).toBe(false);
+    expect(ctx.thieu_chung_cu).toContain("fact_chua_xac_nhan");
+    // View phái sinh khớp cùng kết luận.
+    const view = (await getJ(`/api/campaign/${id}`)).du_lieu.phat_hanh
+      .ds_fact_view as { id: string; co_bang_chung: boolean }[];
+    expect(view.find((f) => f.id === "f-passkeys")?.co_bang_chung).toBe(false);
+  });
+
   test("kiemTraDauRa cảnh báo: giới hạn thiếu, claim chưa xác nhận, marker bịa", () => {
     const ctx: ContextTask = {
       task: TASK.nhap_ban_the_hien,
