@@ -210,23 +210,35 @@ export default function BanTheHienPage() {
   noiDungMoiNhat.current = noiDung;
   const duaTrenMoiNhat = useRef(duaTren);
   duaTrenMoiNhat.current = duaTren;
-  async function luuNhap(nd: string) {
-    if (!chon) return;
+  const chonMoiNhat = useRef(chon);
+  chonMoiNhat.current = chon;
+  async function luuNhap(nd: string, bthId?: string | null) {
+    const id = bthId ?? chonMoiNhat.current;
+    if (!id) return;
     try {
-      await api<NhapSoan>(`/api/ban-the-hien/${chon}/nhap`, {
+      await api<NhapSoan>(`/api/ban-the-hien/${id}/nhap`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ noi_dung: nd, dua_tren_revision_id: duaTrenMoiNhat.current }),
       });
-      setTrangThaiNhap(`Đã lưu nháp ${new Date().toLocaleTimeString("vi")}`);
+      if (chonMoiNhat.current === id) {
+        setTrangThaiNhap(`Đã lưu nháp ${new Date().toLocaleTimeString("vi")}`);
+      }
     } catch {
-      setTrangThaiNhap("Lỗi lưu nháp — text vẫn giữ trong ô.");
+      if (chonMoiNhat.current === id) {
+        setTrangThaiNhap("Lỗi lưu nháp — text vẫn giữ trong ô.");
+      }
     }
   }
   function thayNoiDung(nd: string) {
     setNoiDung(nd);
     if (timerNhap.current) clearTimeout(timerNhap.current);
-    timerNhap.current = setTimeout(() => void luuNhap(noiDungMoiNhat.current), 1200);
+    // Ghim bản thể hiện tại thời điểm hẹn — đổi bản khác thì timer cũ
+    // không được PUT lên nháp mới hay ghi đè nháp bản cũ.
+    const id = chonMoiNhat.current;
+    timerNhap.current = setTimeout(() => {
+      if (chonMoiNhat.current === id) void luuNhap(noiDungMoiNhat.current, id);
+    }, 1200);
     setTrangThaiNhap("Đang soạn…");
   }
   useEffect(() => () => {
@@ -251,6 +263,13 @@ export default function BanTheHienPage() {
   }, [khoaAssetServer]);
 
   function moBth(id: string) {
+    // Autosave còn hẹn của bản cũ → flush ngay lên nháp của bản cũ trước
+    // khi đổi, không thì text soạn dở bị xóa khi chuyển.
+    if (timerNhap.current) {
+      clearTimeout(timerNhap.current);
+      timerNhap.current = null;
+      void luuNhap(noiDungMoiNhat.current, chonMoiNhat.current);
+    }
     setChon(id);
     daNapNhap.current = false;
     setNoiDung("");
@@ -361,17 +380,15 @@ export default function BanTheHienPage() {
     }
   }
 
-  // Đề xuất AI mới nhất: revision do 'job' tạo mà chưa có hành động chấm
-  // (record duyet) nào ghim nó — đối chiếu với revision ngay trước.
+  // Đề xuất AI đang chờ: revision do 'job' tạo làm head hiện tại mà chưa
+  // có record duyet ghim. Sau từ chối (revision mới của con người lên head)
+  // đề xuất không còn là head → panel không hiện lại — từ chối bền.
   const revDeXuat =
-    chiTiet.data?.revisions
-      .slice()
-      .reverse()
-      .find(
-        (r) =>
-          r.tao_boi === "job" &&
-          !(dsDuyet.data ?? []).some((d) => d.revision_id === r.id),
-      ) ?? null;
+    revHead &&
+    revHead.tao_boi === "job" &&
+    !(dsDuyet.data ?? []).some((d) => d.revision_id === revHead.id)
+      ? revHead
+      : null;
   const revTruocDeXuat =
     revDeXuat && chiTiet.data
       ? chiTiet.data.revisions.find((r) => r.so_thu_tu === revDeXuat.so_thu_tu - 1)

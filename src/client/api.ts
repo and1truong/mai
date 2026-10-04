@@ -55,6 +55,9 @@ export function useApi<T>(path: string | null, deps: unknown[] = []) {
       })
       .catch((e) => {
         if (alive) {
+          // Xóa data cũ khi lỗi — không xóa sẽ để data stale (vd GET /nhap
+          // 404 sau khi nháp bị tiêu thụ vẫn trả nháp cũ).
+          setData(null);
           setError(e instanceof LoiApiClient ? e : new LoiApiClient("LOI_MANG", String(e)));
         }
       })

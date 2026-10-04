@@ -10,7 +10,9 @@ export type TrangThai = (typeof DANH_SACH_TRANG_THAI)[number];
 const CHUYEN_HOP_LE: Record<TrangThai, readonly TrangThai[]> = {
   nhap: ["cho_duyet"],
   cho_duyet: ["da_duyet", "tu_choi", "nhap"],
-  da_duyet: ["nhap", "thay_the"],
+  // 'thay_the' chỉ là hệ quả tự động trong themRevisionTrongTxn — không cho
+  // client đặt thủ công (đặt được sẽ đánh dấu thay thế không có revision mới).
+  da_duyet: ["nhap"],
   tu_choi: ["nhap"],
   thay_the: ["nhap", "cho_duyet"],
 };

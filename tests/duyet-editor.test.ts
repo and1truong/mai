@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { taoServerTam } from "./helpers.ts";
 import { seed } from "../src/server/seed.ts";
+import { themRevision } from "../src/modules/content/index.ts";
 
 // Test vòng đời duyệt + nháp autosave + xung đột revision (#21):
 // - autosave nháp theo (bản thể hiện, actor), phục hồi sau "reload",
@@ -246,6 +247,45 @@ describe("xung đột + vòng đời duyệt", () => {
       expect(sau.du_lieu.revisions).toHaveLength(3); // không mất revision giữa
       expect(sau.du_lieu.revisions[2].dua_tren_revision_id).toBe(head2);
       expect(sau.du_lieu.revisions[2].noi_dung).toBe(noiDungCu);
+    } finally {
+      await app.dong();
+    }
+  });
+
+  test("từ chối đề xuất AI = revision mới của con người lên head, lịch sử đề xuất giữ nguyên", async () => {
+    const app = await appCoSeed();
+    try {
+      // Đề xuất AI: revision do 'job' tạo lên head.
+      const head0 = await layHead(app, "seed-bth-1");
+      const { json: truoc } = await getJson(app, "/api/ban-the-hien/seed-bth-1");
+      const noiDungNguoi = truoc.du_lieu.revisions[0].noi_dung;
+      themRevision(
+        app.db,
+        {
+          ban_the_hien_id: "seed-bth-1",
+          noi_dung: JSON.stringify({ ...NOI_DUNG, noi_dung: "đề xuất của AI" }),
+          dua_tren_revision_id: head0,
+        },
+        "job",
+      );
+
+      // Từ chối tường minh: revision mới dựa trên head, mang nội dung trước đó.
+      const headAI = await layHead(app, "seed-bth-1");
+      const tc = await post(app, "/api/ban-the-hien/seed-bth-1/revision", {
+        noi_dung: noiDungNguoi,
+        dua_tren_revision_id: headAI,
+      });
+      expect(tc.status).toBe(201);
+
+      const { json: sau } = await getJson(app, "/api/ban-the-hien/seed-bth-1");
+      const revs = sau.du_lieu.revisions;
+      expect(revs).toHaveLength(3);
+      // Head là revision của con người — đề xuất không còn ở head.
+      expect(revs[2].tao_boi).toBe("demo");
+      expect(sau.du_lieu.head_revision_id).toBe(revs[2].id);
+      // Đề xuất AI vẫn nằm trong lịch sử — không bị ghi đè.
+      expect(revs[1].tao_boi).toBe("job");
+      expect(revs[1].noi_dung).toContain("đề xuất của AI");
     } finally {
       await app.dong();
     }
