@@ -314,6 +314,373 @@ const DANG_SCRIPT_THAO_LUAN: DinhNghiaDinhDang = {
   ],
 };
 
+// --- Định dạng phát hành B2B (#9) ---
+// Đầu ra theo đối tượng của một bản phát hành phần mềm. Mỗi định dạng có
+// trường `gioi_han` (danh sách) để giới hạn gói/vùng/khả dụng còn hiển
+// thị trên đầu ra bị ảnh hưởng, và `lien_ket` để link CTA trỏ đúng trang.
+// Fact tính năng đổ vào các trường danh sách kèm marker [F:<id>] — fact
+// chưa xác nhận thành dòng [CÂU HỎI] thay vì sự thật.
+
+const DANG_HUONG_DAN_TICH_HOP: DinhNghiaDinhDang = {
+  id: "huong-dan-tich-hop",
+  phien_ban: 1,
+  nhan: "Hướng dẫn tích hợp",
+  mo_ta: "Tài liệu tích hợp cho developer: giới thiệu, yêu cầu trước, các bước, giới hạn, link tài liệu.",
+  ngon_ngu: NGON_NGU,
+  truong: [
+    { ten: "tieu_de", nhan: "Tiêu đề", loai: "van_ban", bat_buoc: true, do_dai_toi_da: 200 },
+    { ten: "gioi_thieu", nhan: "Giới thiệu", loai: "markdown" },
+    {
+      ten: "yeu_cau_truoc",
+      nhan: "Yêu cầu trước",
+      loai: "danh_sach",
+      so_muc_toi_da: 20,
+      do_dai_toi_da: 500,
+    },
+    {
+      ten: "cac_buoc",
+      nhan: "Các bước tích hợp",
+      loai: "danh_sach",
+      bat_buoc: true,
+      so_muc_toi_da: 40,
+      do_dai_toi_da: 800,
+    },
+    {
+      ten: "gioi_han",
+      nhan: "Giới hạn áp dụng",
+      loai: "danh_sach",
+      so_muc_toi_da: 20,
+      do_dai_toi_da: 500,
+    },
+    { ten: "lien_ket", nhan: "Link tài liệu", loai: "van_ban", do_dai_toi_da: 500 },
+  ],
+};
+
+const DANG_THAY_DOI_KHACH_HANG: DinhNghiaDinhDang = {
+  id: "thay-doi-khach-hang",
+  phien_ban: 1,
+  nhan: "Thay đổi cho khách hàng",
+  mo_ta: "Giải thích bản phát hành thay đổi gì cho khách hàng hiện tại + việc cần làm.",
+  ngon_ngu: NGON_NGU,
+  truong: [
+    { ten: "tieu_de", nhan: "Tiêu đề", loai: "van_ban", bat_buoc: true, do_dai_toi_da: 200 },
+    { ten: "gioi_thieu", nhan: "Giới thiệu", loai: "markdown" },
+    {
+      ten: "cac_thay_doi",
+      nhan: "Các thay đổi",
+      loai: "danh_sach",
+      bat_buoc: true,
+      so_muc_toi_da: 30,
+      do_dai_toi_da: 500,
+    },
+    {
+      ten: "gioi_han",
+      nhan: "Giới hạn áp dụng",
+      loai: "danh_sach",
+      so_muc_toi_da: 20,
+      do_dai_toi_da: 500,
+    },
+    { ten: "hanh_dong", nhan: "Việc cần làm", loai: "van_ban", do_dai_toi_da: 300 },
+    { ten: "lien_ket", nhan: "Link nâng cấp", loai: "van_ban", do_dai_toi_da: 500 },
+  ],
+};
+
+const DANG_LOI_ICH_TIEM_NANG: DinhNghiaDinhDang = {
+  id: "loi-ich-tiem-nang",
+  phien_ban: 1,
+  nhan: "Lợi ích cho khách hàng tiềm năng",
+  mo_ta: "Lợi ích của bản phát hành cho prospect: điểm lợi ích, bằng chứng, CTA.",
+  ngon_ngu: NGON_NGU,
+  truong: [
+    { ten: "tieu_de", nhan: "Tiêu đề", loai: "van_ban", bat_buoc: true, do_dai_toi_da: 200 },
+    { ten: "gioi_thieu", nhan: "Giới thiệu", loai: "markdown" },
+    {
+      ten: "cac_loi_ich",
+      nhan: "Các lợi ích",
+      loai: "danh_sach",
+      bat_buoc: true,
+      so_muc_toi_da: 20,
+      do_dai_toi_da: 500,
+    },
+    {
+      ten: "bang_chung",
+      nhan: "Bằng chứng",
+      loai: "danh_sach",
+      so_muc_toi_da: 20,
+      do_dai_toi_da: 500,
+    },
+    {
+      ten: "gioi_han",
+      nhan: "Giới hạn áp dụng",
+      loai: "danh_sach",
+      so_muc_toi_da: 20,
+      do_dai_toi_da: 500,
+    },
+    { ten: "cta", nhan: "CTA", loai: "van_ban", do_dai_toi_da: 200 },
+    { ten: "lien_ket", nhan: "Link tài liệu", loai: "van_ban", do_dai_toi_da: 500 },
+  ],
+};
+
+const DANG_KIEM_SOAT_BAO_MAT: DinhNghiaDinhDang = {
+  id: "kiem-soat-bao-mat",
+  phien_ban: 1,
+  nhan: "Kiểm soát cho bên mua bảo mật",
+  mo_ta: "Kiểm soát + giới hạn cho người mua bảo mật — chỉ claim có bằng chứng, phần thiếu liệt kê riêng.",
+  ngon_ngu: NGON_NGU,
+  truong: [
+    { ten: "tieu_de", nhan: "Tiêu đề", loai: "van_ban", bat_buoc: true, do_dai_toi_da: 200 },
+    { ten: "gioi_thieu", nhan: "Giới thiệu", loai: "markdown" },
+    {
+      ten: "kiem_soat",
+      nhan: "Các kiểm soát",
+      loai: "danh_sach",
+      bat_buoc: true,
+      so_muc_toi_da: 30,
+      do_dai_toi_da: 500,
+    },
+    {
+      ten: "gioi_han",
+      nhan: "Giới hạn áp dụng",
+      loai: "danh_sach",
+      bat_buoc: true,
+      so_muc_toi_da: 20,
+      do_dai_toi_da: 500,
+    },
+    {
+      ten: "con_thieu",
+      nhan: "Còn thiếu bằng chứng",
+      loai: "danh_sach",
+      so_muc_toi_da: 20,
+      do_dai_toi_da: 500,
+    },
+    { ten: "lien_ket", nhan: "Link tài liệu", loai: "van_ban", do_dai_toi_da: 500 },
+  ],
+};
+
+const DANG_BRIEF_BAN_HANG: DinhNghiaDinhDang = {
+  id: "brief-ban-hang",
+  phien_ban: 1,
+  nhan: "Brief sales",
+  mo_ta: "Brief nội bộ cho đội sales: thông điệp chính, điểm bán, xử lý phản đối, bước tiếp.",
+  ngon_ngu: NGON_NGU,
+  truong: [
+    { ten: "tieu_de", nhan: "Tiêu đề", loai: "van_ban", bat_buoc: true, do_dai_toi_da: 200 },
+    {
+      ten: "thong_diep_chinh",
+      nhan: "Thông điệp chính",
+      loai: "van_ban",
+      bat_buoc: true,
+      do_dai_toi_da: 300,
+    },
+    {
+      ten: "diem_ban",
+      nhan: "Điểm bán",
+      loai: "danh_sach",
+      bat_buoc: true,
+      so_muc_toi_da: 20,
+      do_dai_toi_da: 500,
+    },
+    {
+      ten: "doi_pho",
+      nhan: "Xử lý phản đối",
+      loai: "danh_sach",
+      so_muc_toi_da: 20,
+      do_dai_toi_da: 500,
+    },
+    {
+      ten: "gioi_han",
+      nhan: "Giới hạn áp dụng",
+      loai: "danh_sach",
+      so_muc_toi_da: 20,
+      do_dai_toi_da: 500,
+    },
+    { ten: "tiep_theo", nhan: "Bước tiếp theo", loai: "van_ban", do_dai_toi_da: 300 },
+  ],
+};
+
+const DANG_EMAIL_PHAN_DOAN: DinhNghiaDinhDang = {
+  id: "email-phan-doan",
+  phien_ban: 1,
+  nhan: "Email phân đoạn",
+  mo_ta: "Nháp email gửi một phân đoạn khách hàng — giao qua dịch vụ gửi sở hữu khi đã tích hợp.",
+  ngon_ngu: NGON_NGU,
+  truong: [
+    { ten: "tieu_de", nhan: "Tiêu đề email", loai: "van_ban", bat_buoc: true, do_dai_toi_da: 150 },
+    { ten: "tom_tat", nhan: "Tóm tắt", loai: "van_ban", do_dai_toi_da: 200 },
+    { ten: "phan_doan", nhan: "Phân đoạn", loai: "van_ban", do_dai_toi_da: 200 },
+    { ten: "noi_dung", nhan: "Nội dung", loai: "markdown", bat_buoc: true },
+    {
+      ten: "gioi_han",
+      nhan: "Giới hạn áp dụng",
+      loai: "danh_sach",
+      so_muc_toi_da: 20,
+      do_dai_toi_da: 500,
+    },
+    { ten: "lien_ket", nhan: "Link CTA", loai: "van_ban", do_dai_toi_da: 500 },
+  ],
+};
+
+// --- Định dạng gây quỹ nonprofit (#10) ---
+// Đầu ra của một chiến dịch truyền thông gây quỹ. Tác động đã đạt và
+// ước tính là HAI trường danh sách riêng (tac_dong_da_dat /
+// tac_dong_uoc_tinh) để tiêu chí "phân biệt đã đạt vs ước tính" thành
+// cấu trúc schema, không phụ thuộc cách viết. `muc_tieu` là mục tiêu
+// gây quỹ tương lai; `lien_ket` là đích CTA quyên góp do tổ chức cung
+// cấp — xem trước hiện link cuối trước khi duyệt. Tác động/trích dẫn
+// chưa xác nhận đổ thành dòng [CÂU HỎI], không trình bày như sự thật.
+
+const TRUONG_TAC_DONG_DA_DAT: DinhNghiaTruong = {
+  ten: "tac_dong_da_dat",
+  nhan: "Tác động đã đạt",
+  loai: "danh_sach",
+  bat_buoc: true,
+  so_muc_toi_da: 30,
+  do_dai_toi_da: 500,
+};
+const TRUONG_TAC_DONG_UOC_TINH: DinhNghiaTruong = {
+  ten: "tac_dong_uoc_tinh",
+  nhan: "Tác động ước tính",
+  loai: "danh_sach",
+  so_muc_toi_da: 30,
+  do_dai_toi_da: 500,
+};
+const TRUONG_MUC_TIEU_GQ: DinhNghiaTruong = {
+  ten: "muc_tieu",
+  nhan: "Mục tiêu gây quỹ",
+  loai: "van_ban",
+  do_dai_toi_da: 500,
+};
+const TRUONG_CTA_GQ: DinhNghiaTruong = {
+  ten: "cta",
+  nhan: "CTA quyên góp",
+  loai: "van_ban",
+  do_dai_toi_da: 200,
+};
+const TRUONG_LIEN_KET_GQ: DinhNghiaTruong = {
+  ten: "lien_ket",
+  nhan: "Link quyên góp",
+  loai: "van_ban",
+  do_dai_toi_da: 500,
+};
+
+const DANG_BAO_CAO_TAC_DONG: DinhNghiaDinhDang = {
+  id: "bao-cao-tac-dong",
+  phien_ban: 1,
+  nhan: "Báo cáo tác động",
+  mo_ta: "Báo cáo cho nhà tài trợ: tác động đã đạt tách khỏi ước tính, mục tiêu gây quỹ tương lai nêu riêng, link quyên góp cuối.",
+  ngon_ngu: NGON_NGU,
+  truong: [
+    { ten: "tieu_de", nhan: "Tiêu đề", loai: "van_ban", bat_buoc: true, do_dai_toi_da: 200 },
+    { ten: "tom_tat", nhan: "Tóm tắt", loai: "van_ban", do_dai_toi_da: 300 },
+    TRUONG_TAC_DONG_DA_DAT,
+    TRUONG_TAC_DONG_UOC_TINH,
+    TRUONG_MUC_TIEU_GQ,
+    { ten: "noi_dung", nhan: "Nội dung", loai: "markdown", bat_buoc: true },
+    {
+      ten: "trich_dan",
+      nhan: "Trích dẫn",
+      loai: "danh_sach",
+      so_muc_toi_da: 20,
+      do_dai_toi_da: 500,
+    },
+    TRUONG_CTA_GQ,
+    TRUONG_LIEN_KET_GQ,
+  ],
+};
+
+const DANG_CAU_CHUYEN_NHAN_VAN: DinhNghiaDinhDang = {
+  id: "cau-chuyen-nhan-van",
+  phien_ban: 1,
+  nhan: "Câu chuyện nhân văn",
+  mo_ta: "Câu chuyện công khai chỉ dùng tư liệu đã cung cấp — khoảng trống hiển thị là câu hỏi biên tập, không bịa tên/lời/ảnh/số đo.",
+  ngon_ngu: NGON_NGU,
+  truong: [
+    { ten: "tieu_de", nhan: "Tiêu đề", loai: "van_ban", bat_buoc: true, do_dai_toi_da: 200 },
+    { ten: "noi_dung", nhan: "Nội dung", loai: "markdown", bat_buoc: true },
+    {
+      ten: "trich_dan",
+      nhan: "Trích dẫn được phép dùng",
+      loai: "danh_sach",
+      so_muc_toi_da: 10,
+      do_dai_toi_da: 500,
+    },
+    {
+      ten: "con_thieu",
+      nhan: "Câu hỏi biên tập còn thiếu",
+      loai: "danh_sach",
+      so_muc_toi_da: 20,
+      do_dai_toi_da: 500,
+    },
+    TRUONG_CTA_GQ,
+    TRUONG_LIEN_KET_GQ,
+  ],
+  goi_y_asset: "ảnh hiện trường đã có quyền sử dụng",
+};
+
+const DANG_EMAIL_TAI_TRO: DinhNghiaDinhDang = {
+  id: "email-tai-tro",
+  phien_ban: 1,
+  nhan: "Email nhà tài trợ lớn",
+  mo_ta: "Nháp email cho nhà tài trợ lớn: chi tiết hơn câu chuyện công khai nhưng giữ nguyên fact tác động và CTA quyên góp.",
+  ngon_ngu: NGON_NGU,
+  truong: [
+    { ten: "tieu_de", nhan: "Chủ đề email", loai: "van_ban", bat_buoc: true, do_dai_toi_da: 150 },
+    { ten: "tom_tat", nhan: "Xem trước", loai: "van_ban", do_dai_toi_da: 200 },
+    { ten: "phan_doan", nhan: "Phân đoạn", loai: "van_ban", do_dai_toi_da: 200 },
+    { ten: "noi_dung", nhan: "Nội dung", loai: "markdown", bat_buoc: true },
+    TRUONG_TAC_DONG_DA_DAT,
+    TRUONG_TAC_DONG_UOC_TINH,
+    TRUONG_MUC_TIEU_GQ,
+    TRUONG_CTA_GQ,
+    TRUONG_LIEN_KET_GQ,
+  ],
+};
+
+const DANG_TRANG_CAMPAIGN: DinhNghiaDinhDang = {
+  id: "trang-campaign",
+  phien_ban: 1,
+  nhan: "Trang campaign",
+  mo_ta: "Trang campaign trên website sở hữu: mục tiêu + số tiền kèm tiền tệ, tác động đã đạt/ước tính riêng, CTA quyên góp.",
+  ngon_ngu: NGON_NGU,
+  truong: [
+    { ten: "tieu_de", nhan: "Tiêu đề", loai: "van_ban", bat_buoc: true, do_dai_toi_da: 200 },
+    { ten: "noi_dung", nhan: "Nội dung", loai: "markdown", bat_buoc: true },
+    TRUONG_TAC_DONG_DA_DAT,
+    TRUONG_TAC_DONG_UOC_TINH,
+    TRUONG_MUC_TIEU_GQ,
+    {
+      ten: "trich_dan",
+      nhan: "Trích dẫn",
+      loai: "danh_sach",
+      so_muc_toi_da: 10,
+      do_dai_toi_da: 500,
+    },
+    TRUONG_CTA_GQ,
+    TRUONG_LIEN_KET_GQ,
+  ],
+};
+
+const DANG_CAP_NHAT_TINH_NGUYEN: DinhNghiaDinhDang = {
+  id: "cap-nhat-tinh-nguyen",
+  phien_ban: 1,
+  nhan: "Cập nhật tình nguyện viên",
+  mo_ta: "Cập nhật nội bộ cho tình nguyện viên: tiến độ, việc cần làm, link quyên góp nếu có.",
+  ngon_ngu: NGON_NGU,
+  truong: [
+    { ten: "tieu_de", nhan: "Tiêu đề", loai: "van_ban", bat_buoc: true, do_dai_toi_da: 200 },
+    { ten: "noi_dung", nhan: "Nội dung", loai: "markdown", bat_buoc: true },
+    {
+      ten: "cac_buoc",
+      nhan: "Việc cần làm",
+      loai: "danh_sach",
+      so_muc_toi_da: 20,
+      do_dai_toi_da: 500,
+    },
+    TRUONG_CTA_GQ,
+    TRUONG_LIEN_KET_GQ,
+  ],
+};
+
 const REGISTRY: Record<string, DinhNghiaDinhDang> = Object.fromEntries(
   [
     DANG_BAI_VIET,
@@ -330,6 +697,17 @@ const REGISTRY: Record<string, DinhNghiaDinhDang> = Object.fromEntries(
     DANG_HOI_DAP_DOC_GIA,
     DANG_CHUOI_SOCIAL,
     DANG_SCRIPT_THAO_LUAN,
+    DANG_HUONG_DAN_TICH_HOP,
+    DANG_THAY_DOI_KHACH_HANG,
+    DANG_LOI_ICH_TIEM_NANG,
+    DANG_KIEM_SOAT_BAO_MAT,
+    DANG_BRIEF_BAN_HANG,
+    DANG_EMAIL_PHAN_DOAN,
+    DANG_BAO_CAO_TAC_DONG,
+    DANG_CAU_CHUYEN_NHAN_VAN,
+    DANG_EMAIL_TAI_TRO,
+    DANG_TRANG_CAMPAIGN,
+    DANG_CAP_NHAT_TINH_NGUYEN,
   ].map((d) => [d.id, d]),
 );
 

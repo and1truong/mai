@@ -67,6 +67,34 @@ export function dungPrompt(ctx: ContextTask): { system: string; user: string } {
   if (ctx.lap_truong) {
     dongUser.push(`LẬP TRƯỜNG BIÊN TẬP (cấu hình số báo — áp định hướng này): ${ctx.lap_truong}`);
   }
+  // Bản phát hành (#9): định vị/fact/giới hạn/CTA khai báo trên campaign.
+  // Mọi claim tính năng phải truy về một fact có bằng chứng; fact chưa
+  // xác nhận chỉ được để dạng câu hỏi; giới hạn phải hiển thị khi tính
+  // năng bị giới hạn được nhắc; link CTA dùng đúng URL đã khai báo.
+  const ph = ctx.phat_hanh;
+  if (ph) {
+    dongUser.push(
+      `BẢN PHÁT HÀNH: ${ph.ten}${ph.phien_ban ? ` — phiên bản ${ph.phien_ban}` : ""}${ph.ngay_phat_hanh ? ` — phát hành ${ph.ngay_phat_hanh}` : ""}`,
+    );
+    if (ph.dinh_vi) dongUser.push(`- Định vị đã duyệt (áp đúng hướng này): ${ph.dinh_vi}`);
+    for (const f of ph.ds_fact) {
+      if (f.xac_nhan) {
+        dongUser.push(`- Fact ${f.id} (đã xác nhận): ${f.tinh_nang} — ${f.noi_dung} [F:${f.id}]`);
+      } else {
+        dongUser.push(
+          `- Fact ${f.id} (CHƯA XÁC NHẬN — chỉ được để [CÂU HỎI: ...], không trình bày như sự thật): ${f.tinh_nang}`,
+        );
+      }
+    }
+    for (const g of ph.gioi_han) {
+      dongUser.push(
+        `- Giới hạn ${g.id}: nhắc '${g.tinh_nang}' thì phải hiển thị '${g.mo_ta}' [GH:${g.id}]`,
+      );
+    }
+    for (const c of ph.cta) {
+      dongUser.push(`- CTA ${c.loai || "chung"}: ${c.nhan} — ${c.url}`);
+    }
+  }
   if (ctx.thieu_chung_cu.length > 0) {
     dongUser.push(`CHỨNG CỚ THIẾU (phải để [CÂU HỎI: ...], không bịa): ${ctx.thieu_chung_cu.join(", ")}`);
   }

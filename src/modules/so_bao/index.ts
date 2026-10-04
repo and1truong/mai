@@ -118,9 +118,18 @@ export function kiemTraThamChieu(
   return ds;
 }
 
+// Khóa danh tính đầu ra của một mục mục lục: định dạng + đối tượng +
+// đích đến + ngôn ngữ — trùng hình với danh tính ban_the_hien
+// (thong_diep, dinh_dang, ngon_ngu, doi_tuong, dich_den). ngon_ngu mặc
+// định 'vi' giữ mọi mục cũ trong cùng một khóa như trước (#10).
+export function khoaMucLuc(m: MucLuc): string {
+  return `${m.dinh_dang}|${m.doi_tuong_id ?? ""}|${m.dich_den}|${m.ngon_ngu || "vi"}`;
+}
+
 // Đọc + validate mục lục từ request: định dạng phải trong registry, đối
-// tượng phải tồn tại, hai mục cùng danh tính đầu ra (dinh_dang + đối tượng
-// + đích đến) là trùng — một đầu ra chỉ có một khay.
+// tượng phải tồn tại, ngôn ngữ phải được định dạng hỗ trợ, hai mục cùng
+// danh tính đầu ra (định dạng + đối tượng + đích đến + ngôn ngữ) là
+// trùng — một đầu ra chỉ có một khay.
 export function kiemTraMucLuc(
   db: Database,
   body: unknown,
@@ -156,7 +165,8 @@ export function kiemTraMucLuc(
       continue;
     }
     const dd = typeof r.dinh_dang === "string" ? r.dinh_dang : "";
-    if (!dd || !layDinhDang(dd)) {
+    const ddDinhNghia = dd ? layDinhDang(dd) : undefined;
+    if (!dd || !ddDinhNghia) {
       dsLoi.push(
         `muc_luc[${i}].dinh_dang '${dd}' không hợp lệ. Cho phép: ${DANH_SACH_DINH_DANG.join(", ")}.`,
       );
@@ -179,10 +189,23 @@ export function kiemTraMucLuc(
       dsLoi.push(`muc_luc[${i}].dich_den quá dài (tối đa 120 ký tự).`);
       continue;
     }
-    const khoa = `${dd}|${doiTuongId ?? ""}|${dichDen}`;
+    let ngonNgu = "vi";
+    if (r.ngon_ngu !== undefined && r.ngon_ngu !== null && r.ngon_ngu !== "") {
+      if (typeof r.ngon_ngu !== "string") {
+        dsLoi.push(`muc_luc[${i}].ngon_ngu phải là chuỗi.`);
+        continue;
+      }
+      const loiNg = kiemTraNgonNgu(ddDinhNghia!, r.ngon_ngu.trim());
+      if (loiNg) {
+        dsLoi.push(`muc_luc[${i}].ngon_ngu: ${loiNg}`);
+        continue;
+      }
+      ngonNgu = r.ngon_ngu.trim();
+    }
+    const khoa = `${dd}|${doiTuongId ?? ""}|${dichDen}|${ngonNgu}`;
     if (daCoKhoa.has(khoa)) {
       dsLoi.push(
-        `muc_luc[${i}] trùng khay đầu ra (cùng định dạng '${dd}' + đối tượng + đích đến '${dichDen}').`,
+        `muc_luc[${i}] trùng khay đầu ra (cùng định dạng '${dd}' + đối tượng + đích đến '${dichDen}' + ngôn ngữ '${ngonNgu}').`,
       );
       continue;
     }
@@ -198,6 +221,7 @@ export function kiemTraMucLuc(
       dinh_dang: dd,
       doi_tuong_id: doiTuongId,
       dich_den: dichDen,
+      ngon_ngu: ngonNgu,
       ly_do: lyDo,
     });
   }
@@ -310,17 +334,29 @@ export function thongDiepChuDe(db: Database, cp: Campaign): ThongDiep | null {
 // Lấy hoặc tạo thông điệp chủ đề cho số báo. Khi tạo: gắn tất cả nguồn
 // tham chiếu đã có văn bản để bộ sinh đối chiếu trích dẫn với nguồn thật.
 // Khi đã có: bảo đảm nguồn tham chiếu mới được link vào thông điệp (không
-// gỡ link biên tập đã thêm tay).
+// gỡ link biên tập đã thêm tay). Nguồn phát hành tự động (#9) cũng là
+// link bắt buộc — mọi đầu ra release phải pin fact của bản phát hành.
 export function damBaoThongDiepChuDe(db: Database, cp: Campaign, tacGia: string): ThongDiep {
   return txn(db, () => {
-    const nguonIds = cp.tham_chieu
-      .map((t) => t.nguon_id)
-      .filter((x): x is string => !!x && !!layNguon(db, x));
+    const nguonIds = [
+      ...(cp.nguon_phat_hanh_id && layNguon(db, cp.nguon_phat_hanh_id)
+        ? [cp.nguon_phat_hanh_id]
+        : []),
+      ...cp.tham_chieu
+        .map((t) => t.nguon_id)
+        .filter(
+          (x): x is string => !!x && x !== cp.nguon_phat_hanh_id && !!layNguon(db, x),
+        ),
+    ];
     const cu = thongDiepChuDe(db, cp);
     if (!cu) {
       const tieuDe =
-        `Số ${cp.so_thu_tu ?? "?"}${cp.chu_de ? ` — ${cp.chu_de}` : ""}`.replace("Số ?", cp.ten) ||
-        cp.ten;
+        cp.loai === "phat_hanh"
+          ? `Phát hành ${cp.ten}`
+          : `Số ${cp.so_thu_tu ?? "?"}${cp.chu_de ? ` — ${cp.chu_de}` : ""}`.replace(
+                "Số ?",
+                cp.ten,
+              ) || cp.ten;
       const td = taoThongDiep(
         db,
         {
@@ -395,7 +431,9 @@ export function khoaDauRaMuc(
   return {
     thong_diep_id: thongDiepId,
     dinh_dang: muc.dinh_dang,
-    ngon_ngu: "vi",
+    // Mục bản ngôn ngữ thứ hai của campaign gây quỹ (#10) giữ mã ngôn
+    // ngữ riêng — bản thể hiện định danh khác bản gốc nhờ ngon_ngu.
+    ngon_ngu: muc.ngon_ngu || "vi",
     doi_tuong: dtTen,
     dich_den: muc.dich_den,
   };
@@ -432,7 +470,7 @@ export function chonMucLuc(
         dsLoi.push(`ds_muc_id[${i}]: định dạng '${muc.dinh_dang}' không còn trong registry.`);
         continue;
       }
-      const loiNg = kiemTraNgonNgu(dd, "vi");
+      const loiNg = kiemTraNgonNgu(dd, muc.ngon_ngu || "vi");
       if (loiNg) dsLoi.push(`ds_muc_id[${i}]: ${loiNg}`);
       if (muc.doi_tuong_id && !layDoiTuong(db, muc.doi_tuong_id)) {
         dsLoi.push(`ds_muc_id[${i}]: đối tượng '${muc.doi_tuong_id}' không còn tồn tại.`);
@@ -452,7 +490,7 @@ export function chonMucLuc(
         payload: {
           thong_diep_id: td.id,
           dinh_dang: muc.dinh_dang,
-          ngon_ngu: "vi",
+          ngon_ngu: muc.ngon_ngu || "vi",
           doi_tuong: khoa.doi_tuong || undefined,
           doi_tuong_id: muc.doi_tuong_id ?? undefined,
           dich_den: muc.dich_den || undefined,
@@ -658,12 +696,8 @@ export function themMucLuc(
     if (cp.muc_luc.some((m) => m.id === moi.id)) {
       throw new LoiApi(409, "XUNG_DOT_TRANG_THAI", `Mục lục đã có mục id '${moi.id}'.`);
     }
-    const khoaMoi = `${moi.dinh_dang}|${moi.doi_tuong_id ?? ""}|${moi.dich_den}`;
-    if (
-      cp.muc_luc.some(
-        (m) => `${m.dinh_dang}|${m.doi_tuong_id ?? ""}|${m.dich_den}` === khoaMoi,
-      )
-    ) {
+    const khoaMoi = khoaMucLuc(moi);
+    if (cp.muc_luc.some((m) => khoaMucLuc(m) === khoaMoi)) {
       throw new LoiApi(
         409,
         "XUNG_DOT_TRANG_THAI",

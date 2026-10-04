@@ -3,12 +3,18 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { extname, join, resolve } from "node:path";
 import { taiCauHinh } from "../config.ts";
 import { log } from "../log.ts";
-import { taoDoiTuong, taoThuongHieu, thayThuatNgu } from "../modules/context/index.ts";
+import {
+  layDoiTuong,
+  taoDoiTuong,
+  taoThuongHieu,
+  thayThuatNgu,
+} from "../modules/context/index.ts";
 import {
   capNhatCampaign,
   chuyenTrangThai,
   ghiSuKien,
   layBanTheHien,
+  layCampaign,
   taoBanTheHien,
   taoCampaign,
   taoNguon,
@@ -17,6 +23,16 @@ import {
   xuatBanBanTheHien,
 } from "../modules/content/index.ts";
 import { deXuatMucLuc } from "../modules/so_bao/index.ts";
+import {
+  damBaoThongDiepPhatHanh,
+  deXuatDauRaPhatHanh,
+  dongBoNguonPhatHanh,
+} from "../modules/phat_hanh/index.ts";
+import {
+  damBaoThongDiepGayQuy,
+  deXuatDauRaGayQuy,
+  dongBoNguonGayQuy,
+} from "../modules/gay_quy/index.ts";
 import {
   datAssetBanTheHien,
   duongDanTepAsset,
@@ -717,23 +733,835 @@ export function seed(
     daSeed.push("story_so_bao_002");
   }
 
+  // --- Story #9: MaiSuite — bản phát hành B2B 4.0 ---
+  // Campaign loại 'phat_hanh' gắn phiên bản, ngày, định vị đã duyệt, giới
+  // hạn gói/vùng/khả dụng, CTA và fact tính năng có con trỏ bằng chứng
+  // vào nguồn đã nạp. Nguồn fact tự động chiếu field release thành mục
+  // nguồn → đầu ra pin fact trong provenance; sửa field đánh dấu đầu ra
+  // phụ thuộc (#14). Fact 'Hiệu năng' cố ý không nguồn → chưa xác nhận,
+  // chỉ được để dạng câu hỏi, không được trình bày như sự thật.
+  if (!db.query("SELECT id FROM campaign WHERE id = 'seed-cp-phat-hanh-40'").get()) {
+    // 6 hồ sơ đối tượng cho đầu ra theo persona của story.
+    themDoiTuong(
+      db,
+      "seed-dt-dev-40",
+      {
+        ten: "Lập trình viên tích hợp (fixture)",
+        ngon_ngu: "vi",
+        dia_diem: "Developer tích hợp MaiSuite vào hệ thống của khách hàng.",
+        kien_thuc_nen: "Biết REST API, OAuth 2.0, WebAuthn ở mức dùng được.",
+        moi_quan_tam: "Bước tích hợp cụ thể, yêu cầu trước, giới hạn API.",
+        do_sau: "chuyen_sau",
+        tu_vung: "Thuật ngữ kỹ thuật; không giải thích khái niệm nền.",
+        quan_he_to_chuc: "Đội platform/integration của khách hàng.",
+        nhu_cau_giao_tiep: "Hướng dẫn từng bước, liệt kê điều kiện trước, link tài liệu.",
+        nhan_khau_hoc: "Backend engineer 3+ năm.",
+      },
+      tacGia,
+    );
+    themDoiTuong(
+      db,
+      "seed-dt-khach-hang-40",
+      {
+        ten: "Khách hàng doanh nghiệp (fixture)",
+        ngon_ngu: "vi",
+        dia_diem: "Quản trị viên và người dùng cuối của khách hàng hiện tại.",
+        kien_thuc_nen: "Dùng MaiSuite hàng ngày; không cần biết chi tiết bên trong.",
+        moi_quan_tam: "Thay đổi ảnh hưởng công việc hàng ngày, việc cần làm khi nâng cấp.",
+        do_sau: "vua_phai",
+        tu_vung: "Đơn giản; tránh thuật ngữ kỹ thuật khi có thể.",
+        quan_he_to_chuc: "Admin IT và end user của tenant hiện tại.",
+        nhu_cau_giao_tiep: "Danh sách thay đổi rõ ràng, bước cần làm, giới hạn gói.",
+        nhan_khau_hoc: "Nhân viên văn phòng và admin IT của khách hàng.",
+      },
+      tacGia,
+    );
+    themDoiTuong(
+      db,
+      "seed-dt-tiem-nang-40",
+      {
+        ten: "Khách hàng tiềm năng (fixture)",
+        ngon_ngu: "vi",
+        dia_diem: "Doanh nghiệp đang đánh giá MaiSuite so với đối thủ.",
+        kien_thuc_nen: "Biết bài toán IAM/SSO phổ thông; chưa dùng sản phẩm.",
+        moi_quan_tam: "Lợi ích nghiệp vụ, khác biệt so với giải pháp cũ.",
+        do_sau: "so_luoc",
+        tu_vung: "Ngôn ngữ kinh doanh; ít chi tiết API.",
+        quan_he_to_chuc: "Ban lãnh đạo IT và procurement của prospect.",
+        nhu_cau_giao_tiep: "Ngắn gọn, nhấn giá trị; link tài liệu chi tiết khi cần.",
+        nhan_khau_hoc: "Quyết định mua ở doanh nghiệp 200–2000 người.",
+      },
+      tacGia,
+    );
+    themDoiTuong(
+      db,
+      "seed-dt-bao-mat-40",
+      {
+        ten: "Người mua bảo mật — CISO (fixture)",
+        ngon_ngu: "vi",
+        dia_diem: "CISO/đội security đánh giá kiểm soát trước khi duyệt mua.",
+        kien_thuc_nen: "Hiểu kiểm soát xác thực, logging, phân quyền ở mức audit.",
+        moi_quan_tam: "Kiểm soát thật sự có và giới hạn của nó; không chấp nhận claim chung chung.",
+        do_sau: "chuyen_sau",
+        tu_vung: "Thuật ngữ bảo mật; yêu cầu bằng chứng cho mọi claim.",
+        quan_he_to_chuc: "CISO, security architect, compliance.",
+        nhu_cau_giao_tiep: "Bảng kiểm soát + giới hạn song song; nêu thẳng chỗ chưa có chứng nhận.",
+        nhan_khau_hoc: "CISO / security lead doanh nghiệp.",
+      },
+      tacGia,
+    );
+    themDoiTuong(
+      db,
+      "seed-dt-sales-40",
+      {
+        ten: "Đội bán hàng nội bộ (fixture)",
+        ngon_ngu: "vi",
+        dia_diem: "Sales và account executive của MaiSuite.",
+        kien_thuc_nen: "Biết sản phẩm ở mức bán hàng; cần điểm nói và câu trả lời cho phản đối.",
+        moi_quan_tam: "Thông điệp chính, điểm bán, câu hỏi khách hay hỏi, giới hạn gói.",
+        do_sau: "vua_phai",
+        tu_vung: "Ngôn ngữ bán hàng; có thể kèm thuật ngữ sản phẩm cần thiết.",
+        quan_he_to_chuc: "Đội sales/AM nội bộ.",
+        nhu_cau_giao_tiep: "Brief một trang: điểm bán, xử lý phản đối, bước tiếp theo.",
+        nhan_khau_hoc: "Nhân viên sales/AM.",
+      },
+      tacGia,
+    );
+    themDoiTuong(
+      db,
+      "seed-dt-support-40",
+      {
+        ten: "Đội hỗ trợ khách hàng (fixture)",
+        ngon_ngu: "vi",
+        dia_diem: "Support trả lời ticket sau ngày phát hành.",
+        kien_thuc_nen: "Biết quy trình hỗ trợ; cần câu trả lời sẵn cho câu hỏi phổ biến.",
+        moi_quan_tam: "Khách sẽ hỏi gì, trả lời ra sao, giới hạn nào cần nói trước.",
+        do_sau: "vua_phai",
+        tu_vung: "Đơn giản, lịch sự; tránh thuật ngữ nội bộ.",
+        quan_he_to_chuc: "Đội support/CS nội bộ.",
+        nhu_cau_giao_tiep: "Hỏi-đáp ngắn, dùng trực tiếp cho ticket.",
+        nhan_khau_hoc: "Nhân viên support.",
+      },
+      tacGia,
+    );
+
+    themThuongHieu(
+      db,
+      "seed-th-saas-40",
+      {
+        ten: "SaaS B2B doanh nghiệp (fixture)",
+        nhan_dien: "Nền tảng quản lý định danh và truy cập cho doanh nghiệp. Viết kỹ thuật, có bằng chứng, không hype.",
+        ngon_ngu_uu_tien: ["vi", "en"],
+        vi_du_giong_van: "Phiên bản 4.0 thêm passkeys và audit log. Đây là phạm vi áp dụng từng tính năng.",
+        nguyen_tac: "Chính xác. Luôn nêu giới hạn gói/vùng khi nhắc tính năng bị giới hạn.",
+        claim_duyet: [
+          "Tính năng nói đúng phạm vi tài liệu đã nạp.",
+          "Giới hạn gói/vùng hiển thị khi tính năng bị giới hạn được nhắc.",
+        ],
+        claim_cam: [
+          "An toàn tuyệt đối",
+          "Tuân thủ mọi tiêu chuẩn",
+          "Nhanh nhất thị trường",
+        ],
+        assets: [],
+      },
+      tacGia,
+    );
+
+    // Nguồn đã nạp: changelog + tài liệu tích hợp + tài liệu kiểm soát
+    // bảo mật. Mỗi tính năng một mục loại 'fact' để fact của release trỏ
+    // bằng chứng đến đúng mục, không phải cả tài liệu chung.
+    const nguonChangelog = taoNguon(
+      db,
+      {
+        tieu_de: "Changelog MaiSuite 4.0",
+        noi_dung:
+          "MaiSuite 4.0 (phát hành 2026-11-01) thêm ba thay đổi chính: passkeys, audit log và cải tiến SSO SAML.",
+        loai: "van_ban",
+        cac_muc: [
+          {
+            id: "cl-passkeys",
+            loai: "fact",
+            tieu_de: "Passkeys",
+            noi_dung:
+              "Phiên bản 4.0 hỗ trợ đăng nhập bằng passkeys (WebAuthn) thay mật khẩu cho tất cả tài khoản.",
+            assets: [],
+          },
+          {
+            id: "cl-audit-log",
+            loai: "fact",
+            tieu_de: "Audit log",
+            noi_dung:
+              "Phiên bản 4.0 ghi audit log toàn bộ sự kiện đăng nhập và thay đổi quyền; dữ liệu giữ 365 ngày.",
+            assets: [],
+          },
+          {
+            id: "cl-sso",
+            loai: "fact",
+            tieu_de: "SSO SAML",
+            noi_dung:
+              "Phiên bản 4.0 cho phép đăng ký nhiều IdP đồng thời và bật JIT provisioning.",
+            assets: [],
+          },
+        ],
+      },
+      tacGia,
+      { id: "seed-nguon-changelog-40" },
+    );
+    const nguonTichHop = taoNguon(
+      db,
+      {
+        tieu_de: "Tài liệu tích hợp API 4.0",
+        noi_dung: "Tài liệu cho developer tích hợp MaiSuite 4.0: xác thực và webhook.",
+        loai: "van_ban",
+        cac_muc: [
+          {
+            id: "tl-xac-thuc",
+            loai: "section",
+            tieu_de: "Xác thực",
+            noi_dung:
+              "API xác thực bằng OAuth 2.0 client credentials; token lấy từ POST /oauth/token.",
+            assets: [],
+          },
+          {
+            id: "tl-webhook",
+            loai: "section",
+            tieu_de: "Webhook",
+            noi_dung:
+              "Webhook đăng ký qua POST /api/webhooks; payload JSON ký bằng HMAC-SHA256.",
+            assets: [],
+          },
+        ],
+      },
+      tacGia,
+      { id: "seed-nguon-tl-tich-hop-40" },
+    );
+    const nguonBaoMat = taoNguon(
+      db,
+      {
+        tieu_de: "Tài liệu kiểm soát bảo mật 4.0",
+        noi_dung: "Kiểm soát xác thực và ghi log của MaiSuite cho đánh giá bảo mật.",
+        loai: "van_ban",
+        cac_muc: [
+          {
+            id: "bm-dang-nhap",
+            loai: "fact",
+            tieu_de: "Kiểm soát đăng nhập",
+            noi_dung:
+              "MaiSuite hỗ trợ passkeys, TOTP và SSO SAML; quản trị bắt buộc được theo tài khoản.",
+            assets: [],
+          },
+          {
+            id: "bm-ghi-log",
+            loai: "fact",
+            tieu_de: "Ghi log kiểm toán",
+            noi_dung: "Audit log export CSV/JSON qua API; dữ liệu giữ 365 ngày.",
+            assets: [],
+          },
+        ],
+      },
+      tacGia,
+      { id: "seed-nguon-bao-mat-40" },
+    );
+
+    const cpPh = taoCampaign(
+      db,
+      {
+        loai: "phat_hanh",
+        ten: "MaiSuite 4.0",
+        mo_ta: "Bản phát hành 4.0: passkeys, audit log và cải tiến SSO.",
+        phien_ban: "4.0",
+        ngay_phat_hanh: "2026-11-01",
+        dinh_vi:
+          "4.0 đưa xác thực không mật khẩu và kiểm soát truy cập lên chuẩn doanh nghiệp — nhấn bảo mật và kiểm toán, không nhấn tốc độ.",
+        thuong_hieu_id: "seed-th-saas-40",
+        doi_tuong_id: "seed-dt-khach-hang-40",
+        gioi_han: [
+          {
+            id: "gh-sso-goi",
+            tinh_nang: "SSO SAML",
+            loai: "goi",
+            mo_ta: "chỉ có ở gói Enterprise",
+          },
+          {
+            id: "gh-audit-log",
+            tinh_nang: "audit log",
+            loai: "goi",
+            mo_ta: "gói Starter chỉ giữ 90 ngày — gói Enterprise giữ 365 ngày",
+          },
+          {
+            id: "gh-passkeys-vung",
+            tinh_nang: "passkeys",
+            loai: "vung",
+            mo_ta: "chưa mở cho tenant region EU cũ — lộ trình nâng hạ tầng trước 2027-Q1",
+          },
+        ],
+        cta: [
+          {
+            id: "cta-docs",
+            nhan: "Tài liệu tích hợp 4.0",
+            loai: "tai_lieu",
+            url: "https://docs.maisuite.example.com/v4",
+          },
+          {
+            id: "cta-nang-cap",
+            nhan: "Nâng cấp lên 4.0",
+            loai: "nang_cap",
+            url: "https://app.maisuite.example.com/nang-cap",
+          },
+          {
+            id: "cta-ho-tro",
+            nhan: "Liên hệ hỗ trợ",
+            loai: "ho_tro",
+            url: "https://support.maisuite.example.com",
+          },
+        ],
+        ds_fact: [
+          {
+            id: "fact-passkeys",
+            tinh_nang: "Passkeys",
+            noi_dung:
+              "Đăng nhập bằng passkeys (WebAuthn) thay mật khẩu cho tất cả tài khoản.",
+            nguon_id: nguonChangelog.id,
+            muc_id: "cl-passkeys",
+          },
+          {
+            id: "fact-audit-log",
+            tinh_nang: "Audit log",
+            noi_dung:
+              "Ghi toàn bộ sự kiện đăng nhập và đổi quyền; dữ liệu giữ 365 ngày.",
+            nguon_id: nguonChangelog.id,
+            muc_id: "cl-audit-log",
+          },
+          {
+            id: "fact-sso",
+            tinh_nang: "SSO SAML",
+            noi_dung: "Đăng ký nhiều IdP đồng thời và JIT provisioning.",
+            nguon_id: nguonChangelog.id,
+            muc_id: "cl-sso",
+          },
+          {
+            id: "fact-webhook",
+            tinh_nang: "Webhook",
+            noi_dung: "Webhook đăng ký qua POST /api/webhooks; payload JSON ký HMAC-SHA256.",
+            nguon_id: nguonTichHop.id,
+            muc_id: "tl-webhook",
+          },
+          {
+            // Cố ý không trỏ nguồn: claim benchmark chưa xác nhận — đầu ra
+            // chỉ được để [CÂU HỎI], không được viết như sự thật.
+            id: "fact-hieu-nang",
+            tinh_nang: "Hiệu năng",
+            noi_dung: "Xử lý nhanh hơn 10 lần so với 3.x.",
+            nguon_id: null,
+            muc_id: null,
+          },
+        ],
+        tham_chieu: [
+          {
+            id: "tc-changelog",
+            tham_chieu: "Changelog 4.0",
+            ban_dich: "",
+            nguon_id: nguonChangelog.id,
+            ghi_chu: "Danh sách thay đổi chính thức của bản 4.0.",
+          },
+          {
+            id: "tc-tich-hop",
+            tham_chieu: "Tài liệu tích hợp API 4.0",
+            ban_dich: "",
+            nguon_id: nguonTichHop.id,
+            ghi_chu: "Xác thực + webhook cho hướng dẫn developer.",
+          },
+          {
+            id: "tc-bao-mat",
+            tham_chieu: "Tài liệu kiểm soát bảo mật",
+            ban_dich: "",
+            nguon_id: nguonBaoMat.id,
+            ghi_chu: "Kiểm soát cho đầu ra bên mua bảo mật.",
+          },
+        ],
+      },
+      tacGia,
+      { id: "seed-cp-phat-hanh-40" },
+    );
+    capNhatCampaign(
+      db,
+      cpPh.id,
+      { ten: cpPh.ten, muc_luc: deXuatDauRaPhatHanh(db, cpPh) },
+      tacGia,
+    );
+    // Nguồn fact tự động + thông điệp chủ đề pin nguồn — đầu ra demo dưới
+    // đây pin đúng chuỗi provenance.
+    dongBoNguonPhatHanh(db, cpPh, tacGia);
+    const tdPh = damBaoThongDiepPhatHanh(db, layCampaign(db, cpPh.id)!, tacGia);
+    const tdRevPh = tdPh.head_revision_id;
+
+    // Đầu ra demo lưu bền: developer (đã duyệt + đã xuất → trang /p/<id>
+    // phục vụ), khách hàng (chờ duyệt — vào hàng chờ review), sales (đã
+    // duyệt). Nội dung theo contract [F:<fact_id>]/[GH:<gioi_han_id>];
+    // claim hiệu năng chưa xác nhận chỉ để [CÂU HỎI].
+    // Định danh đầu ra gồm chuỗi doi_tuong = tên hồ sơ của mục — derive
+    // từ mục lục để đầu ra seed luôn khớp khoaDauRaMuc (tiến độ mục).
+    const mucTheoDauRa = new Map(
+      layCampaign(db, cpPh.id)!.muc_luc.map((m) => [`${m.dinh_dang}|${m.dich_den}`, m]),
+    );
+    for (const o of NOI_DUNG_DAU_RA_PHAT_HANH) {
+      const muc = mucTheoDauRa.get(`${o.dinh_dang}|${o.dich_den}`);
+      const doiTuongTen =
+        (muc?.doi_tuong_id ? layDoiTuong(db, muc.doi_tuong_id)?.ten : null) ?? o.doi_tuong;
+      taoBanTheHien(
+        db,
+        {
+          thong_diep_id: tdPh.id,
+          dinh_dang: o.dinh_dang,
+          ngon_ngu: "vi",
+          doi_tuong: doiTuongTen,
+          dich_den: o.dich_den,
+        },
+        tacGia,
+        { id: o.id },
+      );
+      themRevision(
+        db,
+        {
+          ban_the_hien_id: o.id,
+          noi_dung: o.noi_dung,
+          dua_tren_revision_id: null,
+          thong_diep_revision_id: tdRevPh,
+        },
+        tacGia,
+      );
+      if (o.trang_thai === "nhap") continue;
+      chuyenTrangThai(db, o.id, "cho_duyet", "seed: gửi duyệt", tacGia);
+      if (o.trang_thai === "cho_duyet") continue;
+      const head = layBanTheHien(db, o.id)?.head_revision_id ?? undefined;
+      chuyenTrangThai(db, o.id, "da_duyet", "seed: duyệt", tacGia, head);
+      if (o.xuat_ban) {
+        xuatBanBanTheHien(db, o.id, { dich_den: o.dich_den || undefined }, tacGia);
+      }
+    }
+    daSeed.push("story_phat_hanh_40");
+  }
+
+  // --- Story #10: Giọt Nước Chung — chiến dịch gây quỹ theo mục tiêu ---
+  // Campaign loại 'gay_quy': mục tiêu + số tiền kèm tiền tệ, thông điệp
+  // lõi, tác động đã đạt/ước tính với con trỏ bằng chứng nguồn, trích
+  // dẫn được phép dùng, ghi chú quyền cho asset tổ chức cung cấp.
+  // Toàn bộ dữ liệu hiện trường là HƯ CẤU (ghi trong tiêu đề nguồn).
+  // Tác động/trích dẫn cố ý không nguồn → chưa xác nhận, chỉ được để
+  // dạng câu hỏi [CÂU HỎI], không trình bày như sự thật.
+  if (!db.query("SELECT id FROM campaign WHERE id = 'seed-cp-gay-quy-khe-tre'").get()) {
+    // 4 hồ sơ đối tượng cho đầu ra của story.
+    themDoiTuong(
+      db,
+      "seed-dt-nha-tai-tro-gq",
+      {
+        ten: "Nhà tài trợ hiện hữu (fixture)",
+        ngon_ngu: "vi",
+        dia_diem: "Người và tổ chức đã quyên góp cho các công trình trước.",
+        kien_thuc_nen: "Quan tâm tác động đo được; muốn biết tiền đi đâu.",
+        moi_quan_tam: "Báo cáo tác động rõ ràng, minh bạch số liệu và chi phí.",
+        do_sau: "vua_phai",
+        tu_vung: "Đơn giản, tôn trọng; tránh ngôn ngữ cảm xúc quá mức.",
+        quan_he_to_chuc: "Nhà tài trợ định kỳ của tổ chức.",
+        nhu_cau_giao_tiep: "Báo cáo có số liệu nguồn; tách rõ đã đạt và ước tính.",
+        nhan_khau_hoc: "",
+      },
+      tacGia,
+    );
+    themDoiTuong(
+      db,
+      "seed-dt-ntt-lon-gq",
+      {
+        ten: "Nhà tài trợ lớn (fixture)",
+        ngon_ngu: "vi",
+        dia_diem: "Nhà tài trợ cá nhân/quỹ có khả năng góp khoản lớn.",
+        kien_thuc_nen: "Đọc kỹ dự toán và quy trình giám sát trước khi quyết định.",
+        moi_quan_tam: "Chi tiết dự toán, tiến độ, cách tổ chức đảm bảo tiền đúng mục đích.",
+        do_sau: "chuyen_sau",
+        tu_vung: "Ngôn ngữ chuyên nghiệp; có thể kèm số liệu chi phí chi tiết.",
+        quan_he_to_chuc: "Nhà tài trợ chiến lược tiềm năng.",
+        nhu_cau_giao_tiep: "Email riêng, chi tiết hơn câu chuyện công khai nhưng cùng fact.",
+        nhan_khau_hoc: "",
+      },
+      tacGia,
+    );
+    themDoiTuong(
+      db,
+      "seed-dt-tinh-nguyen-gq",
+      {
+        ten: "Tình nguyện viên (fixture)",
+        ngon_ngu: "vi",
+        dia_diem: "Tình nguyện viên đi hiện trường và hỗ trợ truyền thông.",
+        kien_thuc_nen: "Biết dự án qua các chuyến đi; cần nội dung dùng lại được.",
+        moi_quan_tam: "Tiến độ làng tiếp theo, việc cần làm, câu chuyện để chia sẻ.",
+        do_sau: "so_luoc",
+        tu_vung: "Thân thiện, động viên; câu ngắn.",
+        quan_he_to_chuc: "Tình nguyện viên nội bộ của tổ chức.",
+        nhu_cau_giao_tiep: "Cập nhật ngắn: tiến độ, việc cần làm, link chia sẻ.",
+        nhan_khau_hoc: "",
+      },
+      tacGia,
+    );
+    themDoiTuong(
+      db,
+      "seed-dt-cong-chung-gq",
+      {
+        ten: "Công chúng quan tâm (fixture)",
+        ngon_ngu: "vi",
+        dia_diem: "Người quan tâm công trình cộng đồng qua website và mạng xã hội.",
+        kien_thuc_nen: "Chưa biết nhiều về tổ chức; đọc câu chuyện trước số liệu.",
+        moi_quan_tam: "Câu chuyện con người, minh bạch, cách đóng góp cụ thể.",
+        do_sau: "so_luoc",
+        tu_vung: "Tránh thuật ngữ; ảnh và trích dẫn dẫn chuyện.",
+        quan_he_to_chuc: "Người ủng hộ tiềm năng chưa từng quyên góp.",
+        nhu_cau_giao_tiep: "Câu chuyện ngắn có mặt người; CTA quyên góp rõ ràng.",
+        nhan_khau_hoc: "",
+      },
+      tacGia,
+    );
+
+    themThuongHieu(
+      db,
+      "seed-th-nuoc-sach",
+      {
+        ten: "Giọt Nước Chung (fixture)",
+        nhan_dien:
+          "Tổ chức phi lợi nhuận xây công trình nước sạch cho làng vùng cao. Viết minh bạch, có bằng chứng, không phóng đại.",
+        ngon_ngu_uu_tien: ["vi", "en"],
+        vi_du_giong_van:
+          "Ba ngôi làng đã có nước sạch. Đây là bằng chứng và đây là việc còn lại.",
+        nguyen_tac:
+          "Không bịa tên người, trích dẫn hay số đo. Tác động ước tính luôn ghi rõ là ước tính. Số tiền luôn kèm đơn vị tiền tệ.",
+        claim_duyet: [
+          "Tác động chỉ dùng số liệu từ tài liệu hiện trường đã nạp.",
+          "Trích dẫn chỉ dùng lời đã ghi trong tư liệu được cung cấp.",
+          "Mục tiêu gây quỹ nêu riêng, không viết như tác động đã đạt.",
+        ],
+        claim_cam: [
+          "Khẳng định tác động chưa có bằng chứng",
+          "Hứa kết quả gây quỹ cụ thể",
+        ],
+        assets: [],
+      },
+      tacGia,
+    );
+
+    // Tư liệu hiện trường Maria cung cấp: ghi chú + số liệu + trích dẫn
+    // đã kiểm chứng cho 3 làng hoàn thành và khảo sát làng tiếp theo.
+    const nguonHienTruong = taoNguon(
+      db,
+      {
+        tieu_de: "Ghi chú hiện trường — 3 làng nước sạch (dữ liệu hư cấu)",
+        noi_dung:
+          "Ghi chú và số liệu Maria thu thập tại 3 công trình đã hoàn thành. Dữ liệu demo, hư cấu.",
+        loai: "van_ban",
+        cac_muc: [
+          {
+            id: "ht-lang-rom",
+            loai: "fact",
+            tieu_de: "Làng Bản Rọm",
+            noi_dung:
+              "Giếng khoan Làng Bản Rọm hoàn thành 2026-03. 1.240 người ở 312 hộ dùng nước sạch hằng ngày. Bà Hòa, giảng viên hưu trí: 'Trước kia cả nhà tôi phải đi 2 tiếng mỗi ngày để lấy nước. Bây giờ cháu tôi có thời gian học bài buổi tối.'",
+            assets: [],
+          },
+          {
+            id: "ht-lang-suoi",
+            loai: "fact",
+            tieu_de: "Làng Suối Lớn",
+            noi_dung:
+              "Hệ thống lọc và bể chứa Làng Suối Lớn vận hành từ 2026-05. 860 người được cấp nước sạch.",
+            assets: [],
+          },
+          {
+            id: "ht-lang-dong",
+            loai: "fact",
+            tieu_de: "Làng Đồng Kẻ",
+            noi_dung:
+              "3 điểm lấy nước cộng đồng tại Làng Đồng Kẻ phục vụ 470 người.",
+            assets: [],
+          },
+          {
+            id: "ht-tnv",
+            loai: "fact",
+            tieu_de: "Ghi chú tình nguyện viên",
+            noi_dung:
+              "Anh Tuấn, trưởng nhóm tình nguyện viên: 'Tôi đã chứng kiến giếng đầu tiên có nước. Ngày đó cả làng đứng xem tới tận tối.'",
+            assets: [],
+          },
+        ],
+      },
+      tacGia,
+      { id: "seed-nguon-hien-truong-gq" },
+    );
+    const nguonKeHoach = taoNguon(
+      db,
+      {
+        tieu_de: "Kế hoạch Làng Khe Tre — khảo sát đầu vào (dữ liệu hư cấu)",
+        noi_dung:
+          "Khảo sát ban đầu và tổng kết năm của chương trình nước sạch. Dữ liệu demo, hư cấu.",
+        loai: "van_ban",
+        cac_muc: [
+          {
+            id: "kh-khao-sat",
+            loai: "fact",
+            tieu_de: "Khảo sát Làng Khe Tre",
+            noi_dung:
+              "Khảo sát 2026-08: Làng Khe Tre có khoảng 600 người chưa có nguồn nước sạch gần nhà. Dự toán công trình giếng khoan và bể lọc khoảng 1.200.000.000 VND.",
+            assets: [],
+          },
+          {
+            id: "kh-tong-hop",
+            loai: "fact",
+            tieu_de: "Tổng kết năm",
+            noi_dung:
+              "Tổng cộng 2.570 người ở 3 làng đã có nước sạch. Chi phí trung bình một công trình khoảng 380 triệu đồng.",
+            assets: [],
+          },
+        ],
+      },
+      tacGia,
+      { id: "seed-nguon-ke-hoach-gq" },
+    );
+
+    // Ảnh hiện trường do tổ chức cung cấp — ghi chú quyền đính kèm
+    // campaign và hiển thị khi review đầu ra dùng ảnh.
+    const assetAnh = tuyChon.dataDir
+      ? ghiAssetFixture(
+          db,
+          tuyChon.dataDir,
+          nguonHienTruong.id,
+          tacGia,
+          GQ_FILE_ANH,
+          "Ảnh hiện trường do tổ chức cung cấp (ảnh mô phỏng, dữ liệu hư cấu).",
+        )
+      : null;
+
+    const cpGq = taoCampaign(
+      db,
+      {
+        loai: "gay_quy",
+        ten: "Nước sạch cho Làng Khe Tre",
+        mo_ta:
+          "Chiến dịch gây quỹ cho công trình nước sạch Làng Khe Tre. Persona demo: Maria, nhân viên truyền thông (hư cấu).",
+        muc_tieu:
+          "Gây quỹ công trình nước sạch cho Làng Khe Tre — khoảng 600 người đang chờ nguồn nước sạch gần nhà.",
+        so_tien_muc_tieu: 1200000000,
+        tien_te: "VND",
+        thong_diep_loi:
+          "Ba ngôi làng đã có nước sạch. Làng Khe Tre là làng tiếp theo — chỉ còn thiếu nguồn lực.",
+        ngon_ngu_phu: "en",
+        thuong_hieu_id: "seed-th-nuoc-sach",
+        doi_tuong_id: "seed-dt-cong-chung-gq",
+        ds_tac_dong: [
+          {
+            id: "td-gieng-rom",
+            tieu_de: "Giếng khoan Làng Bản Rọm",
+            noi_dung:
+              "Công trình hoàn thành 2026-03; 1.240 người ở 312 hộ dùng nước sạch hằng ngày.",
+            trang_thai: "da_dat",
+            so_lieu: "1.240",
+            don_vi: "người",
+            nguon_id: nguonHienTruong.id,
+            muc_id: "ht-lang-rom",
+          },
+          {
+            id: "td-loc-suoi",
+            tieu_de: "Hệ thống lọc Làng Suối Lớn",
+            noi_dung: "860 người được cấp nước sạch từ 2026-05.",
+            trang_thai: "da_dat",
+            so_lieu: "860",
+            don_vi: "người",
+            nguon_id: nguonHienTruong.id,
+            muc_id: "ht-lang-suoi",
+          },
+          {
+            id: "td-diem-dong",
+            tieu_de: "Điểm lấy nước Làng Đồng Kẻ",
+            noi_dung: "3 điểm cộng đồng phục vụ 470 người.",
+            trang_thai: "da_dat",
+            so_lieu: "470",
+            don_vi: "người",
+            nguon_id: nguonHienTruong.id,
+            muc_id: "ht-lang-dong",
+          },
+          {
+            id: "td-nguoi-khe-tre",
+            tieu_de: "Người hưởng lợi Làng Khe Tre",
+            noi_dung:
+              "Ước tính 600 người sẽ có nước sạch khi công trình hoàn thành.",
+            trang_thai: "uoc_tinh",
+            so_lieu: "600",
+            don_vi: "người",
+            nguon_id: nguonKeHoach.id,
+            muc_id: "kh-khao-sat",
+          },
+          {
+            // Cố ý không trỏ nguồn: quan sát chưa đo được — đầu ra chỉ
+            // được để [CÂU HỎI], không viết như sự thật.
+            id: "td-hoc-sinh",
+            tieu_de: "Tỉ lệ học sinh đi học đều hơn sau khi có nước",
+            noi_dung: "Chưa đo được; ghi chú hiện trường mới chỉ là quan sát.",
+            trang_thai: "uoc_tinh",
+            so_lieu: "",
+            don_vi: "",
+            nguon_id: null,
+            muc_id: null,
+          },
+        ],
+        ds_trich_dan: [
+          {
+            id: "tq-ba-hoa",
+            ten_nguoi: "Bà Hòa (giảng viên hưu trí, Làng Bản Rọm)",
+            loi: "Trước kia cả nhà tôi phải đi 2 tiếng mỗi ngày để lấy nước. Bây giờ cháu tôi có thời gian học bài buổi tối.",
+            nguon_id: nguonHienTruong.id,
+            muc_id: "ht-lang-rom",
+          },
+          {
+            id: "tq-anh-tuan",
+            ten_nguoi: "Anh Tuấn (trưởng nhóm tình nguyện viên)",
+            loi: "Tôi đã chứng kiến giếng đầu tiên có nước. Ngày đó cả làng đứng xem tới tận tối.",
+            nguon_id: nguonHienTruong.id,
+            muc_id: "ht-tnv",
+          },
+          {
+            // Cố ý không trỏ nguồn: trích dẫn chưa đối chứng tư liệu —
+            // chỉ được để [CÂU HỎI].
+            id: "tq-khe-tre",
+            ten_nguoi: "Người dân Làng Khe Tre",
+            loi: "Chúng tôi mong có nước sạch gần nhà.",
+            nguon_id: null,
+            muc_id: null,
+          },
+        ],
+        cta: [
+          {
+            id: "cta-quyen-gop",
+            nhan: "Quyên góp cho Làng Khe Tre",
+            loai: "quyen_gop",
+            url: "https://quyengop.giotnuocchung.example.com/lang-khe-tre",
+          },
+          {
+            id: "cta-tac-dong",
+            nhan: "Xem báo cáo tác động",
+            loai: "tai_lieu",
+            url: "https://giotnuocchung.example.com/tac-dong",
+          },
+        ],
+        ghi_chu_quyen: assetAnh
+          ? [
+              {
+                id: "q-anh-hien-truong",
+                asset_id: assetAnh,
+                ghi_chu:
+                  "Tổ chức sở hữu ảnh. Người trong ảnh đã đồng ý bằng văn bản; phạm vi: truyền thông gây quỹ của Giọt Nước Chung.",
+              },
+            ]
+          : [],
+        tham_chieu: [
+          {
+            id: "tc-hien-truong",
+            tham_chieu: "Ghi chú hiện trường 3 làng",
+            ban_dich: "",
+            nguon_id: nguonHienTruong.id,
+            ghi_chu: "Ghi chú, số liệu và trích dẫn đã kiểm chứng.",
+          },
+          {
+            id: "tc-ke-hoach",
+            tham_chieu: "Kế hoạch Làng Khe Tre",
+            ban_dich: "",
+            nguon_id: nguonKeHoach.id,
+            ghi_chu: "Khảo sát đầu vào và tổng kết năm.",
+          },
+        ],
+      },
+      tacGia,
+      { id: "seed-cp-gay-quy-khe-tre" },
+    );
+    capNhatCampaign(
+      db,
+      cpGq.id,
+      { ten: cpGq.ten, muc_luc: deXuatDauRaGayQuy(db, cpGq) },
+      tacGia,
+    );
+    // Nguồn fact tự động + thông điệp chủ đề pin nguồn — đầu ra demo
+    // dưới đây pin đúng chuỗi provenance.
+    dongBoNguonGayQuy(db, cpGq, tacGia);
+    const tdGq = damBaoThongDiepGayQuy(db, layCampaign(db, cpGq.id)!, tacGia);
+    const tdRevGq = tdGq.head_revision_id;
+
+    // Đầu ra demo lưu bền: báo cáo tác động (đã duyệt + đã xuất → trang
+    // /p/<id> phục vụ), câu chuyện và email NTT lớn chờ duyệt, trang
+    // campaign + cập nhật TNV + bản en đã duyệt, caption Instagram còn
+    // nháp. Marker [TD:id]/[TQ:id] pin provenance; mục uoc_tinh đi kèm
+    // tiền tố 'Ước tính:'; mục chưa xác nhận chỉ để [CÂU HỎI].
+    const mucTheoDauRaGq = new Map(
+      layCampaign(db, cpGq.id)!.muc_luc.map((m) => [
+        `${m.dinh_dang}|${m.dich_den}|${m.ngon_ngu ?? "vi"}`,
+        m,
+      ]),
+    );
+    for (const o of NOI_DUNG_DAU_RA_GAY_QUY) {
+      const muc = mucTheoDauRaGq.get(`${o.dinh_dang}|${o.dich_den}|${o.ngon_ngu}`);
+      const doiTuongTen =
+        (muc?.doi_tuong_id ? layDoiTuong(db, muc.doi_tuong_id)?.ten : null) ?? o.doi_tuong;
+      taoBanTheHien(
+        db,
+        {
+          thong_diep_id: tdGq.id,
+          dinh_dang: o.dinh_dang,
+          ngon_ngu: o.ngon_ngu,
+          doi_tuong: doiTuongTen,
+          dich_den: o.dich_den,
+        },
+        tacGia,
+        { id: o.id },
+      );
+      themRevision(
+        db,
+        {
+          ban_the_hien_id: o.id,
+          noi_dung: o.noi_dung,
+          dua_tren_revision_id: null,
+          thong_diep_revision_id: tdRevGq,
+        },
+        tacGia,
+      );
+      if (o.dinh_asset && assetAnh) {
+        datAssetBanTheHien(db, o.id, [assetAnh], tacGia);
+      }
+      if (o.trang_thai === "nhap") continue;
+      chuyenTrangThai(db, o.id, "cho_duyet", "seed: gửi duyệt", tacGia);
+      if (o.trang_thai === "cho_duyet") continue;
+      const head = layBanTheHien(db, o.id)?.head_revision_id ?? undefined;
+      chuyenTrangThai(db, o.id, "da_duyet", "seed: duyệt", tacGia, head);
+      if (o.xuat_ban) {
+        xuatBanBanTheHien(db, o.id, { dich_den: o.dich_den || undefined }, tacGia);
+      }
+    }
+    daSeed.push("story_nonprofit_gay_quy");
+  }
+
   return { da_seed: daSeed };
 }
 
-// Ghi file fixture ảnh của story #7 vào kho byte local + một dòng asset
-// (đường service luuAsset là async; seed chạy đồng bộ nên ghi file đồng bộ
-// — cùng bước validate/dedupe và cùng layout qua duongDanTepAsset, chỉ khác
-// lớp ghi async). Thiếu file fixture → bỏ qua.
+// Ghi file fixture ảnh vào kho byte local + một dòng asset (đường
+// service luuAsset là async; seed chạy đồng bộ nên ghi file đồng bộ —
+// cùng bước validate/dedupe và cùng layout qua duongDanTepAsset, chỉ
+// khác lớp ghi async). Thiếu file fixture → bỏ qua. tenFileAnh/ghiChu
+// tùy chọn để các story dùng ảnh riêng.
 function ghiAssetFixture(
   db: Database,
   dataDir: string,
   nguonId: string,
   tacGia: string,
+  tenFileAnh: string = TB_FILE_ANH,
+  ghiChu: string = "Ảnh sản phẩm do tiệm cung cấp (fixture).",
 ): string | null {
-  const tep = join(import.meta.dir, "seed-assets", TB_FILE_ANH);
+  const tep = join(import.meta.dir, "seed-assets", tenFileAnh);
   if (!existsSync(tep)) return null;
   const byte = new Uint8Array(readFileSync(tep));
-  const tenFile = sachTenFile(TB_FILE_ANH);
+  const tenFile = sachTenFile(tenFileAnh);
   const dinhNghia = kiemTraByteAsset(tenFile, byte);
   const khoaIdem = `seed:asset:${tenFile}`;
   const cu =
@@ -761,7 +1589,7 @@ function ghiAssetFixture(
     byte.byteLength,
     checksum,
     nguonId,
-    "Ảnh sản phẩm do tiệm cung cấp (fixture).",
+    ghiChu,
     khoaIdem,
     ts,
     tacGia,
@@ -1252,6 +2080,377 @@ Bạn đọc được mời đọc hai đoạn kinh văn nguyên cảnh trước
       tieu_de: "Chiên Con và 144.000 người — bản website",
       noi_dung:
         "Bản web của bài chính số 002, định dạng lại cho đọc trên trang: đoạn mở, hai đoạn thân bài trích Khải Huyền 7:9-14 và 14:1-5, khối tham chiếu cuối bài.",
+    }),
+  },
+];
+
+// Đầu ra demo bản phát hành 4.0 (#9) — nội dung viết theo contract của
+// bộ sinh: claim kèm marker [F:<fact_id>], giới hạn kèm [GH:<id>], fact
+// chưa xác nhận chỉ xuất hiện dạng [CÂU HỎI]. Ba trạng thái rải đủ vòng
+// đời: dev đã duyệt + đã xuất (trang /p/<id> phục vụ), khách hàng chờ
+// duyệt, sales đã duyệt.
+const NOI_DUNG_DAU_RA_PHAT_HANH: {
+  id: string;
+  dinh_dang: string;
+  doi_tuong: string;
+  dich_den: string;
+  trang_thai: "nhap" | "cho_duyet" | "da_duyet" | "tu_choi";
+  xuat_ban: boolean;
+  noi_dung: string;
+}[] = [
+  {
+    id: "seed-bth-ph-dev",
+    dinh_dang: "huong-dan-tich-hop",
+    doi_tuong: "Lập trình viên tích hợp (fixture)",
+    dich_den: "",
+    trang_thai: "da_duyet",
+    xuat_ban: true,
+    noi_dung: JSON.stringify({
+      tieu_de: "Hướng dẫn tích hợp MaiSuite 4.0",
+      gioi_thieu:
+        "## Giới thiệu\n\nMaiSuite 4.0 (phát hành 2026-11-01) thêm passkeys, audit log và SSO nhiều IdP.\n\nTài liệu này liệt kê các bước tích hợp cho developer.\n\nNguồn: [src1]",
+      yeu_cau_truoc: [
+        "Tài khoản có OAuth 2.0 client credentials — token lấy từ POST /oauth/token [src2]",
+        "Tenant đã nâng gói phù hợp cho tính năng bị giới hạn (xem mục Giới hạn).",
+      ],
+      cac_buoc: [
+        "Bật passkeys cho tài khoản: chạy luồng đăng ký WebAuthn trong console quản trị — 4.0 hỗ trợ đăng nhập bằng passkeys thay mật khẩu cho tất cả tài khoản [F:fact-passkeys]",
+        "Đọc audit log qua API: sự kiện đăng nhập và đổi quyền được ghi; dữ liệu giữ 365 ngày [F:fact-audit-log]",
+        "Cấu hình SSO SAML: đăng ký nhiều IdP đồng thời và bật JIT provisioning [F:fact-sso]",
+        "Đăng ký webhook: POST /api/webhooks; payload JSON ký HMAC-SHA256 [F:fact-webhook]",
+        "[CÂU HỎI: 'Hiệu năng' chưa có bằng chứng nguồn — cần xác nhận trước khi công bố.]",
+      ],
+      gioi_han: [
+        "SSO SAML: chỉ có ở gói Enterprise [GH:gh-sso-goi]",
+        "audit log: gói Starter chỉ giữ 90 ngày — gói Enterprise giữ 365 ngày [GH:gh-audit-log]",
+        "passkeys: chưa mở cho tenant region EU cũ — lộ trình nâng hạ tầng trước 2027-Q1 [GH:gh-passkeys-vung]",
+      ],
+      lien_ket: "https://docs.maisuite.example.com/v4",
+    }),
+  },
+  {
+    id: "seed-bth-ph-khach",
+    dinh_dang: "thay-doi-khach-hang",
+    doi_tuong: "Khách hàng doanh nghiệp (fixture)",
+    dich_den: "",
+    trang_thai: "cho_duyet",
+    xuat_ban: false,
+    noi_dung: JSON.stringify({
+      tieu_de: "MaiSuite 4.0 — những thay đổi cho khách hàng",
+      gioi_thieu:
+        "## Tổng quan\n\nMaiSuite 4.0 phát hành 2026-11-01.\n\nBản này đưa xác thực không mật khẩu và kiểm soát truy cập lên chuẩn doanh nghiệp.\n\nNguồn: [src1]",
+      cac_thay_doi: [
+        "Đăng nhập bằng passkeys thay mật khẩu cho tất cả tài khoản [F:fact-passkeys]",
+        "Audit log ghi toàn bộ sự kiện đăng nhập và đổi quyền; giữ 365 ngày [F:fact-audit-log]",
+        "SSO SAML đăng ký nhiều IdP đồng thời và JIT provisioning [F:fact-sso]",
+        "[CÂU HỎI: 'Hiệu năng' chưa có bằng chứng nguồn — cần xác nhận trước khi công bố.]",
+      ],
+      gioi_han: [
+        "SSO SAML: chỉ có ở gói Enterprise [GH:gh-sso-goi]",
+        "audit log: gói Starter chỉ giữ 90 ngày [GH:gh-audit-log]",
+        "passkeys: chưa mở cho tenant region EU cũ [GH:gh-passkeys-vung]",
+      ],
+      hanh_dong: "Nâng cấp lên 4.0 — https://app.maisuite.example.com/nang-cap",
+      lien_ket: "https://app.maisuite.example.com/nang-cap",
+    }),
+  },
+  {
+    id: "seed-bth-ph-sales",
+    dinh_dang: "brief-ban-hang",
+    doi_tuong: "Đội bán hàng nội bộ (fixture)",
+    dich_den: "",
+    trang_thai: "da_duyet",
+    xuat_ban: false,
+    noi_dung: JSON.stringify({
+      tieu_de: "Brief sales — MaiSuite 4.0",
+      thong_diep_chinh:
+        "4.0 đưa xác thực không mật khẩu và kiểm soát truy cập lên chuẩn doanh nghiệp.",
+      diem_ban: [
+        "Passkeys thay mật khẩu cho tất cả tài khoản — giảm rủi ro lộ credential [F:fact-passkeys]",
+        "Audit log 365 ngày cho yêu cầu kiểm toán của doanh nghiệp [F:fact-audit-log]",
+        "SSO nhiều IdP + JIT provisioning cho org phức tạp [F:fact-sso]",
+      ],
+      doi_pho: [
+        "'Tôi đang dùng gói Starter' → SSO SAML chỉ ở Enterprise; audit log Starter giữ 90 ngày [GH:gh-sso-goi]",
+        "'Tenant EU của tôi chưa có passkeys' → đúng, region EU cũ mở sau 2027-Q1 [GH:gh-passkeys-vung]",
+        "[CÂU HỎI: 'Hiệu năng' chưa có bằng chứng nguồn — không claim benchmark khi nói chuyện khách.]",
+      ],
+      gioi_han: [
+        "SSO SAML: chỉ có ở gói Enterprise [GH:gh-sso-goi]",
+        "audit log: gói Starter chỉ giữ 90 ngày [GH:gh-audit-log]",
+        "passkeys: chưa mở cho tenant region EU cũ [GH:gh-passkeys-vung]",
+      ],
+      tiep_theo: "Gửi khách link nâng cấp — https://app.maisuite.example.com/nang-cap",
+    }),
+  },
+];
+
+// --- Nội dung story #10: chiến dịch gây quỹ Giọt Nước Chung ---
+// Dữ liệu hiện trường hư cấu. Marker [TD:id]/[TQ:id] pin fact vào
+// con trỏ bằng chứng của campaign; mục trang_thai 'uoc_tinh' đi kèm
+// tiền tố 'Ước tính:'; mục chưa có nguồn chỉ xuất hiện dạng [CÂU HỎI].
+
+const GQ_FILE_ANH = "gieng-nuoc-hien-truong.webp";
+const GQ_CTA = "Quyên góp cho Làng Khe Tre: https://quyengop.giotnuocchung.example.com/lang-khe-tre";
+const GQ_LIEN_KET = "https://quyengop.giotnuocchung.example.com/lang-khe-tre";
+const GQ_MUC_TIEU_TIEN =
+  "Mục tiêu gây quỹ (chưa đạt): 1.200.000.000 VND cho công trình nước sạch Làng Khe Tre — khoảng 600 người đang chờ.";
+
+const NOI_DUNG_DAU_RA_GAY_QUY: {
+  id: string;
+  dinh_dang: string;
+  doi_tuong: string;
+  dich_den: string;
+  ngon_ngu: string;
+  trang_thai: "nhap" | "cho_duyet" | "da_duyet" | "tu_choi";
+  xuat_ban: boolean;
+  dinh_asset?: boolean;
+  noi_dung: string;
+}[] = [
+  {
+    // Báo cáo tác động cho nhà tài trợ — đã duyệt + đã xuất.
+    id: "seed-bth-gq-bao-cao",
+    dinh_dang: "bao-cao-tac-dong",
+    doi_tuong: "Nhà tài trợ hiện hữu (fixture)",
+    dich_den: "email",
+    ngon_ngu: "vi",
+    trang_thai: "da_duyet",
+    xuat_ban: true,
+    noi_dung: JSON.stringify({
+      tieu_de: "Báo cáo tác động — chương trình nước sạch",
+      tom_tat:
+        "Ba công trình đã hoàn thành cho 2.570 người. Chiến dịch tiếp theo: Làng Khe Tre.",
+      tac_dong_da_dat: [
+        "Giếng khoan Làng Bản Rọm — 1.240 người: Công trình hoàn thành 2026-03; 1.240 người ở 312 hộ dùng nước sạch hằng ngày. [TD:td-gieng-rom]",
+        "Hệ thống lọc Làng Suối Lớn — 860 người: 860 người được cấp nước sạch từ 2026-05. [TD:td-loc-suoi]",
+        "Điểm lấy nước Làng Đồng Kẻ — 470 người: 3 điểm cộng đồng phục vụ 470 người. [TD:td-diem-dong]",
+      ],
+      tac_dong_uoc_tinh: [
+        "Ước tính: Người hưởng lợi Làng Khe Tre — 600 người: Ước tính 600 người sẽ có nước sạch khi công trình hoàn thành. [TD:td-nguoi-khe-tre]",
+        "[CÂU HỎI: tác động 'Tỉ lệ học sinh đi học đều hơn sau khi có nước' chưa có bằng chứng nguồn — cần xác nhận trước khi công bố.]",
+      ],
+      muc_tieu: GQ_MUC_TIEU_TIEN,
+      noi_dung: `Kính gửi nhà tài trợ,
+
+Ba công trình nước sạch đã hoàn thành trong năm nay. Tổng cộng 2.570 người ở 3 làng đã có nước sạch; chi phí trung bình một công trình khoảng 380 triệu đồng.
+
+**Đã đạt được:**
+- Giếng khoan Làng Bản Rọm — 1.240 người ở 312 hộ dùng nước sạch hằng ngày. [TD:td-gieng-rom]
+- Hệ thống lọc Làng Suối Lớn — 860 người được cấp nước sạch từ 2026-05. [TD:td-loc-suoi]
+- Điểm lấy nước Làng Đồng Kẻ — 3 điểm cộng đồng phục vụ 470 người. [TD:td-diem-dong]
+
+**Ước tính (chưa đạt):**
+- Người hưởng lợi Làng Khe Tre — ước tính 600 người sẽ có nước sạch khi công trình hoàn thành. [TD:td-nguoi-khe-tre]
+- [CÂU HỎI: 'Tỉ lệ học sinh đi học đều hơn sau khi có nước' chưa có bằng chứng nguồn.]
+
+**Mục tiêu gây quỹ (chưa đạt):** ${GQ_MUC_TIEU_TIEN}
+
+${GQ_CTA}`,
+      trich_dan: [
+        '"Trước kia cả nhà tôi phải đi 2 tiếng mỗi ngày để lấy nước. Bây giờ cháu tôi có thời gian học bài buổi tối." — Bà Hòa (giảng viên hưu trí, Làng Bản Rọm) [TQ:tq-ba-hoa]',
+        '"Tôi đã chứng kiến giếng đầu tiên có nước. Ngày đó cả làng đứng xem tới tận tối." — Anh Tuấn (trưởng nhóm tình nguyện viên) [TQ:tq-anh-tuan]',
+      ],
+      cta: GQ_CTA,
+      lien_ket: GQ_LIEN_KET,
+    }),
+  },
+  {
+    // Câu chuyện nhân văn công khai — chờ duyệt; kèm ảnh hiện trường
+    // đã có ghi chú quyền để kiểm hiển thị khi review.
+    id: "seed-bth-gq-cau-chuyen",
+    dinh_dang: "cau-chuyen-nhan-van",
+    doi_tuong: "Công chúng quan tâm (fixture)",
+    dich_den: "website",
+    ngon_ngu: "vi",
+    trang_thai: "cho_duyet",
+    xuat_ban: false,
+    dinh_asset: true,
+    noi_dung: JSON.stringify({
+      tieu_de: "Ngày giếng đầu tiên có nước",
+      noi_dung: `"Tôi đã chứng kiến giếng đầu tiên có nước. Ngày đó cả làng đứng xem tới tận tối." — Anh Tuấn, trưởng nhóm tình nguyện viên, nhớ lại ngày giếng khoan Làng Bản Rọm hoàn thành.
+
+Trước giếng, Bà Hòa — giảng viên hưu trí ở làng — tả ngày ngày vất vả: "Trước kia cả nhà tôi phải đi 2 tiếng mỗi ngày để lấy nước. Bây giờ cháu tôi có thời gian học bài buổi tối."
+
+Giếng khoan Làng Bản Rọm hoàn thành 2026-03: 1.240 người ở 312 hộ dùng nước sạch hằng ngày. [TD:td-gieng-rom] Sau đó là hệ thống lọc Làng Suối Lớn cho 860 người [TD:td-loc-suoi] và 3 điểm lấy nước Làng Đồng Kẻ cho 470 người. [TD:td-diem-dong]
+
+Làng tiếp theo là Khe Tre — ước tính 600 người đang chờ nguồn nước sạch gần nhà. [TD:td-nguoi-khe-tre] ${GQ_MUC_TIEU_TIEN}
+
+[CÂU HỎI: trích dẫn của người dân Làng Khe Tre chưa đối chứng tư liệu — cần xác nhận trước khi công bố.]
+
+${GQ_CTA}`,
+      trich_dan: [
+        '"Trước kia cả nhà tôi phải đi 2 tiếng mỗi ngày để lấy nước. Bây giờ cháu tôi có thời gian học bài buổi tối." — Bà Hòa (giảng viên hưu trí, Làng Bản Rọm) [TQ:tq-ba-hoa]',
+        '"Tôi đã chứng kiến giếng đầu tiên có nước. Ngày đó cả làng đứng xem tới tận tối." — Anh Tuấn (trưởng nhóm tình nguyện viên) [TQ:tq-anh-tuan]',
+      ],
+      con_thieu: [
+        "[CÂU HỎI: tác động 'Tỉ lệ học sinh đi học đều hơn sau khi có nước' chưa có bằng chứng nguồn — cần xác nhận.]",
+        "[CÂU HỎI: trích dẫn 'Người dân Làng Khe Tre' chưa đối chứng tư liệu — cần xác nhận.]",
+      ],
+      cta: GQ_CTA,
+      lien_ket: GQ_LIEN_KET,
+    }),
+  },
+  {
+    // Email nhà tài trợ lớn — chi tiết hơn câu chuyện công khai (dự
+    // toán, chi phí trung bình) nhưng giữ nguyên fact tác động.
+    id: "seed-bth-gq-email-ntt",
+    dinh_dang: "email-tai-tro",
+    doi_tuong: "Nhà tài trợ lớn (fixture)",
+    dich_den: "email",
+    ngon_ngu: "vi",
+    trang_thai: "cho_duyet",
+    xuat_ban: false,
+    noi_dung: JSON.stringify({
+      tieu_de: "Làng Khe Tre — công trình nước sạch tiếp theo",
+      tom_tat:
+        "Ba công trình đã xong cho 2.570 người; công trình thứ tư cần 1.200.000.000 VND.",
+      phan_doan: "Nhà tài trợ chiến lược",
+      tac_dong_da_dat: [
+        "Giếng khoan Làng Bản Rọm — 1.240 người ở 312 hộ. [TD:td-gieng-rom]",
+        "Hệ thống lọc Làng Suối Lớn — 860 người. [TD:td-loc-suoi]",
+        "Điểm lấy nước Làng Đồng Kẻ — 470 người. [TD:td-diem-dong]",
+      ],
+      tac_dong_uoc_tinh: [
+        "Ước tính: Người hưởng lợi Làng Khe Tre — 600 người. [TD:td-nguoi-khe-tre]",
+        "[CÂU HỎI: 'Tỉ lệ học sinh đi học đều hơn sau khi có nước' chưa có bằng chứng nguồn.]",
+      ],
+      muc_tieu: GQ_MUC_TIEU_TIEN,
+      noi_dung: `Kính gửi quý nhà tài trợ,
+
+Chương trình nước sạch của Giọt Nước Chung đã hoàn thành 3 công trình: 2.570 người ở Bản Rọm, Suối Lớn và Đồng Kẻ đã có nước sạch. Chi phí trung bình một công trình khoảng 380 triệu đồng.
+
+Khảo sát 2026-08 cho thấy Làng Khe Tre có khoảng 600 người chưa có nguồn nước sạch gần nhà. Dự toán công trình giếng khoan và bể lọc khoảng 1.200.000.000 VND — đây là mục tiêu gây quỹ của chiến dịch, chưa phải kết quả đạt được.
+
+Tác động đã đạt (có bằng chứng hiện trường):
+- Làng Bản Rọm: 1.240 người ở 312 hộ. [TD:td-gieng-rom]
+- Làng Suối Lớn: 860 người. [TD:td-loc-suoi]
+- Làng Đồng Kẻ: 470 người. [TD:td-diem-dong]
+
+[CÂU HỎI: tác động 'Tỉ lệ học sinh đi học đều hơn sau khi có nước' chưa có bằng chứng nguồn.]
+
+${GQ_CTA}`,
+      cta: GQ_CTA,
+      lien_ket: GQ_LIEN_KET,
+    }),
+  },
+  {
+    // Trang campaign trên website — đã duyệt.
+    id: "seed-bth-gq-trang-web",
+    dinh_dang: "trang-campaign",
+    doi_tuong: "Công chúng quan tâm (fixture)",
+    dich_den: "website",
+    ngon_ngu: "vi",
+    trang_thai: "da_duyet",
+    xuat_ban: true,
+    noi_dung: JSON.stringify({
+      tieu_de: "Nước sạch cho Làng Khe Tre",
+      tac_dong_da_dat: [
+        "Giếng khoan Làng Bản Rọm — 1.240 người. [TD:td-gieng-rom]",
+        "Hệ thống lọc Làng Suối Lớn — 860 người. [TD:td-loc-suoi]",
+        "Điểm lấy nước Làng Đồng Kẻ — 470 người. [TD:td-diem-dong]",
+      ],
+      tac_dong_uoc_tinh: [
+        "Ước tính: Người hưởng lợi Làng Khe Tre — 600 người. [TD:td-nguoi-khe-tre]",
+        "[CÂU HỎI: 'Tỉ lệ học sinh đi học đều hơn sau khi có nước' chưa có bằng chứng nguồn.]",
+      ],
+      muc_tieu: GQ_MUC_TIEU_TIEN,
+      noi_dung: `Ba ngôi làng đã có nước sạch. Làng Khe Tre là làng tiếp theo — chỉ còn thiếu nguồn lực.
+
+**Đã đạt được:**
+- Giếng khoan Làng Bản Rọm — 1.240 người ở 312 hộ. [TD:td-gieng-rom]
+- Hệ thống lọc Làng Suối Lớn — 860 người. [TD:td-loc-suoi]
+- Điểm lấy nước Làng Đồng Kẻ — 470 người. [TD:td-diem-dong]
+
+**Ước tính (chưa đạt):**
+- Người hưởng lợi Làng Khe Tre — ước tính 600 người. [TD:td-nguoi-khe-tre]
+
+${GQ_MUC_TIEU_TIEN}
+
+${GQ_CTA}`,
+      trich_dan: [
+        '"Trước kia cả nhà tôi phải đi 2 tiếng mỗi ngày để lấy nước. Bây giờ cháu tôi có thời gian học bài buổi tối." — Bà Hòa (giảng viên hưu trí, Làng Bản Rọm) [TQ:tq-ba-hoa]',
+      ],
+      cta: GQ_CTA,
+      lien_ket: GQ_LIEN_KET,
+    }),
+  },
+  {
+    // Caption ảnh Instagram — còn nháp; kèm ảnh hiện trường.
+    id: "seed-bth-gq-ig",
+    dinh_dang: "caption",
+    doi_tuong: "",
+    dich_den: "instagram",
+    ngon_ngu: "vi",
+    trang_thai: "nhap",
+    xuat_ban: false,
+    dinh_asset: true,
+    noi_dung: JSON.stringify({
+      noi_dung: `Ba ngôi làng đã có nước sạch — Làng Khe Tre là làng tiếp theo.
+
+Giếng khoan Bản Rọm: 1.240 người dùng nước sạch hằng ngày. Hệ thống lọc Suối Lớn: 860 người. Điểm lấy nước Đồng Kẻ: 470 người.
+
+Mục tiêu gây quỹ (chưa đạt): 1.200.000.000 VND — khoảng 600 người đang chờ.
+
+${GQ_CTA}`,
+      hashtag: "#nuocsach #giotnuocchung #langkhetre",
+    }),
+  },
+  {
+    // Cập nhật tình nguyện viên — đã duyệt.
+    id: "seed-bth-gq-tnv",
+    dinh_dang: "cap-nhat-tinh-nguyen",
+    doi_tuong: "Tình nguyện viên (fixture)",
+    dich_den: "",
+    ngon_ngu: "vi",
+    trang_thai: "da_duyet",
+    xuat_ban: false,
+    noi_dung: JSON.stringify({
+      tieu_de: "Cập nhật chiến dịch Làng Khe Tre",
+      noi_dung: `Cảm ơn các bạn đã đồng hành. Ba công trình nước sạch đã hoàn thành cho 2.570 người ở 3 làng.
+
+Chiến dịch tiếp theo: công trình nước sạch Làng Khe Tre — ước tính 600 người đang chờ. [TD:td-nguoi-khe-tre] Mục tiêu gây quỹ: 1.200.000.000 VND.
+
+"Tôi đã chứng kiến giếng đầu tiên có nước. Ngày đó cả làng đứng xem tới tận tối." — Anh Tuấn, trưởng nhóm tình nguyện viên. [TQ:tq-anh-tuan]`,
+      cac_buoc: [
+        "Chia sẻ link chiến dịch: https://quyengop.giotnuocchung.example.com/lang-khe-tre",
+        "Đăng ký chuyến hiện trường Làng Khe Tre đợt tới.",
+        "Khi chia sẻ: chỉ dùng số liệu và trích dẫn trong tài liệu đã phát hành.",
+      ],
+      cta: GQ_CTA,
+      lien_ket: GQ_LIEN_KET,
+    }),
+  },
+  {
+    // Bản tiếng Anh của câu chuyện công khai — giữ nguyên số liệu,
+    // tiền tệ và CTA; trích dẫn giữ nguyên văn tiếng Việt.
+    id: "seed-bth-gq-en",
+    dinh_dang: "cau-chuyen-nhan-van",
+    doi_tuong: "Công chúng quan tâm (fixture)",
+    dich_den: "website",
+    ngon_ngu: "en",
+    trang_thai: "da_duyet",
+    xuat_ban: false,
+    noi_dung: JSON.stringify({
+      tieu_de: "The day the first well had water",
+      noi_dung: `Three villages now have clean water. Khe Tre is next — only funding is missing.
+
+The Bản Rọm borehole was completed in 2026-03: 1,240 people in 312 households use clean water every day. [TD:td-gieng-rom] The Suối Lớn filtration system serves 860 people [TD:td-loc-suoi], and 3 community water points in Đồng Kẻ serve 470 people. [TD:td-diem-dong]
+
+Estimated (not yet achieved): about 600 people in Khe Tre are waiting for a clean water source near home. [TD:td-nguoi-khe-tre]
+
+Fundraising goal (not yet achieved): 1,200,000,000 VND for the Khe Tre water project.
+
+[CÂU HỎI: impact item 'Tỉ lệ học sinh đi học đều hơn sau khi có nước' has no source evidence — verify before publishing.]
+
+${GQ_CTA}`,
+      trich_dan: [
+        '"Trước kia cả nhà tôi phải đi 2 tiếng mỗi ngày để lấy nước. Bây giờ cháu tôi có thời gian học bài buổi tối." — Bà Hòa (giảng viên hưu trí, Làng Bản Rọm) [TQ:tq-ba-hoa]',
+      ],
+      con_thieu: [
+        "[CÂU HỎI: quote from 'Người dân Làng Khe Tre' is not verified against source material — confirm before publishing.]",
+      ],
+      cta: GQ_CTA,
+      lien_ket: GQ_LIEN_KET,
     }),
   },
 ];

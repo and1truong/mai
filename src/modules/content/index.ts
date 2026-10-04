@@ -75,13 +75,89 @@ export type ThamChieu = {
 // Một mục trong mục lục đề xuất của số báo (#8): khay bài/đầu ra biên tập
 // sửa được. Khi được chọn, mục map tới một ban_the_hien có danh tính
 // (thong_diep, dinh_dang, ngon_ngu, doi_tuong, dich_den).
+// ngon_ngu tùy chọn (#10) — mặc định 'vi'; chỉ khác 'vi' khi mục là bản
+// ngôn ngữ thứ hai của campaign gây quỹ.
 export type MucLuc = {
   id: string;
   tieu_de: string;
   dinh_dang: string;
   doi_tuong_id: string | null;
   dich_den: string;
+  ngon_ngu?: string;
   ly_do: string;
+};
+
+// Loại campaign: '' = campaign thường, 'so_bao' = số báo (#8),
+// 'phat_hanh' = bản phát hành phần mềm (#9), 'gay_quy' = chiến dịch gây
+// quỹ nonprofit (#10). Giá trị do api.ts validate.
+export const DANH_SACH_LOAI_CAMPAIGN = ["so_bao", "phat_hanh", "gay_quy"] as const;
+
+// Giới hạn gói/vùng/khả dụng của bản phát hành (#9): tinh_nang = tên tính
+// năng bị giới hạn; mo_ta = câu phải hiển thị trên đầu ra bị ảnh hưởng.
+// loai: 'goi' | 'vung' | 'kha_dung' | '' (chung/khác).
+export type GioiHanPhatHanh = {
+  id: string;
+  tinh_nang: string;
+  loai: string;
+  mo_ta: string;
+};
+
+// Link CTA sửa được của bản phát hành (#9): trỏ đúng trang docs, nâng cấp
+// hay hỗ trợ. loai: 'tai_lieu' | 'nang_cap' | 'ho_tro' | ''.
+export type CtaLienKet = {
+  id: string;
+  nhan: string;
+  loai: string;
+  url: string;
+};
+
+// Fact tính năng của bản phát hành (#9): mọi claim trong đầu ra phải truy
+// về một fact. nguon_id + muc_id trỏ mục nguồn đã nạp làm bằng chứng;
+// null = fact chưa xác nhận → bộ sinh phải để [CÂU HỎI], không bịa.
+export type FactPhatHanh = {
+  id: string;
+  tinh_nang: string;
+  noi_dung: string;
+  nguon_id: string | null;
+  muc_id: string | null;
+};
+
+// --- Chiến dịch gây quỹ (#10) ---
+
+// Một tác động đã đạt hoặc ước tính: khác biệt trang_thai bắt buộc để
+// đầu ra không trộn lẫn fact đã đo với ước tính. so_lieu + don_vi là
+// định lượng khai báo (vd "1.240" + "người") — bản dịch giữ nguyên.
+// nguon_id + muc_id trỏ mục nguồn đã nạp làm bằng chứng; null = chưa
+// xác nhận → đầu ra chỉ để [CÂU HỎI].
+export type TacDongGayQuy = {
+  id: string;
+  tieu_de: string;
+  noi_dung: string;
+  trang_thai: string; // 'da_dat' | 'uoc_tinh'
+  so_lieu: string;
+  don_vi: string;
+  nguon_id: string | null;
+  muc_id: string | null;
+};
+
+// Trích dẫn/lời chứng thực được phép dùng trong câu chuyện nhân văn:
+// ten_nguoi + loi bắt buộc, kèm nguồn tư liệu đã nạp. Đầu ra trích lời
+// không khớp danh sách này hay văn bản nguồn là cảnh báo review.
+export type TrichDanGayQuy = {
+  id: string;
+  ten_nguoi: string;
+  loi: string;
+  nguon_id: string | null;
+  muc_id: string | null;
+};
+
+// Ghi chú quyền/đồng ý sử dụng cho một asset do tổ chức cung cấp (#10):
+// asset_id trỏ asset trong kho; ghi_chu là phạm vi được cho phép — hiển
+// thị khi review đầu ra đính kèm asset đó.
+export type GhiChuQuyen = {
+  id: string;
+  asset_id: string;
+  ghi_chu: string;
 };
 
 export type Campaign = {
@@ -89,6 +165,7 @@ export type Campaign = {
   ten: string;
   mo_ta: string;
   ghi_de: GhiDeCampaign;
+  loai: string; // '' | 'so_bao' | 'phat_hanh' | 'gay_quy'
   // Trường số báo (#8): rỗng/mặc định = campaign thường, không phải số báo.
   so_thu_tu: number | null;
   ngay_phat_hanh: string; // ISO date "YYYY-MM-DD" hoặc rỗng
@@ -99,6 +176,23 @@ export type Campaign = {
   doi_tuong_id: string | null; // hồ sơ đối tượng chính của số
   tham_chieu: ThamChieu[]; // tham chiếu nguồn được khai báo
   muc_luc: MucLuc[]; // mục lục đề xuất đã sửa
+  // Trường phát hành (#9): chỉ dùng khi loai = 'phat_hanh'.
+  phien_ban: string; // "4.0"
+  dinh_vi: string; // positioning đã duyệt — đi vào context sinh
+  gioi_han: GioiHanPhatHanh[]; // giới hạn gói/vùng/khả dụng
+  cta: CtaLienKet[]; // link CTA sửa được
+  ds_fact: FactPhatHanh[]; // fact tính năng + bằng chứng nguồn
+  nguon_phat_hanh_id: string; // nguồn fact tự động chiếu từ field release
+  // Trường gây quỹ (#10): chỉ dùng khi loai = 'gay_quy'.
+  muc_tieu: string; // mục tiêu gây quỹ tương lai — phân biệt tác động đã đạt
+  so_tien_muc_tieu: number | null; // số tiền mục tiêu; NULL = chưa đặt
+  tien_te: string; // mã tiền tệ đi kèm so_tien (vd 'VND', 'USD')
+  thong_diep_loi: string; // thông điệp lõi đã duyệt — đi vào context sinh
+  ngon_ngu_phu: string; // mã ngôn ngữ bản dịch thứ hai khi được chọn
+  ds_tac_dong: TacDongGayQuy[]; // tác động đã đạt/ước tính + bằng chứng
+  ds_trich_dan: TrichDanGayQuy[]; // trích dẫn được phép dùng + nguồn
+  ghi_chu_quyen: GhiChuQuyen[]; // quyền/đồng ý cho asset tổ chức cung cấp
+  nguon_gay_quy_id: string; // nguồn fact tự động chiếu từ field gây quỹ
   tao_luc: string;
   tao_boi: string;
   cap_nhat_luc: string;
@@ -269,10 +363,27 @@ function docCacMucJson(v: string): MucNguon[] {
 
 type DongNguon = Omit<Nguon, "cac_muc"> & { cac_muc: string };
 type DongNguonRevision = Omit<NguonRevision, "cac_muc"> & { cac_muc: string };
-type DongCampaign = Omit<Campaign, "ghi_de" | "tham_chieu" | "muc_luc"> & {
+type DongCampaign = Omit<
+  Campaign,
+  | "ghi_de"
+  | "tham_chieu"
+  | "muc_luc"
+  | "gioi_han"
+  | "cta"
+  | "ds_fact"
+  | "ds_tac_dong"
+  | "ds_trich_dan"
+  | "ghi_chu_quyen"
+> & {
   ghi_de: string;
   tham_chieu: string;
   muc_luc: string;
+  gioi_han: string;
+  cta: string;
+  ds_fact: string;
+  ds_tac_dong: string;
+  ds_trich_dan: string;
+  ghi_chu_quyen: string;
 };
 type DongThongDiepRevision = Omit<ThongDiepRevision, "nguon_revision_ids"> & {
   nguon_revision_ids: string;
@@ -321,7 +432,136 @@ export function docMucLuc(v: string): MucLuc[] {
           doi_tuong_id:
             typeof r.doi_tuong_id === "string" && r.doi_tuong_id ? r.doi_tuong_id : null,
           dich_den: typeof r.dich_den === "string" ? r.dich_den : "",
+          ngon_ngu: typeof r.ngon_ngu === "string" && r.ngon_ngu ? r.ngon_ngu : undefined,
           ly_do: typeof r.ly_do === "string" ? r.ly_do : "",
+        };
+      });
+  } catch {
+    return [];
+  }
+}
+
+// Parse JSON release trên campaign (#9) — dung sai giống docThamChieu:
+// mảng hỏng/mục lạ rỗng thay vì ném lỗi khi đọc.
+export function docGioiHan(v: string): GioiHanPhatHanh[] {
+  try {
+    const j = JSON.parse(v) as unknown;
+    if (!Array.isArray(j)) return [];
+    return j
+      .filter((x) => typeof x === "object" && x !== null)
+      .map((x, i) => {
+        const r = x as Record<string, unknown>;
+        return {
+          id: typeof r.id === "string" && r.id ? r.id : `gh${i + 1}`,
+          tinh_nang: typeof r.tinh_nang === "string" ? r.tinh_nang : "",
+          loai: typeof r.loai === "string" ? r.loai : "",
+          mo_ta: typeof r.mo_ta === "string" ? r.mo_ta : "",
+        };
+      });
+  } catch {
+    return [];
+  }
+}
+
+export function docCta(v: string): CtaLienKet[] {
+  try {
+    const j = JSON.parse(v) as unknown;
+    if (!Array.isArray(j)) return [];
+    return j
+      .filter((x) => typeof x === "object" && x !== null)
+      .map((x, i) => {
+        const r = x as Record<string, unknown>;
+        return {
+          id: typeof r.id === "string" && r.id ? r.id : `cta${i + 1}`,
+          nhan: typeof r.nhan === "string" ? r.nhan : "",
+          loai: typeof r.loai === "string" ? r.loai : "",
+          url: typeof r.url === "string" ? r.url : "",
+        };
+      });
+  } catch {
+    return [];
+  }
+}
+
+export function docDsFact(v: string): FactPhatHanh[] {
+  try {
+    const j = JSON.parse(v) as unknown;
+    if (!Array.isArray(j)) return [];
+    return j
+      .filter((x) => typeof x === "object" && x !== null)
+      .map((x, i) => {
+        const r = x as Record<string, unknown>;
+        return {
+          id: typeof r.id === "string" && r.id ? r.id : `f${i + 1}`,
+          tinh_nang: typeof r.tinh_nang === "string" ? r.tinh_nang : "",
+          noi_dung: typeof r.noi_dung === "string" ? r.noi_dung : "",
+          nguon_id: typeof r.nguon_id === "string" && r.nguon_id ? r.nguon_id : null,
+          muc_id: typeof r.muc_id === "string" && r.muc_id ? r.muc_id : null,
+        };
+      });
+  } catch {
+    return [];
+  }
+}
+
+// Parse JSON gây quỹ trên campaign (#10) — dung sai giống docDsFact.
+export function docDsTacDong(v: string): TacDongGayQuy[] {
+  try {
+    const j = JSON.parse(v) as unknown;
+    if (!Array.isArray(j)) return [];
+    return j
+      .filter((x) => typeof x === "object" && x !== null)
+      .map((x, i) => {
+        const r = x as Record<string, unknown>;
+        return {
+          id: typeof r.id === "string" && r.id ? r.id : `td${i + 1}`,
+          tieu_de: typeof r.tieu_de === "string" ? r.tieu_de : "",
+          noi_dung: typeof r.noi_dung === "string" ? r.noi_dung : "",
+          trang_thai: typeof r.trang_thai === "string" ? r.trang_thai : "",
+          so_lieu: typeof r.so_lieu === "string" ? r.so_lieu : "",
+          don_vi: typeof r.don_vi === "string" ? r.don_vi : "",
+          nguon_id: typeof r.nguon_id === "string" && r.nguon_id ? r.nguon_id : null,
+          muc_id: typeof r.muc_id === "string" && r.muc_id ? r.muc_id : null,
+        };
+      });
+  } catch {
+    return [];
+  }
+}
+
+export function docDsTrichDan(v: string): TrichDanGayQuy[] {
+  try {
+    const j = JSON.parse(v) as unknown;
+    if (!Array.isArray(j)) return [];
+    return j
+      .filter((x) => typeof x === "object" && x !== null)
+      .map((x, i) => {
+        const r = x as Record<string, unknown>;
+        return {
+          id: typeof r.id === "string" && r.id ? r.id : `tq${i + 1}`,
+          ten_nguoi: typeof r.ten_nguoi === "string" ? r.ten_nguoi : "",
+          loi: typeof r.loi === "string" ? r.loi : "",
+          nguon_id: typeof r.nguon_id === "string" && r.nguon_id ? r.nguon_id : null,
+          muc_id: typeof r.muc_id === "string" && r.muc_id ? r.muc_id : null,
+        };
+      });
+  } catch {
+    return [];
+  }
+}
+
+export function docGhiChuQuyen(v: string): GhiChuQuyen[] {
+  try {
+    const j = JSON.parse(v) as unknown;
+    if (!Array.isArray(j)) return [];
+    return j
+      .filter((x) => typeof x === "object" && x !== null)
+      .map((x, i) => {
+        const r = x as Record<string, unknown>;
+        return {
+          id: typeof r.id === "string" && r.id ? r.id : `q${i + 1}`,
+          asset_id: typeof r.asset_id === "string" ? r.asset_id : "",
+          ghi_chu: typeof r.ghi_chu === "string" ? r.ghi_chu : "",
         };
       });
   } catch {
@@ -334,6 +574,12 @@ const docCampaign = (row: DongCampaign): Campaign => ({
   ghi_de: JSON.parse(row.ghi_de) as GhiDeCampaign,
   tham_chieu: docThamChieu(row.tham_chieu),
   muc_luc: docMucLuc(row.muc_luc),
+  gioi_han: docGioiHan(row.gioi_han),
+  cta: docCta(row.cta),
+  ds_fact: docDsFact(row.ds_fact),
+  ds_tac_dong: docDsTacDong(row.ds_tac_dong),
+  ds_trich_dan: docDsTrichDan(row.ds_trich_dan),
+  ghi_chu_quyen: docGhiChuQuyen(row.ghi_chu_quyen),
 });
 const docThongDiepRevision = (row: DongThongDiepRevision): ThongDiepRevision => {
   let ids: string[] = [];
@@ -553,6 +799,7 @@ export type NhapCampaign = {
   ten: string;
   mo_ta?: string;
   ghi_de?: GhiDeCampaign;
+  loai?: string;
   // Trường số báo (#8) — tất cả tùy chọn; thiếu = giữ giá trị mặc định.
   so_thu_tu?: number | null;
   ngay_phat_hanh?: string;
@@ -563,10 +810,30 @@ export type NhapCampaign = {
   doi_tuong_id?: string | null;
   tham_chieu?: ThamChieu[];
   muc_luc?: MucLuc[];
+  // Trường phát hành (#9) — tất cả tùy chọn.
+  phien_ban?: string;
+  dinh_vi?: string;
+  gioi_han?: GioiHanPhatHanh[];
+  cta?: CtaLienKet[];
+  ds_fact?: FactPhatHanh[];
+  nguon_phat_hanh_id?: string;
+  // Trường gây quỹ (#10) — tất cả tùy chọn.
+  muc_tieu?: string;
+  so_tien_muc_tieu?: number | null;
+  tien_te?: string;
+  thong_diep_loi?: string;
+  ngon_ngu_phu?: string;
+  ds_tac_dong?: TacDongGayQuy[];
+  ds_trich_dan?: TrichDanGayQuy[];
+  ghi_chu_quyen?: GhiChuQuyen[];
+  nguon_gay_quy_id?: string;
 };
 
 const COT_SO_BAO =
   "so_thu_tu, ngay_phat_hanh, chu_de, lap_truong, chu_bien, thuong_hieu_id, doi_tuong_id, tham_chieu, muc_luc";
+const COT_PHAT_HANH = "phien_ban, dinh_vi, gioi_han, cta, ds_fact";
+const COT_GAY_QUY =
+  "muc_tieu, so_tien_muc_tieu, tien_te, thong_diep_loi, ngon_ngu_phu, ds_tac_dong, ds_trich_dan, ghi_chu_quyen";
 
 export function taoCampaign(
   db: Database,
@@ -578,13 +845,14 @@ export function taoCampaign(
     const id = tuyChon.id ?? crypto.randomUUID();
     const ts = bayGio();
     db.query(
-      `INSERT INTO campaign (id, ten, mo_ta, ghi_de, ${COT_SO_BAO}, tao_luc, tao_boi, cap_nhat_luc, cap_nhat_boi)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO campaign (id, ten, mo_ta, ghi_de, loai, ${COT_SO_BAO}, ${COT_PHAT_HANH}, ${COT_GAY_QUY}, tao_luc, tao_boi, cap_nhat_luc, cap_nhat_boi)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       id,
       input.ten,
       input.mo_ta ?? "",
       JSON.stringify(input.ghi_de ?? {}),
+      input.loai ?? "",
       input.so_thu_tu ?? null,
       input.ngay_phat_hanh ?? "",
       input.chu_de ?? "",
@@ -594,6 +862,19 @@ export function taoCampaign(
       input.doi_tuong_id ?? null,
       JSON.stringify(input.tham_chieu ?? []),
       JSON.stringify(input.muc_luc ?? []),
+      input.phien_ban ?? "",
+      input.dinh_vi ?? "",
+      JSON.stringify(input.gioi_han ?? []),
+      JSON.stringify(input.cta ?? []),
+      JSON.stringify(input.ds_fact ?? []),
+      input.muc_tieu ?? "",
+      input.so_tien_muc_tieu ?? null,
+      input.tien_te ?? "",
+      input.thong_diep_loi ?? "",
+      input.ngon_ngu_phu ?? "",
+      JSON.stringify(input.ds_tac_dong ?? []),
+      JSON.stringify(input.ds_trich_dan ?? []),
+      JSON.stringify(input.ghi_chu_quyen ?? []),
       ts,
       tacGia,
       ts,
@@ -616,13 +897,18 @@ export function capNhatCampaign(
     const cu = layCampaign(db, id);
     if (!cu) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy campaign.");
     db.query(
-      `UPDATE campaign SET ten = ?, mo_ta = ?, ghi_de = ?, ${COT_SO_BAO.split(", ")
+      `UPDATE campaign SET ten = ?, mo_ta = ?, ghi_de = ?, loai = ?, ${COT_SO_BAO.split(", ")
+        .map((c) => `${c} = ?`)
+        .join(", ")}, ${COT_PHAT_HANH.split(", ")
+        .map((c) => `${c} = ?`)
+        .join(", ")}, ${COT_GAY_QUY.split(", ")
         .map((c) => `${c} = ?`)
         .join(", ")}, cap_nhat_luc = ?, cap_nhat_boi = ? WHERE id = ?`,
     ).run(
       input.ten,
       input.mo_ta ?? cu.mo_ta,
       JSON.stringify(input.ghi_de ?? cu.ghi_de),
+      input.loai !== undefined ? input.loai : cu.loai,
       input.so_thu_tu !== undefined ? input.so_thu_tu : cu.so_thu_tu,
       input.ngay_phat_hanh ?? cu.ngay_phat_hanh,
       input.chu_de ?? cu.chu_de,
@@ -632,6 +918,19 @@ export function capNhatCampaign(
       input.doi_tuong_id !== undefined ? input.doi_tuong_id : cu.doi_tuong_id,
       JSON.stringify(input.tham_chieu ?? cu.tham_chieu),
       JSON.stringify(input.muc_luc ?? cu.muc_luc),
+      input.phien_ban ?? cu.phien_ban,
+      input.dinh_vi ?? cu.dinh_vi,
+      JSON.stringify(input.gioi_han ?? cu.gioi_han),
+      JSON.stringify(input.cta ?? cu.cta),
+      JSON.stringify(input.ds_fact ?? cu.ds_fact),
+      input.muc_tieu ?? cu.muc_tieu,
+      input.so_tien_muc_tieu !== undefined ? input.so_tien_muc_tieu : cu.so_tien_muc_tieu,
+      input.tien_te ?? cu.tien_te,
+      input.thong_diep_loi ?? cu.thong_diep_loi,
+      input.ngon_ngu_phu ?? cu.ngon_ngu_phu,
+      JSON.stringify(input.ds_tac_dong ?? cu.ds_tac_dong),
+      JSON.stringify(input.ds_trich_dan ?? cu.ds_trich_dan),
+      JSON.stringify(input.ghi_chu_quyen ?? cu.ghi_chu_quyen),
       bayGio(),
       tacGia,
       id,

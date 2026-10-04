@@ -48,6 +48,14 @@ type ChiTiet = BanTheHien & {
   ds_xuat_ban: XuatBan[];
   ds_task_mo: TaskSuaMo[];
   thong_diep: { tieu_de: string } | null;
+  // #10: ghi chú quyền/đồng ý của asset đính kèm (campaign gây quỹ) —
+  // hiển thị khi review trước khi duyệt.
+  ghi_chu_quyen?: {
+    id: string;
+    asset_id: string;
+    ghi_chu: string;
+    asset: { id: string; ten_file: string; mime: string } | null;
+  }[];
 };
 
 type NhapSoan = {
@@ -937,6 +945,18 @@ export default function BanTheHienPage() {
                       </Text>
                     </Flex>
                   ))}
+                  {(chiTiet.data.ghi_chu_quyen ?? []).length > 0 && (
+                    <Callout.Root color="blue" size="1">
+                      <Callout.Text>
+                        Quyền/đồng ý của asset đính kèm (do tổ chức cung cấp):
+                      </Callout.Text>
+                      {chiTiet.data.ghi_chu_quyen!.map((q) => (
+                        <Callout.Text key={q.id}>
+                          • {q.asset?.ten_file ?? q.asset_id}: {q.ghi_chu}
+                        </Callout.Text>
+                      ))}
+                    </Callout.Root>
+                  )}
                   <Flex justify="end">
                     <Button
                       variant="soft"
