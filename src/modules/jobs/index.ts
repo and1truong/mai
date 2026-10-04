@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { Database } from "bun:sqlite";
 import { LoiApi, loiRequest } from "../../loi.ts";
 import { log } from "../../log.ts";
+import { layBanTheHien } from "../content/index.ts";
 
 // Module job: hàng đợi bền trên SQLite, runner chạy trong cùng process.
 // Không worker riêng, không Redis, không broker — xem ADR-0001.
@@ -255,10 +256,8 @@ export function thuLaiJob(db: Database, id: string): Job {
   }
   let revisionId = job.revision_id;
   if (job.entity_loai === "ban_the_hien" && job.entity_id) {
-    const head = db
-      .query("SELECT head_revision_id AS h FROM ban_the_hien WHERE id = ?")
-      .get(job.entity_id) as { h: string | null } | null;
-    if (head) revisionId = head.h;
+    const bth = layBanTheHien(db, job.entity_id);
+    if (bth) revisionId = bth.head_revision_id ?? null;
   }
   db.query(
     `UPDATE job SET trang_thai = 'cho', so_lan_thu = 0, loi = NULL, loi_vinh_vien = 0,
@@ -350,7 +349,7 @@ function commitKetQua(db: Database, job: Job, ketQua: string): void {
   const r = db
     .query(
       `UPDATE job SET trang_thai = 'xong', ket_qua = ?, tien_do = '{}', xong_luc = ?,
-         lease_token = NULL, lease_den = NULL
+         loi = NULL, loi_vinh_vien = 0, lease_token = NULL, lease_den = NULL
        WHERE id = ? AND trang_thai = 'dang_chay' AND lease_token = ?`,
     )
     .run(ketQua, bayGio(), job.id, job.lease_token);
@@ -408,10 +407,13 @@ function commitThatBai(
 function capNhatTienDo(db: Database, job: Job, tienDo: Record<string, unknown>): void {
   try {
     const json = JSON.stringify(tienDo);
-    db.query(
-      `UPDATE job SET tien_do = ? WHERE id = ? AND trang_thai = 'dang_chay' AND lease_token = ?`,
-    ).run(json, job.id, job.lease_token);
-    ghiNhatKy(db, job.id, "tien_do", tienDo);
+    const r = db
+      .query(
+        `UPDATE job SET tien_do = ? WHERE id = ? AND trang_thai = 'dang_chay' AND lease_token = ?`,
+      )
+      .run(json, job.id, job.lease_token);
+    // Guard trượt (job đã hủy/thu hồi) → không ghi log tiến độ ma.
+    if (r.changes > 0) ghiNhatKy(db, job.id, "tien_do", tienDo);
   } catch {
     // Tiến độ là best-effort: không làm hỏng attempt vì lỗi ghi phụ.
   }

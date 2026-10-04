@@ -149,6 +149,7 @@ describe("retry + backoff + timeout", () => {
     const j = layJob(db, job.id)!;
     expect(j.so_lan_thu).toBe(2);
     expect(JSON.parse(j.ket_qua!)).toEqual({ lan: 2 });
+    expect(j.loi).toBeNull(); // job 'xong' không còn hiển thị lỗi attempt trước
     // Attempt đầu thất bại phải có lịch retry (backoff) trong nhật ký.
     const suKien = nhatKyJob(db, job.id).map((d) => d.su_kien);
     expect(suKien).toContain("that_bai_se_thu_lai");
