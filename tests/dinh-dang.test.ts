@@ -69,11 +69,15 @@ describe("registry định dạng (#19)", () => {
     expect([...DANH_SACH_DINH_DANG].sort()).toEqual(
       [
         "bai-viet",
+        "bao-cao-tac-dong",
         "brief-ban-hang",
+        "cap-nhat-tinh-nguyen",
         "caption",
+        "cau-chuyen-nhan-van",
         "chuoi-social",
         "email-khach",
         "email-phan-doan",
+        "email-tai-tro",
         "faq",
         "giai-thich-thieu-nien",
         "google-business",
@@ -88,6 +92,7 @@ describe("registry định dạng (#19)", () => {
         "script-thao-luan",
         "thay-doi-khach-hang",
         "thread",
+        "trang-campaign",
       ].sort(),
     );
     for (const id of DANH_SACH_DINH_DANG) {
