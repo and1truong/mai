@@ -762,13 +762,14 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
           p.id!,
           {
             ten,
-            mo_ta: tuyChonChuoi(body.mo_ta),
+            // Field vắng mặt → giữ giá trị đã lưu; field có mặt rỗng → xóa.
+            mo_ta: body.mo_ta === undefined ? undefined : tuyChonChuoi(body.mo_ta),
             ghi_de: ghiDe,
             so_thu_tu: soThuTu,
             ngay_phat_hanh: ngayPhatHanh,
-            chu_de: tuyChonChuoi(body.chu_de),
-            lap_truong: tuyChonChuoi(body.lap_truong),
-            chu_bien: tuyChonChuoi(body.chu_bien),
+            chu_de: body.chu_de === undefined ? undefined : tuyChonChuoi(body.chu_de),
+            lap_truong: body.lap_truong === undefined ? undefined : tuyChonChuoi(body.lap_truong),
+            chu_bien: body.chu_bien === undefined ? undefined : tuyChonChuoi(body.chu_bien),
             thuong_hieu_id: body.thuong_hieu_id === undefined ? undefined : tuyChonChuoi(body.thuong_hieu_id) || null,
             doi_tuong_id: body.doi_tuong_id === undefined ? undefined : tuyChonChuoi(body.doi_tuong_id) || null,
             tham_chieu: thamChieu,
