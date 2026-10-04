@@ -34,14 +34,35 @@ Mã lỗi hiện có:
 
 ## Trạng thái review
 
-`nhap → cho_duyet → da_duyet | tu_choi`. `da_duyet`/`tu_choi` quay được về `nhap`.
+`nhap → cho_duyet → da_duyet | tu_choi`, `thay_the → cho_duyet | nhap`, `da_duyet`/`tu_choi`/`cho_duyet` quay được về `nhap`.
 Chuyển sai → 409 `XUNG_DOT_TRANG_THAI`.
+
+- Duyệt (`→ da_duyet`) bắt buộc `mong_doi_revision_id` = head người chấm đang nhìn (#21).
+  Thiếu → 400 `VALIDATION`; khác head hiện tại → 409 `XUNG_DOT_REVISION` (request duyệt cũ lỗi sạch).
+- Revision mới sau `da_duyet` → `thay_the` tự động; sau `tu_choi` → `nhap` tự động
+  (sự kiện `trang_thai_tu_dong`, không ghi record `duyet` — không phải hành động chấm).
+- Chỉ `da_duyet` mới `POST /xuat-ban` được — khác → 409 `XUNG_DOT_TRANG_THAI`.
 
 ## Log
 
 - Một dòng = một JSON object: `{ ts, level, event, ...truong }`.
 - `level`: `info` | `warn` | `error`. `event`: dạng `module.su_kien` (vd `job.xong`).
 - Key ascii snake_case. Không log secret, token, key.
+
+## Editor & nháp soạn (#21)
+
+- `nhap_soan` (migration 0009): một nháp autosave cho mỗi `(ban_the_hien_id, actor)`,
+  upsert qua `PUT /api/ban-the-hien/:id/nhap {noi_dung, dua_tren_revision_id?}`;
+  `GET` trả 404 khi chưa có; `DELETE` bỏ nháp. Lưu revision thành công tiêu thụ nháp.
+  `dua_tren_revision_id` của nháp giữ head client thấy lúc bắt đầu sửa — rebase chỉ
+  xảy ra khi client tường minh gửi base mới (sau khi giải quyết xung đột).
+- Xung đột ở UI: 409 `XUNG_DOT_REVISION` → giữ text local + hiện diff với head mới,
+  user chọn "lưu lên head mới" hay tiếp tục soạn — không last-write-wins.
+- Khôi phục revision cũ = tạo revision mới mang nội dung cũ — không viết lại lịch sử.
+- Đề xuất AI (`revision.tao_boi = 'job'` chưa được record `duyet` nào ghim) hiện panel
+  riêng: chấp nhận = đi duyệt, từ chối = revision mới bằng nội dung revision trước đó.
+- Hàng chờ review: `GET /api/ban-the-hien?trang_thai=`; lịch sử chấm:
+  `GET /api/ban-the-hien/:id/duyet`.
 
 ## Migration
 

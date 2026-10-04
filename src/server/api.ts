@@ -31,9 +31,11 @@ import {
   layCampaign,
   layNguon,
   layNguonRevision,
+  layNhapSoan,
   layRevision,
   layThongDiep,
   layThongDiepRevision,
+  luuNhapSoan,
   nhapBaiViet,
   taoBanTheHien,
   taoCampaign,
@@ -42,6 +44,7 @@ import {
   themRevision,
   timBanTheHien,
   xoaCampaign,
+  xoaNhapSoan,
   xuatBanBanTheHien,
   type MucNguon,
   type NhapBanTheHien,
@@ -758,6 +761,7 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
         danhSachBanTheHien(c.db, {
           thongDiepId: url.searchParams.get("thong_diep_id") ?? undefined,
           nguonId: url.searchParams.get("nguon_id") ?? undefined,
+          trangThai: url.searchParams.get("trang_thai") ?? undefined,
         }),
       );
     }),
@@ -826,6 +830,8 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
         { ban_the_hien_id: p.id!, noi_dung: noiDung, dua_tren_revision_id: duaTren },
         c.actor,
       );
+      // Nháp autosave của actor được coi là đã dùng xong (#21).
+      xoaNhapSoan(c.db, p.id!, c.actor);
       // Trả kèm lỗi field theo schema định dạng để UI báo chỗ cần sửa ngay
       // (#19): vi phạm required/độ dài → feedback cụ thể. Content vẫn lưu;
       // lỗi chỉ là cảnh báo để sửa/duyệt.
@@ -841,6 +847,8 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       return ok({ ...rev, ds_loi_dinh_dang: dsLoiDd }, 201);
     }),
     // Chuyển trạng thái qua service: ghi một record duyet ghim revision head.
+    // `mong_doi_revision_id` bắt buộc khi duyệt — request duyệt cũ (head đã
+    // đổi) lỗi sạch 409 thay vì duyệt nhầm revision mới (#21).
     route("POST", "/api/ban-the-hien/:id/trang-thai", async (req, p, c) => {
       const body = await docBody(req);
       return ok(
@@ -850,8 +858,39 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
           typeof body.trang_thai === "string" ? body.trang_thai : "",
           tuyChonChuoi(body.ghi_chu),
           c.actor,
+          tuyChonChuoi(body.mong_doi_revision_id) || undefined,
         ),
       );
+    }),
+    // Nháp autosave của editor (#21): mỗi actor một nháp cho mỗi bản thể
+    // hiện — sửa/reload/phục hồi không mất text chưa lưu.
+    route("GET", "/api/ban-the-hien/:id/nhap", (_req, p, c) => {
+      const bth = layBanTheHien(c.db, p.id!);
+      if (!bth) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy bản thể hiện.");
+      const nhap = layNhapSoan(c.db, bth.id, c.actor);
+      if (!nhap) loiRequest(404, "KHONG_TIM_THAY", "Chưa có nháp cho bản thể hiện này.");
+      return ok(nhap);
+    }),
+    route("PUT", "/api/ban-the-hien/:id/nhap", async (req, p, c) => {
+      const body = await docBody(req);
+      if (typeof body.noi_dung !== "string") {
+        throw new LoiApi(400, "VALIDATION", "noi_dung phải là chuỗi.");
+      }
+      return ok(
+        luuNhapSoan(c.db, p.id!, c.actor, {
+          noi_dung: body.noi_dung,
+          dua_tren_revision_id:
+            body.dua_tren_revision_id === undefined
+              ? undefined
+              : tuyChonChuoi(body.dua_tren_revision_id) || null,
+        }),
+      );
+    }),
+    route("DELETE", "/api/ban-the-hien/:id/nhap", (_req, p, c) => {
+      const bth = layBanTheHien(c.db, p.id!);
+      if (!bth) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy bản thể hiện.");
+      xoaNhapSoan(c.db, bth.id, c.actor);
+      return ok({ da_xoa: true });
     }),
     route("GET", "/api/ban-the-hien/:id/duyet", (_req, p, c) => {
       const bth = layBanTheHien(c.db, p.id!);
