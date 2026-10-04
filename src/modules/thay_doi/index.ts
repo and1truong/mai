@@ -398,6 +398,38 @@ function quetBthTheoHoSo(
         `${dsMuc.map((m) => m.tieu_de).join(", ")}`,
     });
   }
+
+  // Không chắc (cả hai loại): head revision thiếu context_sinh (revision sửa
+  // tay — mọi POST revision đều ghi NULL) nhưng lịch sử có revision ghim
+  // context của hồ sơ này. Provenance mất chứ không phải "không liên quan"
+  // — bản từng sinh với hồ sơ này phải được gắn cờ cho người dùng kiểm tra.
+  const dsMatProvenance = db
+    .query(
+      `SELECT DISTINCT r.ban_the_hien_id AS bth_id
+       FROM revision r
+       JOIN context_sinh cs ON cs.id = r.context_sinh_id
+       JOIN ban_the_hien b ON b.id = r.ban_the_hien_id
+       JOIN revision rh ON rh.id = b.head_revision_id
+       WHERE cs.${cotId} = ? AND cs.${cotRev} != ?
+         AND rh.context_sinh_id IS NULL`,
+    )
+    .all(hoSoId, denRevId) as { bth_id: string }[];
+  for (const r of dsMatProvenance) {
+    if (daCo.has(r.bth_id)) continue;
+    const bth = layBanTheHien(db, r.bth_id);
+    if (!bth) continue;
+    daCo.add(r.bth_id);
+    ra.push({
+      bth,
+      do_tin: "khong_chac",
+      ds_muc: dsThayDoi,
+      ly_do:
+        "Bản từng sinh với hồ sơ này (context sinh trong lịch sử revision) " +
+        "nhưng revision head sửa tay không còn provenance — không chứng " +
+        "minh được bản đã dùng hồ sơ mới. Kiểm tra tay.",
+    });
+  }
+
   if (loai === "doi_tuong") {
     const hoSo = layDoiTuong(db, hoSoId);
     if (hoSo) {

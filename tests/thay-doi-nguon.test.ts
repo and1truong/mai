@@ -273,6 +273,61 @@ describe("phát hiện thay đổi nguồn", () => {
     }
   });
 
+  test("head sửa tay mất context nhưng lịch sử ghim hồ sơ → task khong_chac, không sót", async () => {
+    const app = await taoServerTam();
+    try {
+      const rTh = await post(app, "/api/ho-so-thuong-hieu", {
+        ten: "TH Sửa Tay",
+        vi_du_giong_van: "Ấm áp",
+      });
+      const th = (await rTh.json()).du_lieu;
+      const nguon = await taoNguonFact(app);
+      const { bth } = await taoDauRa(app, nguon.id, "bai-viet");
+
+      // Lịch sử: revision job ghim context có hồ sơ.
+      const ctx = luuContextSinh(app.db, { thuong_hieu_id: th.id });
+      let { json: chiTiet } = await getJson(app, `/api/ban-the-hien/${bth.id}`);
+      themRevision(
+        app.db,
+        {
+          ban_the_hien_id: bth.id,
+          noi_dung: JSON.stringify({ tieu_de: "x", noi_dung: "bản sinh bằng job" }),
+          dua_tren_revision_id: chiTiet.du_lieu.head_revision_id,
+          context_sinh_id: ctx.id,
+        },
+        "job",
+      );
+      // Head: user sửa tay qua POST revision — context_sinh_id = NULL.
+      chiTiet = (await getJson(app, `/api/ban-the-hien/${bth.id}`)).json;
+      themRevision(
+        app.db,
+        {
+          ban_the_hien_id: bth.id,
+          noi_dung: JSON.stringify({ tieu_de: "x", noi_dung: "người sửa tay" }),
+          dua_tren_revision_id: chiTiet.du_lieu.head_revision_id,
+        },
+        "demo",
+      );
+
+      const rPut = await post(
+        app,
+        `/api/ho-so-thuong-hieu/${th.id}`,
+        { ten: "TH Sửa Tay", vi_du_giong_van: "Trang trọng" },
+        "PUT",
+      );
+      const ph = (await rPut.json()).du_lieu.phat_hien;
+      expect(ph).not.toBeNull();
+      const task = ph.ds_task.find(
+        (t: { ban_the_hien_id: string }) => t.ban_the_hien_id === bth.id,
+      );
+      expect(task).not.toBeUndefined();
+      expect(task.do_tin).toBe("khong_chac");
+      expect(task.ly_do).toContain("lịch sử");
+    } finally {
+      await app.dong();
+    }
+  });
+
   test("đổi hồ sơ đối tượng → bản cùng tên không context chỉ gắn cờ khong_chac", async () => {
     const app = await taoServerTam();
     try {
