@@ -36,6 +36,8 @@ test("migration chạy được và idempotent", () => {
     "ban_the_hien_asset",
     "job",
     "job_log",
+    "thay_doi_nguon",
+    "task_sua",
     "schema_migrations",
   ]) {
     expect(bang).toContain(t);
