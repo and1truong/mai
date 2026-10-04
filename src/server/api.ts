@@ -1010,18 +1010,15 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       const ghiChu = url.searchParams.get("ghi_chu") ?? "";
       const khoaIdem = url.searchParams.get("khoa_idem") || undefined;
 
-      // Retry/đăng lại cùng byte: đã có asset → không ghi lại byte, không
-      // ingest thêm — TRỪ khi caller nhắm nguồn khác với nguồn asset đang
-      // gắn (đó là request mới, vẫn phải tạo revision trên nguồn đích).
+      // Retry/đăng lại cùng byte: đã có asset → không ghi lại byte. Với
+      // văn bản nhắm nguồn rõ vẫn chạy capNhatVanBan (tự no-op khi head đã
+      // trùng nội dung file) để re-upload đưa head về nội dung file kể cả
+      // sau khi sửa tay. Không nguon_id = retry thuần → trả nguồn đã gắn.
       const tonTai = timAssetTheoChecksum(c.db, buf);
       if (tonTai) {
         let nguon: unknown = null;
         let revision: unknown = null;
-        if (
-          dinhNghia.loai === "van_ban" &&
-          nguonId &&
-          nguonId !== tonTai.nguon_id
-        ) {
+        if (dinhNghia.loai === "van_ban" && nguonId) {
           const noiDung = new TextDecoder("utf-8").decode(buf);
           const kq = capNhatVanBan(
             c.db,

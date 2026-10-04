@@ -256,6 +256,24 @@ describe("API nạp nguồn + asset", () => {
     expect(a2.nguon_id).toBe(a1.nguon.id); // liên kết đầu tiên thắng
   });
 
+  test("re-upload cùng byte lên chính nguồn đã gắn sau khi sửa tay → revision mới đưa head về nội dung file", async () => {
+    const md = "# Gốc\nnội dung gốc";
+    const lan1 = await upload(app, "ten=goc.md", md);
+    const { du_lieu: a1 } = await lan1.json();
+    const nguonId = a1.nguon.id;
+
+    // Sửa tay head sang nội dung khác.
+    const sua = await post(app, `/api/nguon/${nguonId}/nhap`, { noi_dung: "đã sửa tay" });
+    expect((await sua.json()).du_lieu.revision.so_thu_tu).toBe(2);
+
+    // Upload lại cùng file → revision mới khôi phục nội dung file.
+    const lan2 = await upload(app, `ten=goc.md&nguon_id=${nguonId}`, md);
+    const { du_lieu: a2 } = await lan2.json();
+    expect(a2.revision.so_thu_tu).toBe(3);
+    expect(a2.revision.noi_dung).toBe(md);
+    expect(a2.id).toBe(a1.id);
+  });
+
   test("GET /api/assets mặc định ẩn asset lưu trữ; ?trang_thai=tat_ca hiện lại", async () => {
     const up = await upload(app, "ten=sau-nay-luu-tru.png", new Uint8Array([3, 3, 3]));
     const { du_lieu: asset } = await up.json();
