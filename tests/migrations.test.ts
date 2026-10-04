@@ -15,7 +15,15 @@ test("migration chạy được và idempotent", () => {
   const bang = (db.query("SELECT name FROM sqlite_master WHERE type = 'table'").all() as {
     name: string;
   }[]).map((r) => r.name);
-  for (const t of ["context", "nguon", "ban_the_hien", "revision", "job", "schema_migrations"]) {
+  for (const t of [
+    "context",
+    "nguon",
+    "ban_the_hien",
+    "revision",
+    "job",
+    "job_log",
+    "schema_migrations",
+  ]) {
     expect(bang).toContain(t);
   }
   db.close();

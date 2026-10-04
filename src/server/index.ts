@@ -17,6 +17,7 @@ export type TuyChonServer = {
   port?: number;
   dataDir?: string;
   chuKyJobMs?: number;
+  concurrencyJob?: number;
 };
 
 // Một process duy nhất: API + static frontend + job runner nền.
@@ -43,7 +44,10 @@ export async function startServer(tuyChon: TuyChonServer = {}) {
   chayMigration(db);
 
   const provider = layNhaCungCap(cauHinh.ai.provider);
-  const dungRunner = khoiDongRunner(db, taoHandlers(db, provider), tuyChon.chuKyJobMs ?? 500);
+  const dungRunner = khoiDongRunner(db, taoHandlers(db, provider), {
+    chuKyMs: tuyChon.chuKyJobMs ?? cauHinh.jobs.chuKyMs,
+    concurrency: tuyChon.concurrencyJob ?? cauHinh.jobs.concurrency,
+  });
 
   const api = taoApi({ db, dataDir, actor: ACTOR_DEMO, provider: provider.ten });
   const distDir = resolve(import.meta.dir, "../../dist/client");

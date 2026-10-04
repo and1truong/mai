@@ -1,55 +1,59 @@
 import type { Database } from "bun:sqlite";
-import type { BanTheHien } from "../content/index.ts";
-import { layBanTheHien, layNguon, taoBanTheHien, themRevision } from "../content/index.ts";
+import { LoiApi } from "../../loi.ts";
+import { layBanTheHien, layNguon, themRevision } from "../content/index.ts";
 import type { NhaCungCap } from "../generation/index.ts";
-import type { JobHandler } from "./index.ts";
+import { LoiVinhVien, type JobHandler } from "./index.ts";
 
-// Handler của từng loại job nền. Đăng ký thêm loại mới ở đây.
+// Handler của từng loại job nền — đăng ký loại mới ở đây (#20, sau này #13).
+// Chữ ký: (payload, ctx) → Promise<ket_qua>. Handler chịu trách nhiệm
+// idempotency: kiểm lại entity/revision đích trước khi commit (attempt là
+// ít-nhất-một-lần). Ném LoiVinhVien cho lỗi không retry được; lỗi khác → retry.
 
 export const LOAI_JOB_HO_TRO = ["sinh_ban_the_hien"] as const;
 
 export function taoHandlers(db: Database, provider: NhaCungCap): Record<string, JobHandler> {
   return {
-    sinh_ban_the_hien: async (payload) => {
-      const nguonId = String(payload.nguon_id ?? "");
-      const dinhDang = String(payload.dinh_dang ?? "web");
-      const doiTuong = String(payload.doi_tuong ?? "");
-      const nguon = layNguon(db, nguonId);
-      if (!nguon) throw new Error(`Không tìm thấy nguồn: ${nguonId}`);
+    // Sinh revision mới cho một bản thể hiện. Enqueue đã tạo/ghim entity +
+    // revision_id (head lúc enqueue); handler kiểm lại head trước khi commit —
+    // head trôi → lỗi vĩnh viễn, user retry để ghim head mới.
+    sinh_ban_the_hien: async (payload, ctx) => {
+      const bthId = ctx.job.entity_id || String(payload.ban_the_hien_id ?? "");
+      const mongDoi = ctx.job.revision_id ?? null;
 
-      let bth = db
-        .query("SELECT * FROM ban_the_hien WHERE nguon_id = ? AND dinh_dang = ? LIMIT 1")
-        .get(nguonId, dinhDang) as BanTheHien | null;
-      if (!bth) {
-        try {
-          bth = taoBanTheHien(
-            db,
-            { nguon_id: nguonId, dinh_dang: dinhDang, doi_tuong: doiTuong },
-            "job",
-          );
-        } catch (e) {
-          // UNIQUE(nguon_id, dinh_dang): job khác đã tạo trong lúc chờ → đọc lại.
-          bth = db
-            .query("SELECT * FROM ban_the_hien WHERE nguon_id = ? AND dinh_dang = ? LIMIT 1")
-            .get(nguonId, dinhDang) as BanTheHien | null;
-          if (!bth) throw e;
-        }
+      ctx.baoTienDo({ buoc: "doc_ban_the_hien" });
+      const bth = layBanTheHien(ctx.db, bthId);
+      if (!bth) throw new LoiVinhVien(`Không tìm thấy bản thể hiện: ${bthId}`);
+      const nguon = layNguon(ctx.db, bth.nguon_id);
+      if (!nguon) throw new LoiVinhVien(`Không tìm thấy nguồn: ${bth.nguon_id}`);
+      if ((bth.head_revision_id ?? null) !== mongDoi) {
+        throw new LoiVinhVien("Revision đích đã đổi trong lúc job xếp hàng. Thử lại để ghim head mới.");
       }
 
-      const { noiDung } = await provider.sinhBanTheHien({ nguon, dinhDang, doiTuong });
-      // head có thể đổi trong lúc chờ provider → đọc lại trước khi append.
-      const bthHienTai = layBanTheHien(db, bth.id);
-      if (!bthHienTai) throw new Error(`Bản thể hiện bị xóa trong lúc sinh: ${bth.id}`);
-      const rev = themRevision(
-        db,
-        {
-          ban_the_hien_id: bth.id,
-          noi_dung: noiDung,
-          dua_tren_revision_id: bthHienTai.head_revision_id,
-        },
-        "job",
-      );
-      return { ban_the_hien_id: bth.id, revision_id: rev.id, provider: provider.ten };
+      ctx.baoTienDo({ buoc: "goi_provider" });
+      const { noiDung } = await provider.sinhBanTheHien({
+        nguon,
+        dinhDang: bth.dinh_dang,
+        doiTuong: String(payload.doi_tuong ?? bth.doi_tuong),
+      });
+
+      ctx.baoTienDo({ buoc: "ghi_revision" });
+      // Kiểm lại lần cuối: provider có thể chậm, head có thể vừa đổi.
+      const bthMoi = layBanTheHien(ctx.db, bthId);
+      if (!bthMoi || (bthMoi.head_revision_id ?? null) !== mongDoi) {
+        throw new LoiVinhVien("Revision đích đã đổi trong lúc sinh.");
+      }
+      try {
+        const rev = themRevision(
+          ctx.db,
+          { ban_the_hien_id: bthId, noi_dung: noiDung, dua_tren_revision_id: mongDoi },
+          "job",
+        );
+        return { ban_the_hien_id: bthId, revision_id: rev.id, provider: provider.ten };
+      } catch (e) {
+        // XUNG_DOT_REVISION và 404 entity = lỗi vĩnh viễn, không retry vô ích.
+        if (e instanceof LoiApi && e.status === 409) throw new LoiVinhVien(e.message);
+        throw e;
+      }
     },
   };
 }

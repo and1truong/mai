@@ -221,10 +221,11 @@ describe("job mồ côi sau restart", () => {
     seed(db0);
     db0
       .query(
-        "INSERT INTO job (id, loai, trang_thai, payload, tao_luc) VALUES ('orphan-1', 'sinh_ban_the_hien', 'dang_chay', ?, ?)",
+        `INSERT INTO job (id, loai, trang_thai, khoa_idem, entity_loai, entity_id, revision_id, payload, so_lan_thu, tao_luc)
+         VALUES ('orphan-1', 'sinh_ban_the_hien', 'dang_chay', 'orphan-1', 'ban_the_hien', 'seed-bth-1', 'seed-rev-1', ?, 1, ?)`,
       )
       .run(
-        JSON.stringify({ nguon_id: "seed-nguon-1", dinh_dang: "web" }),
+        JSON.stringify({ ban_the_hien_id: "seed-bth-1" }),
         new Date().toISOString(),
       );
     db0.close();

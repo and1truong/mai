@@ -45,6 +45,8 @@ Copy `mai.config.example.json` → `mai.config.json`, hoặc dùng biến môi t
 | `MAI_DATA_DIR` | `./data` | Thư mục data (volume bền). |
 | `MAI_CONFIG` | `./mai.config.json` | Đường dẫn file config. |
 | `MAI_AI_PROVIDER` | `fixture` | Provider sinh nội dung. |
+| `MAI_JOB_CONCURRENCY` | `2` | Số job chạy song song trong runner. |
+| `MAI_JOB_CHU_KY_MS` | `500` | Chu kỳ poll của runner (ms). |
 
 Ưu tiên: biến môi trường > file config > mặc định.
 
