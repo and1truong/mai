@@ -30,6 +30,7 @@ export function taoHandlers(db: Database, provider: NhaCungCap): Record<string, 
       }
 
       ctx.baoTienDo({ buoc: "goi_provider" });
+      ctx.assertConHan(); // attempt đã timeout/hủy → không gọi provider nữa
       const { noiDung } = await provider.sinhBanTheHien({
         nguon,
         dinhDang: bth.dinh_dang,
@@ -42,6 +43,7 @@ export function taoHandlers(db: Database, provider: NhaCungCap): Record<string, 
       if (!bthMoi || (bthMoi.head_revision_id ?? null) !== mongDoi) {
         throw new LoiVinhVien("Revision đích đã đổi trong lúc sinh.");
       }
+      ctx.assertConHan(); // chặn zombie commit revision sau khi job 'loi'
       try {
         const rev = themRevision(
           ctx.db,

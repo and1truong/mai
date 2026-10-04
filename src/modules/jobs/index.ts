@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { Database } from "bun:sqlite";
 import { LoiApi, loiRequest } from "../../loi.ts";
 import { log } from "../../log.ts";
+import { layBanTheHien } from "../content/index.ts";
 
 // Module job: hàng đợi bền trên SQLite, runner chạy trong cùng process.
 // Không worker riêng, không Redis, không broker — xem ADR-0001.
@@ -11,9 +12,13 @@ import { log } from "../../log.ts";
 // - Attempt ÍT-NHẤT-MỘT-LẦN: crash giữa attempt → job chạy lại khi lease hết hạn.
 //   Handler phải tự idempotent (kiểm lại entity/revision đích trước khi commit).
 //   Idempotency hiệu ứng từ xa (gửi mail, publish…) thuộc handler/provider.
-// - khoa_idem ổn định: enqueue lặp cùng khóa → đúng một job logic.
+// - khoa_idem ổn định: cùng khóa → đúng một job logic. Job còn sống
+//   ('cho'/'dang_chay') → dedupe, trả dòng cũ. Job đã kết thúc
+//   ('xong'/'loi'/'huy') → reset về 'cho' và chạy lại cùng dòng đó.
 // - Attempt chạy dưới timeout + lease; lỗi tạm retry với backoff có biên;
 //   lỗi vĩnh viễn (LoiVinhVien) hoặc hết lượt → 'loi', inspect/retry được.
+// - Attempt quá timeout (Promise.race đã bỏ) vẫn có thể chạy nền — handler
+//   gọi ctx.assertConHan() trước mỗi ghi side-effect để zombie không commit.
 
 export type TrangThaiJob = "cho" | "dang_chay" | "xong" | "loi" | "huy";
 
@@ -58,6 +63,10 @@ export type JobCtx = {
   lanThu: number;
   // Ghi tiến độ (JSON) vào dòng job — inspect/UI đọc được. Không ném lỗi.
   baoTienDo: (tienDo: Record<string, unknown>) => void;
+  // Ném LoiHetHan khi attempt đã hết hạn/bị hủy/thu hồi. Handler GỌI trước
+  // mỗi ghi side-effect (revision, publish…) — attempt zombie (quá timeout
+  // nhưng promise vẫn chạy) bị chặn tại đây thay vì commit sau khi job 'loi'.
+  assertConHan: () => void;
 };
 
 export type JobHandler = (
@@ -78,6 +87,14 @@ class LoiTimeout extends Error {
   constructor() {
     super("Job vượt timeout_ms.");
     this.name = "LoiTimeout";
+  }
+}
+
+// Attempt không còn là chủ hợp lệ (job đổi trạng thái hoặc quá timeout).
+class LoiHetHan extends Error {
+  constructor() {
+    super("Attempt đã hết hạn — hủy ghi side-effect.");
+    this.name = "LoiHetHan";
   }
 }
 
@@ -123,7 +140,10 @@ function ghiNhatKy(db: Database, jobId: string, suKien: string, duLieu: unknown 
 }
 
 // Enqueue nguyên tử theo khoa_idem: INSERT OR IGNORE rồi đọc lại.
-// da_tao=false → job logic đã tồn tại (mọi trạng thái), trả nguyên dòng đó.
+// - Job cùng khóa đang 'cho'/'dang_chay' → dedupe: da_tao=false, trả dòng cũ.
+// - Job cùng khóa đã kết thúc ('xong'/'loi'/'huy') → reset về 'cho' với tham
+//   số mới và chạy lại đúng một job logic (khoa_idem unique → không tạo dòng
+//   thứ hai). Hủy/kết thúc một job KHÔNG khóa vĩnh viễn việc enqueue lại.
 // Hàm không mở transaction — caller bọc BEGIN/COMMIT khi cần ghi request state
 // cùng lúc (vd tạo bản thể hiện + enqueue trong một giao dịch).
 export function enqueueJob(db: Database, t: TuyChonEnqueue): { job: Job; da_tao: boolean } {
@@ -149,12 +169,43 @@ export function enqueueJob(db: Database, t: TuyChonEnqueue): { job: Job; da_tao:
     bayGio(),
   );
   const job = db.query("SELECT * FROM job WHERE khoa_idem = ?").get(khoa) as Job;
-  const daTao = job.id === id;
-  if (daTao) {
+  if (job.id === id) {
     ghiNhatKy(db, job.id, "enqueue", { khoa_idem: khoa, chay_som_nhat: job.chay_som_nhat });
     log.info("job.enqueue", { id: job.id, loai: job.loai, khoa_idem: khoa });
+    return { job, da_tao: true };
   }
-  return { job, da_tao: daTao };
+  if (job.trang_thai === "cho" || job.trang_thai === "dang_chay") {
+    return { job, da_tao: false };
+  }
+  // Job đã kết thúc: reset về 'cho' — cùng một job logic chạy lần mới.
+  const r = db
+    .query(
+      `UPDATE job SET trang_thai = 'cho', so_lan_thu = 0,
+         loi = NULL, loi_vinh_vien = 0, ket_qua = NULL, tien_do = '{}',
+         loai = ?, entity_loai = ?, entity_id = ?, revision_id = ?, payload = ?,
+         so_lan_thu_toi_da = ?, timeout_ms = ?, chay_som_nhat = ?, mui_gio = ?,
+         chay_luc = NULL, xong_luc = NULL, lease_token = NULL, lease_den = NULL
+       WHERE id = ? AND trang_thai IN ('xong', 'loi', 'huy')`,
+    )
+    .run(
+      t.loai,
+      t.entityLoai ?? "",
+      t.entityId ?? "",
+      t.revisionId ?? null,
+      JSON.stringify(t.payload ?? {}),
+      t.soLanThuToiDa ?? MAC_DINH_SO_LAN_THU,
+      t.timeoutMs ?? MAC_DINH_TIMEOUT_MS,
+      t.chaySomNhat ?? null,
+      t.muiGio ?? "",
+      job.id,
+    );
+  if (r.changes === 0) {
+    // Vừa bị claim/thay đổi giữa chừng → coi như dedupe.
+    return { job: layJob(db, job.id)!, da_tao: false };
+  }
+  ghiNhatKy(db, job.id, "enqueue_lai", { tu_trang_thai: job.trang_thai, khoa_idem: khoa });
+  log.info("job.enqueue_lai", { id: job.id, loai: t.loai, khoa_idem: khoa });
+  return { job: layJob(db, job.id)!, da_tao: true };
 }
 
 export function layJob(db: Database, id: string): Job | null {
@@ -205,10 +256,8 @@ export function thuLaiJob(db: Database, id: string): Job {
   }
   let revisionId = job.revision_id;
   if (job.entity_loai === "ban_the_hien" && job.entity_id) {
-    const head = db
-      .query("SELECT head_revision_id AS h FROM ban_the_hien WHERE id = ?")
-      .get(job.entity_id) as { h: string | null } | null;
-    if (head) revisionId = head.h;
+    const bth = layBanTheHien(db, job.entity_id);
+    if (bth) revisionId = bth.head_revision_id ?? null;
   }
   db.query(
     `UPDATE job SET trang_thai = 'cho', so_lan_thu = 0, loi = NULL, loi_vinh_vien = 0,
@@ -300,7 +349,7 @@ function commitKetQua(db: Database, job: Job, ketQua: string): void {
   const r = db
     .query(
       `UPDATE job SET trang_thai = 'xong', ket_qua = ?, tien_do = '{}', xong_luc = ?,
-         lease_token = NULL, lease_den = NULL
+         loi = NULL, loi_vinh_vien = 0, lease_token = NULL, lease_den = NULL
        WHERE id = ? AND trang_thai = 'dang_chay' AND lease_token = ?`,
     )
     .run(ketQua, bayGio(), job.id, job.lease_token);
@@ -358,10 +407,13 @@ function commitThatBai(
 function capNhatTienDo(db: Database, job: Job, tienDo: Record<string, unknown>): void {
   try {
     const json = JSON.stringify(tienDo);
-    db.query(
-      `UPDATE job SET tien_do = ? WHERE id = ? AND trang_thai = 'dang_chay' AND lease_token = ?`,
-    ).run(json, job.id, job.lease_token);
-    ghiNhatKy(db, job.id, "tien_do", tienDo);
+    const r = db
+      .query(
+        `UPDATE job SET tien_do = ? WHERE id = ? AND trang_thai = 'dang_chay' AND lease_token = ?`,
+      )
+      .run(json, job.id, job.lease_token);
+    // Guard trượt (job đã hủy/thu hồi) → không ghi log tiến độ ma.
+    if (r.changes > 0) ghiNhatKy(db, job.id, "tien_do", tienDo);
   } catch {
     // Tiến độ là best-effort: không làm hỏng attempt vì lỗi ghi phụ.
   }
@@ -376,21 +428,53 @@ async function chayAttempt(
 ): Promise<void> {
   ghiNhatKy(db, job.id, "bat_dau", { lan_thu: job.so_lan_thu, lease_den: job.lease_den });
   log.info("job.bat_dau", { id: job.id, loai: job.loai, lan_thu: job.so_lan_thu });
+  // quaHan=true khi timeout đã thắng race: handler còn lại là "zombie" —
+  // assertConHan chặn mọi ghi side-effect của nó kể cả khi job vẫn 'dang_chay'.
+  let quaHan = false;
   const ctx: JobCtx = {
     db,
     job,
     lanThu: job.so_lan_thu,
     baoTienDo: (t) => capNhatTienDo(db, job, t),
+    assertConHan: () => {
+      if (quaHan) throw new LoiHetHan();
+      const cur = db
+        .query("SELECT trang_thai, lease_token FROM job WHERE id = ?")
+        .get(job.id) as { trang_thai: string; lease_token: string | null } | null;
+      if (!cur || cur.trang_thai !== "dang_chay" || cur.lease_token !== job.lease_token) {
+        throw new LoiHetHan();
+      }
+    },
   };
   try {
     const handler = handlers[job.loai];
     if (!handler) throw new LoiVinhVien(`Không có handler cho loại job: ${job.loai}`);
     const payload = JSON.parse(job.payload) as Record<string, unknown>;
+    const handlerP = Promise.resolve().then(() => handler(payload, ctx));
+    // Nuốt kết quả/lỗi của zombie (resolve hay reject sau timeout đều không
+    // commit được nữa) — chỉ ghi nhật ký best-effort, tránh unhandled rejection.
+    const ghiZombie = (suKien: string, duLieu: Record<string, unknown>) => {
+      if (!quaHan) return;
+      try {
+        ghiNhatKy(db, job.id, suKien, duLieu);
+      } catch {
+        // db có thể đã đóng (teardown) — nhật ký zombie là best-effort.
+      }
+      log.warn(`job.${suKien}`, { id: job.id, loai: job.loai, ...duLieu });
+    };
+    handlerP.then(
+      () => ghiZombie("zombie_xong_muon", {}),
+      (e: unknown) =>
+        ghiZombie("zombie_loi_muon", { loi: e instanceof Error ? e.message : String(e) }),
+    );
     let timer: ReturnType<typeof setTimeout> | undefined;
     const ketQua = await Promise.race([
-      Promise.resolve().then(() => handler(payload, ctx)),
+      handlerP,
       new Promise<never>((_res, rej) => {
-        timer = setTimeout(() => rej(new LoiTimeout()), job.timeout_ms);
+        timer = setTimeout(() => {
+          quaHan = true;
+          rej(new LoiTimeout());
+        }, job.timeout_ms);
         timer.unref?.();
       }),
     ]).finally(() => clearTimeout(timer));
