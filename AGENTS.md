@@ -13,6 +13,25 @@ Dự án này là **POC** (proof of concept). Vì vậy:
 - UI **không cần hỗ trợ mobile hay small screens** — chỉ cần hoạt động tốt trên desktop.
 - Không làm responsive design cho viewport nhỏ; không viết code, test hay review theo tiêu chí đó.
 
+Ngoài ra, **bỏ qua** các nhóm sau:
+
+Non-functional:
+
+- Performance tuning: bundle size, lazy-load, code-split.
+- SEO, meta tags, Open Graph.
+- PWA/offline, service worker.
+
+Vận hành:
+
+- Analytics, telemetry, error tracking (Sentry v.v.).
+- Security hardening nâng cao: CSP, rate limiting, security headers — quy tắc không commit secret ở mục **Bảo mật** vẫn giữ nguyên.
+- Migration, backward-compat, versioning API.
+
+Quy trình:
+
+- Coverage threshold, e2e test bắt buộc — chỉ test cho logic cốt lõi.
+- Tài liệu đầy đủ — README/AGENTS.md ở mức tối thiểu là đủ.
+
 ## Quy tắc ngôn ngữ: tiếng Việt
 
 Để giảm sự dòm ngó, **toàn bộ nội dung public trên GitHub phải viết bằng tiếng Việt**:
