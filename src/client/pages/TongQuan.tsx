@@ -24,6 +24,21 @@ type KeHoachGanDay = {
   tieu_de?: string;
 };
 
+type TaskSuaToc = {
+  id: string;
+  loai: string;
+  do_tin: string;
+  ly_do: string;
+  trang_thai: string;
+  thay_doi_nguon_id: string;
+  ban_the_hien: {
+    id: string;
+    dinh_dang: string;
+    doi_tuong: string;
+    thong_diep_tieu_de?: string;
+  } | null;
+};
+
 type TongQuan = {
   nguon: number;
   campaign: number;
@@ -33,6 +48,8 @@ type TongQuan = {
   job_cho: number;
   ho_so_thuong_hieu: number;
   ho_so_doi_tuong: number;
+  task_sua_mo: number;
+  ds_task_sua: TaskSuaToc[];
   viec_gan_day: { ke_hoach: KeHoachGanDay[]; ban_the_hien: BanTheHien[] };
   bth_cho_duyet: BanTheHien[];
   bth_cu: BanTheHien[];
@@ -47,6 +64,7 @@ const O: { key: keyof TongQuan; nhan: string }[] = [
   { key: "job_cho", nhan: "Job đang chờ" },
   { key: "ho_so_thuong_hieu", nhan: "Hồ sơ thương hiệu" },
   { key: "ho_so_doi_tuong", nhan: "Hồ sơ đối tượng" },
+  { key: "task_sua_mo", nhan: "Task sửa đang mở" },
 ];
 
 type Health = {
@@ -242,6 +260,45 @@ export default function TongQuanPage() {
                     Tất cả bản đều mới.
                   </Text>
                 )}
+              </Flex>
+            </Card>
+            {/* Task sửa từ phát hiện thay đổi nguồn (#14) — đầu ra phụ
+                thuộc cần sinh lại hoặc sửa tay. */}
+            <Card>
+              <Heading size="3" mb="2">
+                Đầu ra cần sửa
+              </Heading>
+              <Text size="1" color="gray" as="p" mb="2">
+                Nguồn/hồ sơ đã đổi sau khi đầu ra sinh — xem danh sách ảnh hưởng.
+              </Text>
+              <Flex direction="column" gap="1">
+                {data.ds_task_sua.map((t) => (
+                  <Flex key={t.id} align="center" gap="2">
+                    <a href={`#/thay-doi?id=${t.thay_doi_nguon_id}`}>
+                      {t.ban_the_hien
+                        ? `${t.ban_the_hien.dinh_dang} — ${t.ban_the_hien.doi_tuong || "chung"}`
+                        : "Đầu ra"}
+                    </a>
+                    <Badge color={t.loai === "thu_cong" ? "red" : "blue"} size="1">
+                      {t.loai === "thu_cong" ? "sửa tay" : "sinh lại"}
+                    </Badge>
+                    {t.do_tin === "khong_chac" && (
+                      <Badge color="orange" variant="outline" size="1">
+                        không chắc
+                      </Badge>
+                    )}
+                  </Flex>
+                ))}
+                {data.ds_task_sua.length === 0 && (
+                  <Text size="2" color="gray">
+                    Không có đầu ra nào cần sửa.
+                  </Text>
+                )}
+                <a href="#/thay-doi">
+                  <Text size="1" color="blue">
+                    Xem tất cả thay đổi →
+                  </Text>
+                </a>
               </Flex>
             </Card>
           </Grid>
