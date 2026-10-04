@@ -111,6 +111,9 @@ export async function taoBundleXuatBan(
     ngon_ngu: bth.ngon_ngu,
     doi_tuong: bth.doi_tuong,
     dich_den: xb.dich_den,
+    // Đầu ra có kênh đích (instagram/tiktok/google-business/email…) là bản
+    // để đăng tay — MAI không tự đăng (#7). Trang local /p/… thì không.
+    dang_tay: (xb.dich_den ?? "").trim() !== "",
     revision: {
       id: revision.id,
       so_thu_tu: revision.so_thu_tu,

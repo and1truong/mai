@@ -282,11 +282,11 @@ describe("seed fixture", () => {
     expect(th.length).toBe(3);
     expect(th.every((t) => t.la_fixture === 1 && t.nguon_du_lieu === "he_thong")).toBe(true);
 
-    // 3 đối tượng gốc + "Lãnh đạo kỹ thuật" của story #6.
+    // 3 đối tượng gốc + "Lãnh đạo kỹ thuật" (#6) + "Khách quen khu phố" (#7).
     const dt = app.db
       .query("SELECT ten FROM ho_so_doi_tuong WHERE la_fixture = 1 ORDER BY id")
       .all() as { ten: string }[];
-    expect(dt.length).toBe(4);
+    expect(dt.length).toBe(5);
 
     const tn = app.db
       .query(

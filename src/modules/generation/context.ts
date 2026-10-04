@@ -47,10 +47,23 @@ export function catGon(vanBan: string, toiDa: number): { text: string; daCat: bo
 const RE_GIA =
   /(?<![\p{L}\p{M}])(giá cả|giá bán|giá thành|miễn phí|khuyến mãi|cước phí|chi phí|phí|hoàn tiền)(?![\p{L}\p{M}])|\d[\d.,]*\s*(đ|₫|vnđ|đồng|usd|eur)|\$\s*\d[\d.,]*/iu;
 
+// Ngày tương đối mơ hồ: "tuần sau thứ Bảy", "cuối tuần", "ngày mai"… — mã
+// `moc_thoi_gian` không bắt được vì vẫn có từ "tuần"/"thứ", nhưng đầu ra
+// cần một ngày cụ thể để xác nhận (#7).
+export const RE_NGAY_TUONG_DOI =
+  /tuần\s+(sau|tới|này)|thứ\s+(hai|ba|tư|năm|sáu|bảy|nhật|cn)\b(?![^a-zA-Z0-9]*\d)|cuối\s+tuần|ngày\s+mai|sắp\s+tới|tháng\s+(sau|tới|này)|cuối\s+tháng|đầu\s+tháng|cuối\s+năm|đầu\s+năm/iu;
+
+// Ngày cụ thể: 11/10, 11-10-2026, 2026-10-10… — sự hiện diện của nó xóa
+// cảnh báo ngày tương đối.
+export const RE_NGAY_CU_THE = /\d{1,2}\s*[/\-.]\s*\d{1,2}(\s*[/\-.]\s*\d{2,4})?|\d{4}-\d{2}-\d{2}/;
+
 export function thieuChungCu(vanBanNguon: string): string[] {
   const ds: string[] = [];
   if (!/\d/.test(vanBanNguon)) ds.push("so_lieu");
   if (!/ngày|tháng|năm|tuần|quý|\b(19|20)\d{2}\b/i.test(vanBanNguon)) ds.push("moc_thoi_gian");
+  if (RE_NGAY_TUONG_DOI.test(vanBanNguon) && !RE_NGAY_CU_THE.test(vanBanNguon)) {
+    ds.push("ngay_gio_cu_the");
+  }
   if (!RE_GIA.test(vanBanNguon)) ds.push("gia_ca");
   return ds;
 }

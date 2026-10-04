@@ -1,4 +1,6 @@
 import type { Database } from "bun:sqlite";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { extname, join, resolve } from "node:path";
 import { taiCauHinh } from "../config.ts";
 import { log } from "../log.ts";
 import { taoDoiTuong, taoThuongHieu, thayThuatNgu } from "../modules/context/index.ts";
@@ -12,7 +14,19 @@ import {
   themRevision,
   xuatBanBanTheHien,
 } from "../modules/content/index.ts";
-import { deXuatDauRa, type DauRaDeXuat } from "../modules/luong/index.ts";
+import {
+  datAssetBanTheHien,
+  kiemTraByteAsset,
+  layAsset,
+  sachTenFile,
+  timAssetTheoChecksum,
+} from "../modules/nap/index.ts";
+import {
+  deXuatDauRa,
+  ghepNoiDungThongBao,
+  type DauRaDeXuat,
+  type FactSuKien,
+} from "../modules/luong/index.ts";
 import { chayMigration, moDb } from "./db.ts";
 
 // Seed demo tối thiểu: 3 hồ sơ thương hiệu, 3 hồ sơ đối tượng (fixture),
@@ -34,7 +48,11 @@ function themDoiTuong(db: Database, id: string, input: DauVaoDoiTuong, tacGia: s
   taoDoiTuong(db, input, tacGia, { ...TUY_CHON_FIXTURE, id });
 }
 
-export function seed(db: Database, tacGia = "demo"): { da_seed: string[] } {
+export function seed(
+  db: Database,
+  tacGia = "demo",
+  tuyChon: { dataDir?: string } = {},
+): { da_seed: string[] } {
   const daSeed: string[] = [];
 
   // --- Hồ sơ thương hiệu fixture: creator solo, tiệm bánh, nhà xuất bản Phúc Âm ---
@@ -350,7 +368,196 @@ export function seed(db: Database, tacGia = "demo"): { da_seed: string[] } {
     daSeed.push("story_creator");
   }
 
+  // --- Story #7: tiệm bánh — ra mắt sản phẩm từ một thông báo đơn giản ---
+  // Intake một câu của chủ tiệm → kế hoạch đã chọn bundle đa kênh (thông báo
+  // web → trang /p/, caption Instagram kèm ảnh, script TikTok, bài đăng Google
+  // Business, nháp email khách) với fact đã xác nhận ghép vào thông điệp: cùng
+  // ngày ra mắt, tên sản phẩm, giá và CTA nhất quán trên mọi bản. Đăng tay trên
+  // mọi kênh ngoài — MAI không tự đăng.
+  if (!db.query("SELECT id FROM ke_hoach WHERE id = 'seed-kh-tiem-banh'").get()) {
+    themDoiTuong(
+      db,
+      "seed-dt-khach-quen",
+      {
+        ten: "Khách quen khu phố (fixture)",
+        ngon_ngu: "vi",
+        dia_diem: "Khu phố quanh tiệm bánh.",
+        kien_thuc_nen: "Không cần biết thuật ngữ ngành bánh.",
+        moi_quan_tam: "Bánh mới, giờ mở cửa, cách đặt trước.",
+        do_sau: "so_luoc",
+        tu_vung: "Đời thường, thân mật.",
+        quan_he_to_chuc: "Khách quen theo tiệm trên mạng xã hội.",
+        nhu_cau_giao_tiep: "Tin ngắn trên mạng xã hội và email; rõ ngày giờ, giá, cách đặt.",
+        nhan_khau_hoc: "",
+      },
+      tacGia,
+    );
+
+    // Fact doanh nghiệp: địa chỉ, giờ mở cửa, sản phẩm, asset, giọng văn.
+    const nguonFact = taoNguon(
+      db,
+      {
+        tieu_de: "Fact tiệm bánh: địa chỉ, giờ mở cửa, sản phẩm",
+        noi_dung: [
+          "Tiệm bánh địa phương — fact doanh nghiệp.",
+          "Địa chỉ: 123 Đường Láng, Hà Nội.",
+          "Giờ mở cửa: 6h30–20h00 hằng ngày.",
+          "Sản phẩm mới: bánh croissant hạt dẻ — vỏ giòn nhiều lớp, nhân hạt dẻ rang xay.",
+          "Link đặt hàng: https://tiembanh.example.com/dat-hang",
+          "Giọng văn: thân mật như nói chuyện với khách quen.",
+        ].join("\n"),
+        loai: "van_ban",
+      },
+      tacGia,
+      { id: "seed-nguon-fact-tiem-banh" },
+    );
+
+    const intake = TB_INTAKE;
+    const td = taoThongDiep(
+      db,
+      {
+        tieu_de: "Ra mắt bánh croissant hạt dẻ",
+        noi_dung: ghepNoiDungThongBao(intake, TB_FACT, TB_CTA),
+        nguon_ids: [nguonFact.id],
+      },
+      tacGia,
+      { id: "seed-td-tiem-banh" },
+    );
+    const tdRevId = td.head_revision_id;
+
+    // Ảnh sản phẩm thật do tiệm cung cấp (fixture trong repo) — đính kèm caption
+    // Instagram. Bản Google Business cố ý không có ảnh để demo ô yêu cầu/upload.
+    let dsAssetIg: string[] = [];
+    if (tuyChon.dataDir) {
+      const assetId = ghiAssetFixture(db, tuyChon.dataDir, nguonFact.id, tacGia);
+      if (assetId) dsAssetIg = [assetId];
+    }
+
+    const dsChon: DauRaDeXuat[] = [
+      { doi_tuong_id: null, dinh_dang: "bai-viet", ngon_ngu: "vi" },
+      { doi_tuong_id: null, dinh_dang: "caption", ngon_ngu: "vi", dich_den: "instagram" },
+      { doi_tuong_id: null, dinh_dang: "script-ngan", ngon_ngu: "vi", dich_den: "tiktok" },
+      {
+        doi_tuong_id: null,
+        dinh_dang: "google-business",
+        ngon_ngu: "vi",
+        dich_den: "google-business",
+      },
+      { doi_tuong_id: null, dinh_dang: "email-khach", ngon_ngu: "vi", dich_den: "email" },
+    ];
+    const ts = new Date().toISOString();
+    db.query(
+      `INSERT INTO ke_hoach (id, thong_diep_id, nguon_id, intake, cta, fact, de_xuat_dau_ra, ds_chon, trang_thai, tao_luc, tao_boi, cap_nhat_luc, cap_nhat_boi)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'da_chon', ?, ?, ?, ?)`,
+    ).run(
+      "seed-kh-tiem-banh",
+      td.id,
+      nguonFact.id,
+      intake,
+      TB_CTA,
+      JSON.stringify(TB_FACT),
+      JSON.stringify(deXuatDauRa(db, "vi", intake)),
+      JSON.stringify(dsChon),
+      ts,
+      tacGia,
+      ts,
+      tacGia,
+    );
+    ghiSuKien(db, "ke_hoach", "seed-kh-tiem-banh", "tao", { thong_diep_id: td.id }, tacGia);
+    ghiSuKien(db, "ke_hoach", "seed-kh-tiem-banh", "chon_dau_ra", { so: dsChon.length }, tacGia);
+
+    for (const o of NOI_DUNG_DAU_RA_TIEM_BANH) {
+      taoBanTheHien(
+        db,
+        {
+          thong_diep_id: td.id,
+          dinh_dang: o.dinh_dang,
+          ngon_ngu: "vi",
+          doi_tuong: o.doi_tuong,
+          dich_den: o.dich_den,
+        },
+        tacGia,
+        { id: o.id },
+      );
+      themRevision(
+        db,
+        {
+          ban_the_hien_id: o.id,
+          noi_dung: o.noi_dung,
+          dua_tren_revision_id: null,
+          thong_diep_revision_id: tdRevId,
+        },
+        tacGia,
+      );
+      // Ảnh đính kèm trước xuất bản → manifest bundle snapshot đúng asset.
+      if (o.id === "seed-bth-tb-ig" && dsAssetIg.length > 0) {
+        datAssetBanTheHien(db, o.id, dsAssetIg, tacGia);
+      }
+      if (o.trang_thai === "nhap") continue;
+      chuyenTrangThai(db, o.id, "cho_duyet", "seed: gửi duyệt", tacGia);
+      if (o.trang_thai === "cho_duyet") continue;
+      const head = layBanTheHien(db, o.id)?.head_revision_id ?? undefined;
+      chuyenTrangThai(db, o.id, "da_duyet", "seed: duyệt", tacGia, head);
+      if (o.xuat_ban) {
+        xuatBanBanTheHien(db, o.id, {
+          dich_den: o.dich_den || undefined,
+          asset_ids: o.id === "seed-bth-tb-ig" ? dsAssetIg : [],
+        }, tacGia);
+      }
+    }
+    daSeed.push("story_tiem_banh");
+  }
+
   return { da_seed: daSeed };
+}
+
+// Ghi file fixture ảnh của story #7 vào kho byte local + một dòng asset
+// (đường service luuAsset là async; seed chạy đồng bộ nên ghi file trực tiếp
+// — cùng bước validate/dedupe, chỉ khác lớp ghi). Thiếu file fixture → bỏ qua.
+function ghiAssetFixture(
+  db: Database,
+  dataDir: string,
+  nguonId: string,
+  tacGia: string,
+): string | null {
+  const tep = join(import.meta.dir, "seed-assets", TB_FILE_ANH);
+  if (!existsSync(tep)) return null;
+  const byte = new Uint8Array(readFileSync(tep));
+  const tenFile = sachTenFile(TB_FILE_ANH);
+  const dinhNghia = kiemTraByteAsset(tenFile, byte);
+  const khoaIdem = `seed:asset:${tenFile}`;
+  const cu =
+    (db.query("SELECT * FROM asset WHERE khoa_idem = ?").get(khoaIdem) as {
+      id: string;
+    } | null) ?? timAssetTheoChecksum(db, byte);
+  if (cu) return cu.id;
+  const id = crypto.randomUUID();
+  const duongDan = `${id}${extname(tenFile).toLowerCase()}`;
+  const thuMuc = resolve(dataDir, "assets");
+  mkdirSync(thuMuc, { recursive: true });
+  writeFileSync(join(thuMuc, duongDan), byte);
+  const checksum = new Bun.CryptoHasher("sha256").update(byte).digest("hex");
+  const ts = new Date().toISOString();
+  db.query(
+    `INSERT INTO asset
+       (id, ten_file, duong_dan, loai, mime, kich_thuoc, checksum, nguon_id, ghi_chu, khoa_idem, trang_thai, tao_luc, tao_boi)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'hoat_dong', ?, ?)`,
+  ).run(
+    id,
+    tenFile,
+    duongDan,
+    dinhNghia.loai,
+    dinhNghia.mime,
+    byte.byteLength,
+    checksum,
+    nguonId,
+    "Ảnh sản phẩm do tiệm cung cấp (fixture).",
+    khoaIdem,
+    ts,
+    tacGia,
+  );
+  ghiSuKien(db, "asset", id, "tao", { ten_file: tenFile }, tacGia);
+  return layAsset(db, id)?.id ?? null;
 }
 
 // --- Nội dung story #6 (viết tay, canonical JSON theo schema định dạng) ---
@@ -572,11 +779,126 @@ Retry là chi phí trả trước cho availability. Không kiểm soát thì chi
   },
 ];
 
+// --- Nội dung story #7 (viết tay, canonical JSON theo schema định dạng) ---
+
+const TB_INTAKE = "Tuần sau thứ Bảy tiệm ra mắt bánh croissant hạt dẻ.";
+const TB_CTA = "Ghé tiệm hoặc đặt trước qua link đặt hàng.";
+const TB_FACT: FactSuKien = {
+  ngay_gio: "2026-10-10T08:00",
+  mui_gio: "Asia/Ho_Chi_Minh",
+  gia: "45.000đ",
+  tinh_trang: "còn hàng trong ngày",
+  link_dat_hang: "https://tiembanh.example.com/dat-hang",
+};
+const TB_FILE_ANH = "croissant-hat-de.webp";
+
+// Dòng thông báo chuẩn: cùng một câu fact xuất hiện trên mọi bản — ngày
+// ra mắt, giá, tình trạng, link đặt, CTA không lệch giữa các kênh (#7).
+const TB_DONG_CHUAN =
+  "thời gian 2026-10-10T08:00 (Asia/Ho_Chi_Minh) — giá 45.000đ — còn hàng trong ngày — đặt hàng https://tiembanh.example.com/dat-hang — " +
+  TB_CTA;
+
+const NOI_DUNG_DAU_RA_TIEM_BANH: {
+  id: string;
+  dinh_dang: string;
+  doi_tuong: string;
+  dich_den: string;
+  trang_thai: "nhap" | "cho_duyet" | "da_duyet";
+  xuat_ban: boolean;
+  noi_dung: string;
+}[] = [
+  {
+    // Thông báo trên trang tiệm (trang local /p/<id>).
+    id: "seed-bth-tb-web",
+    dinh_dang: "bai-viet",
+    doi_tuong: "",
+    dich_den: "",
+    trang_thai: "da_duyet",
+    xuat_ban: true,
+    noi_dung: JSON.stringify({
+      tieu_de: "Ra mắt bánh croissant hạt dẻ",
+      noi_dung: `## Ra mắt bánh mới
+
+${TB_DONG_CHUAN}
+
+Croissant hạt dẻ: vỏ giòn nhiều lớp, nhân hạt dẻ rang xay — bánh nướng trong ngày, không để qua đêm.
+
+Tiệm mở cửa 6h30–20h00 hằng ngày tại 123 Đường Láng, Hà Nội. Mời bạn ghé thử bánh mới vào sáng ra mắt.`,
+    }),
+  },
+  {
+    // Caption Instagram — kèm ảnh croissant do tiệm cung cấp.
+    id: "seed-bth-tb-ig",
+    dinh_dang: "caption",
+    doi_tuong: "",
+    dich_den: "instagram",
+    trang_thai: "da_duyet",
+    xuat_ban: true,
+    noi_dung: JSON.stringify({
+      noi_dung: `Bánh mới ra lò — croissant hạt dẻ 🥐
+
+${TB_DONG_CHUAN}
+
+Vỏ giòn nhiều lớp, nhân hạt dẻ rang xay. Tiệm ở 123 Đường Láng, mở 6h30–20h00 mỗi ngày.`,
+      hashtag: "#tiembanh #croissanthatede #banhmoi",
+    }),
+  },
+  {
+    // Script TikTok ngắn.
+    id: "seed-bth-tb-tiktok",
+    dinh_dang: "script-ngan",
+    doi_tuong: "",
+    dich_den: "tiktok",
+    trang_thai: "cho_duyet",
+    xuat_ban: false,
+    noi_dung: JSON.stringify({
+      hook: "Croissant hạt dẻ ra lò sáng thứ Bảy — chỉ có ở tiệm khu phố này.",
+      loi_thoai: `Mở cảnh: mâm croissant vừa ra lò, hơi còn nóng.\n\n${TB_DONG_CHUAN}\n\nCận cảnh vỏ giòn nhiều lớp và nhân hạt dẻ rang xay. Bánh nướng trong ngày, không để qua đêm.`,
+      canh: [
+        "Mâm croissant hạt dẻ vừa ra lò, hơi nóng bốc lên",
+        "Bẻ đôi một chiếc — vỏ giòn nhiều lớp, nhân hạt dẻ",
+        "Mặt tiền tiệm 123 Đường Láng lúc sáng sớm",
+      ],
+      cta: TB_CTA,
+    }),
+  },
+  {
+    // Bài đăng Google Business — đăng tay, link đặt hàng thật.
+    id: "seed-bth-tb-gbp",
+    dinh_dang: "google-business",
+    doi_tuong: "",
+    dich_den: "google-business",
+    trang_thai: "cho_duyet",
+    xuat_ban: false,
+    noi_dung: JSON.stringify({
+      noi_dung: `Ra mắt bánh croissant hạt dẻ.\n\n${TB_DONG_CHUAN}\n\nTiệm mở cửa 6h30–20h00 hằng ngày tại 123 Đường Láng, Hà Nội.`,
+      cta: TB_CTA,
+      lien_ket: "https://tiembanh.example.com/dat-hang",
+    }),
+  },
+  {
+    // Nháp email khách: có chủ đề, xem trước, lịch gửi dự kiến kèm múi
+    // giờ. Gửi thật là bước đăng tay ngoài MAI (P1 #13).
+    id: "seed-bth-tb-email",
+    dinh_dang: "email-khach",
+    doi_tuong: "",
+    dich_den: "email",
+    trang_thai: "nhap",
+    xuat_ban: false,
+    noi_dung: JSON.stringify({
+      tieu_de: "Thứ Bảy này có croissant hạt dẻ mới ra lò",
+      tom_tat: "Ra mắt sáng thứ Bảy — đặt trước để giữ phần.",
+      lich_gui: "Gửi trước ra mắt một ngày: 2026-10-09T18:00 (Asia/Ho_Chi_Minh)",
+      noi_dung: `Chào bạn,\n\n${TB_DONG_CHUAN}\n\nCroissant hạt dẻ có vỏ giòn nhiều lớp và nhân hạt dẻ rang xay — nướng trong ngày, không để qua đêm.\n\nHẹn bạn sáng thứ Bảy tại 123 Đường Láng.`,
+    }),
+  },
+];
+
 if (import.meta.main) {
   const cauHinh = await taiCauHinh();
   const db = moDb(cauHinh.dataDir);
   chayMigration(db);
-  const ketQua = seed(db);
+  const ketQua = seed(db, "demo", { dataDir: cauHinh.dataDir });
   log.info("seed.xong", { dataDir: cauHinh.dataDir, ...ketQua });
   db.close();
 }

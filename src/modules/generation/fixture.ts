@@ -27,6 +27,7 @@ function dongThieuChungCu(ctx: ContextTask): string[] {
   const nhan: Record<string, string> = {
     so_lieu: "số liệu cụ thể",
     moc_thoi_gian: "mốc thời gian",
+    ngay_gio_cu_the: "ngày giờ cụ thể (kèm múi giờ)",
     gia_ca: "thông tin giá",
   };
   return ctx.thieu_chung_cu.map(
@@ -62,6 +63,17 @@ function noiDungTruong(t: DinhNghiaTruong, ctx: ContextTask): string | string[] 
       if (t.ten === "tieu_de") s = ctx.thong_diep.tieu_de;
       else if (t.ten === "tom_tat" || t.ten === "gioi_thieu" || t.ten === "hook") {
         s = cauDau(ctx.thong_diep.noi_dung || ctx.ds_nguon[0]?.noi_dung || ctx.thong_diep.tieu_de);
+      } else if (t.ten === "lich_gui") {
+        // Lịch gửi dự kiến lấy dòng thông báo chuẩn — mang sẵn ngày giờ và
+        // múi giờ đã xác nhận ở intake (#7), không bịa thời điểm khác.
+        s = cauDau(ctx.thong_diep.noi_dung || ctx.thong_diep.tieu_de);
+      } else if (t.ten === "lien_ket") {
+        // Link chỉ nhặt từ input thật (fact đặt hàng/nguồn) — không bịa URL.
+        const m = /https?:\/\/\S+/.exec(
+          [ctx.thong_diep.noi_dung, ...ctx.ds_nguon.map((n) => n.noi_dung)].join("\n"),
+        );
+        // \S+ có thể cuốn cả dấu câu cuối — cắt phần đuôi không phải URL.
+        s = (m?.[0] ?? "").replace(/[.,;:!?)\]"']+$/, "");
       } else if (t.ten === "cta") s = `Tìm hiểu thêm: ${ctx.thong_diep.tieu_de}`;
       else if (t.ten === "hashtag") s = `#mai #${ctx.dinh_dang?.id ?? "noi-dung"}`;
       else s = ctx.thong_diep.tieu_de;
