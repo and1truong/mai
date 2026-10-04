@@ -19,7 +19,18 @@ export function loi(e: unknown): Response {
   );
 }
 
+// Giới hạn kích thước body cho mọi endpoint đọc body.
+const GIOI_HAN_BODY = 50 * 1024 * 1024;
+
+export function kiemTraGioiHanBody(req: Request): void {
+  const n = Number(req.headers.get("content-length") ?? "0");
+  if (Number.isFinite(n) && n > GIOI_HAN_BODY) {
+    throw new LoiApi(413, "PAYLOAD_QUA_LON", `Body vượt giới hạn ${GIOI_HAN_BODY} byte.`);
+  }
+}
+
 export async function docBody(req: Request): Promise<Record<string, unknown>> {
+  kiemTraGioiHanBody(req);
   const text = await req.text();
   if (!text.trim()) return {};
   try {

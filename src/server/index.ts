@@ -6,6 +6,7 @@ import { khoiDongRunner } from "../modules/jobs/index.ts";
 import { taoHandlers } from "../modules/jobs/handlers.ts";
 import { taoApi } from "./api.ts";
 import { chayMigration, moDb } from "./db.ts";
+import { loi } from "./http.ts";
 import { phucVuTinh } from "./static.ts";
 
 // POC chạy local tin cậy với actor demo cố định. Access control instance: #16 (P1).
@@ -18,7 +19,21 @@ export type TuyChonServer = {
 };
 
 // Một process duy nhất: API + static frontend + job runner nền.
+// Khi chạy `bun --hot` (MAI_HOT=1, do scripts/dev.ts đặt): dọn tài nguyên của
+// lần chạy trước qua globalThis để không leak connection/interval/port.
+const KHOA_CLEANUP = "__mai_cleanup__";
+
 export async function startServer(tuyChon: TuyChonServer = {}) {
+  const g = globalThis as Record<string, unknown>;
+  if (Bun.env.MAI_HOT === "1" && typeof g[KHOA_CLEANUP] === "function") {
+    try {
+      await (g[KHOA_CLEANUP] as () => Promise<void>)();
+    } catch (e) {
+      log.warn("server.cleanup_loi", { loi: String(e) });
+    }
+    delete g[KHOA_CLEANUP];
+  }
+
   const cauHinh = await taiCauHinh();
   const dataDir = resolve(tuyChon.dataDir ?? cauHinh.dataDir);
   const port = tuyChon.port ?? cauHinh.port;
@@ -63,20 +78,27 @@ export async function startServer(tuyChon: TuyChonServer = {}) {
       });
       return res;
     },
+    error(e) {
+      log.error("server.loi", { loi: String(e) });
+      return loi(e);
+    },
   });
 
   log.info("server.khoi_dong", { port: server.port, dataDir, provider: provider.ten });
+
+  const dong = async () => {
+    dungRunner();
+    server.stop(true);
+    db.close();
+  };
+  if (Bun.env.MAI_HOT === "1") g[KHOA_CLEANUP] = dong;
 
   return {
     server,
     db,
     dataDir,
     url: `http://localhost:${server.port}`,
-    async dong() {
-      dungRunner();
-      server.stop(true);
-      db.close();
-    },
+    dong,
   };
 }
 

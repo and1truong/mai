@@ -18,7 +18,7 @@ import { DANH_SACH_DINH_DANG, laDinhDang } from "../modules/formats/index.ts";
 import { DANH_SACH_TRANG_THAI, laTrangThai, chuyenHopLe } from "../modules/review/index.ts";
 import { danhSachJob, taoJob } from "../modules/jobs/index.ts";
 import { LOAI_JOB_HO_TRO } from "../modules/jobs/handlers.ts";
-import { docBody, loi, ok } from "./http.ts";
+import { docBody, kiemTraGioiHanBody, loi, ok } from "./http.ts";
 
 export type ApiCtx = {
   db: Database;
@@ -179,6 +179,7 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
           `Cho phép: ${[...EXT_ASSET_CHO_PHEP].join(", ")}`,
         ]);
       }
+      kiemTraGioiHanBody(req);
       const buf = await req.arrayBuffer();
       if (buf.byteLength === 0) loiRequest(400, "VALIDATION", "Body rỗng.");
       const file = `${crypto.randomUUID()}${ext}`;
@@ -205,12 +206,15 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       if (r.method !== req.method) continue;
       const m = r.pattern.exec(url.pathname);
       if (!m) continue;
-      const thamSo = Object.fromEntries(
-        r.keys.map((k, i) => [k, decodeURIComponent(m[i + 1]!)]),
-      );
       try {
+        const thamSo = Object.fromEntries(
+          r.keys.map((k, i) => [k, decodeURIComponent(m[i + 1]!)]),
+        );
         return await r.handler(req, thamSo, ctx);
       } catch (e) {
+        if (e instanceof URIError) {
+          return loi(new LoiApi(400, "VALIDATION", "Tham số URL không hợp lệ."));
+        }
         if (!(e instanceof LoiApi)) {
           log.error("api.loi", { path: url.pathname, loi: String(e) });
         }
