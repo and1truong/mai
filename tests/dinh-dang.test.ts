@@ -308,9 +308,12 @@ describe("API xem trước + export (#19)", () => {
       expect(manifest.nguon).toEqual([]);
       // Nội dung render từ revision ghim, không qua AI.
       const md = new TextDecoder().decode(tep.get("noi-dung.md")!);
-      expect(md).toContain("ký tự đặc biệt");
+      expect(md).toContain("# Bài viết tiếng Việt"); // render theo schema, không phải JSON thô
+      expect(md.startsWith("{")).toBe(false);
+      expect(md).toContain("Đoạn hai English paragraph");
       const html = new TextDecoder().decode(tep.get("noi-dung.html")!);
       expect(html).toContain("<h1>");
+      expect(html).toContain('href="https://example.com/vn"');
       // Asset được chọn có byte; asset khác và ghi chú nội bộ không lọt vào.
       expect([...(tep.get("assets/anh-chon.png") ?? [])]).toEqual([9, 8, 7]);
       expect(tep.has("assets/anh-khac.png")).toBe(false);

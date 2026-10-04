@@ -69,7 +69,7 @@ export function taoZip(dsTep: TepZip[]): Uint8Array<ArrayBuffer> {
     const ten = enc.encode(tep.duong_dan);
     const crc = crc32(tep.noi_dung);
     phan.push(ghiLocal(ten, crc, tep.noi_dung.length), ten, tep.noi_dung);
-    trungTam.push(ghiTrungTam(ten, crc, tep.noi_dung.length, offset));
+    trungTam.push(ghiTrungTam(ten, crc, tep.noi_dung.length, offset), ten);
     offset += 30 + ten.length + tep.noi_dung.length;
   }
 
