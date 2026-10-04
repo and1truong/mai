@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  kiem-tra:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Cài dependency
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Build frontend
+        run: bun run build
+
+      - name: Test (unit + smoke trên thư mục data tạm)
+        run: bun test
+
+      - name: Smoke e2e: reset, start, health, tạo nguồn
+        run: |
+          export MAI_DATA_DIR=$(mktemp -d)
+          bun run reset
+          bun src/server/index.ts &
+          SERVER_PID=$!
+          sleep 2
+          curl -fsS http://localhost:3000/api/health | grep -q '"ok":true'
+          curl -fsS http://localhost:3000/ | grep -qi "<html"
+          curl -fsS -X POST http://localhost:3000/api/nguon \
+            -H 'content-type: application/json' \
+            -d '{"tieu_de":"Smoke","noi_dung":"Noi dung smoke"}' | grep -q '"ok":true'
+          kill $SERVER_PID
