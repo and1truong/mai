@@ -2,6 +2,7 @@ import { Box, Flex, Heading, TabNav, Text } from "@radix-ui/themes";
 import { useHashRoute } from "./api.ts";
 import AssetsPage from "./pages/Assets.tsx";
 import BanTheHienPage from "./pages/BanTheHien.tsx";
+import GayQuyPage from "./pages/GayQuy.tsx";
 import { HoSoPage } from "./pages/HoSo.tsx";
 import KeHoachPage from "./pages/KeHoach.tsx";
 import JobPage from "./pages/Job.tsx";
@@ -20,6 +21,7 @@ const NAV = [
   { path: "/thay-doi", nhan: "Thay đổi" },
   { path: "/so-bao", nhan: "Số báo" },
   { path: "/phat-hanh", nhan: "Phát hành" },
+  { path: "/gay-quy", nhan: "Gây quỹ" },
   { path: "/job", nhan: "Job" },
   { path: "/ho-so", nhan: "Hồ sơ" },
 ];
@@ -58,6 +60,7 @@ export default function App() {
         {goc === "/ke-hoach" && <KeHoachPage />}
         {goc === "/so-bao" && <SoBaoPage />}
         {goc === "/phat-hanh" && <PhatHanhPage />}
+        {goc === "/gay-quy" && <GayQuyPage />}
         {goc === "/thong-diep" && <ThongDiepPage />}
         {goc === "/job" && <JobPage />}
         {goc === "/ho-so" && <HoSoPage />}
