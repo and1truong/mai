@@ -19,7 +19,7 @@ import {
   type ThongDiep,
 } from "../content/index.ts";
 import { danhSachDoiTuong, type HoSoDoiTuong } from "../context/index.ts";
-import { thongDiepChuDe } from "../so_bao/index.ts";
+import { khoaMucLuc, thongDiepChuDe } from "../so_bao/index.ts";
 
 // Module phát hành (#9): một bản phát hành phần mềm B2B = một campaign
 // loai 'phat_hanh' gắn phiên bản, ngày, định vị đã duyệt, giới hạn
@@ -63,7 +63,9 @@ export function laPhatHanh(cp: Campaign | null | undefined): boolean {
 
 const RE_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const LOAI_GIOI_HAN = ["", "goi", "vung", "kha_dung"];
-const LOAI_CTA = ["", "tai_lieu", "nang_cap", "ho_tro"];
+// 'quyen_gop' = link quyên góp của campaign gây quỹ (#10) — trỏ đích
+// ngoài do tổ chức cung cấp, đầu ra phải hiện link cuối trước khi duyệt.
+const LOAI_CTA = ["", "tai_lieu", "nang_cap", "ho_tro", "quyen_gop"];
 const DAI_TOI_DA = { tinh_nang: 200, mo_ta: 500, nhan: 200, url: 500, fact: 2000 };
 
 // Đọc mảng giới hạn từ body — undefined = không gửi (PUT partial giữ giá
@@ -134,7 +136,7 @@ export function kiemTraCta(v: unknown, dsLoi: string[]): CtaLienKet[] | undefine
     if (url.length > DAI_TOI_DA.url) dsLoi.push(`cta[${i}].url vượt ${DAI_TOI_DA.url} ký tự.`);
     const loai = typeof c.loai === "string" ? c.loai.trim() : "";
     if (!LOAI_CTA.includes(loai)) {
-      dsLoi.push(`cta[${i}].loai '${loai}' không hợp lệ. Cho phép: tai_lieu, nang_cap, ho_tro hoặc để trống.`);
+      dsLoi.push(`cta[${i}].loai '${loai}' không hợp lệ. Cho phép: tai_lieu, nang_cap, ho_tro, quyen_gop hoặc để trống.`);
     }
     ds.push({ id, nhan, loai, url });
   }
@@ -582,10 +584,8 @@ export function goiYPhatHanh(db: Database, cp: Campaign): GoiYPhatHanh[] {
     });
   }
   const deXuat = deXuatDauRaPhatHanh(db, cp);
-  const daCo = new Set(cp.muc_luc.map((m) => `${m.dinh_dang}|${m.doi_tuong_id ?? ""}|${m.dich_den}`));
-  const thieu = deXuat.filter(
-    (d) => !daCo.has(`${d.dinh_dang}|${d.doi_tuong_id ?? ""}|${d.dich_den}`),
-  );
+  const daCo = new Set(cp.muc_luc.map(khoaMucLuc));
+  const thieu = deXuat.filter((d) => !daCo.has(khoaMucLuc(d)));
   for (const d of thieu) {
     ds.push({
       id: `goi-y-dau-ra-${d.id}`,
