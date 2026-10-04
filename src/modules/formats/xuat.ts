@@ -20,7 +20,9 @@ import { taoZip, type TepZip } from "./zip.ts";
 
 const CSS = `body{font-family:system-ui,sans-serif;max-width:46rem;margin:2rem auto;padding:0 1rem;line-height:1.55;color:#1a1a1a}h1{font-size:1.6rem}h2{font-size:1.15rem;margin-top:1.6rem}ol,ul{padding-left:1.5rem}blockquote{border-left:3px solid #ccc;margin:0;padding:.2rem 1rem;color:#555}code{background:#f3f3f3;padding:.1rem .3rem;border-radius:4px}hr{border:none;border-top:1px solid #ddd}`;
 
-function docHtmlDayDu(def: { nhan: string }, html: string, tieuDe: string): string {
+// Khung HTML đầy đủ dùng chung cho bundle export (#19) và trang /p do server
+// phục vụ (#6) — cùng một renderer, không hai cách trình bày.
+export function docHtmlDayDu(def: { nhan: string }, html: string, tieuDe: string): string {
   const escape = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   return [
     "<!doctype html>",

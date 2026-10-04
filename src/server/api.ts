@@ -708,10 +708,56 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
     route("GET", "/api/thong-diep/:id", (_req, p, c) => {
       const td = layThongDiep(c.db, p.id!);
       if (!td) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy thông điệp.");
+      const nguonIds = danhSachNguonCuaThongDiep(c.db, td.id);
+      const dsNguon = nguonIds
+        .map((id) => layNguon(c.db, id))
+        .filter((n): n is NonNullable<typeof n> => n !== null)
+        .map((n) => ({ id: n.id, tieu_de: n.tieu_de }));
+      // Kế hoạch gắn thông điệp này (nếu đi qua luồng #5) — link quay lại.
+      const kh = c.db
+        .query(
+          "SELECT id, trang_thai FROM ke_hoach WHERE thong_diep_id = ? ORDER BY cap_nhat_luc DESC LIMIT 1",
+        )
+        .get(td.id) as { id: string; trang_thai: string } | null;
+      // Mọi đầu ra dưới một thông điệp (#6): nhãn định dạng, trạng thái
+      // review, cờ "đã cũ" (revision ghim thông điệp lệch head), nháp tay,
+      // record xuất bản mới nhất → URL trang do server phục vụ + dòng
+      // nguồn đã ghim theo chuỗi revision.
+      const dsDauRa = danhSachBanTheHien(c.db, { thongDiepId: td.id }).map((b) => {
+        const def = layDinhDang(b.dinh_dang);
+        const headRev = b.head_revision_id ? layRevision(c.db, b.head_revision_id) : null;
+        const tdRev = headRev?.thong_diep_revision_id
+          ? layThongDiepRevision(c.db, headRev.thong_diep_revision_id)
+          : null;
+        const dsNguonRev = (tdRev?.nguon_revision_ids ?? [])
+          .map((id) => layNguonRevision(c.db, id))
+          .filter((n): n is NonNullable<typeof n> => n !== null)
+          .map((n) => ({ id: n.id, nguon_id: n.nguon_id, tieu_de: n.tieu_de, so_thu_tu: n.so_thu_tu }));
+        const dsXb = danhSachXuatBan(c.db, b.id);
+        const xbMoi = dsXb[0] ?? null;
+        return {
+          ...b,
+          dinh_dang_nhan: def?.nhan ?? b.dinh_dang,
+          head_revision_so: headRev?.so_thu_tu ?? null,
+          la_cu:
+            headRev?.thong_diep_revision_id != null &&
+            headRev.thong_diep_revision_id !== td.head_revision_id,
+          co_nhap: layNhapSoan(c.db, b.id, c.actor) !== null,
+          so_xuat_ban: dsXb.length,
+          xuat_ban_moi_nhat: xbMoi
+            ? { id: xbMoi.id, dich_den: xbMoi.dich_den, tao_luc: xbMoi.tao_luc }
+            : null,
+          url_trang: xbMoi ? `/p/${b.id}` : null,
+          nguon: dsNguonRev,
+        };
+      });
       return ok({
         ...td,
         campaign: td.campaign_id ? layCampaign(c.db, td.campaign_id) : null,
-        nguon_ids: danhSachNguonCuaThongDiep(c.db, td.id),
+        nguon_ids: nguonIds,
+        ds_nguon: dsNguon,
+        ke_hoach: kh,
+        ds_dau_ra: dsDauRa,
         revisions: danhSachThongDiepRevision(c.db, td.id),
       });
     }),

@@ -41,6 +41,9 @@ export type DauRaDeXuat = {
   doi_tuong_id: string | null;
   dinh_dang: string;
   ngon_ngu: string;
+  // Kênh đích tự do (vd "linkedin", "youtube") — hai đầu ra cùng định
+  // dạng vẫn tách nhau khi đích khác nhau (#6: ba script video ngắn).
+  dich_den?: string;
 };
 
 export type KeHoach = {
@@ -235,7 +238,7 @@ export function chonDauRa(
     // Lọc lựa chọn trùng ngay đầu — response không đếm hai lần cùng đầu ra.
     const daCo = new Set<string>();
     dsChon = dsChon.filter((c) => {
-      const k = `${c.doi_tuong_id ?? ""}|${c.dinh_dang}|${c.ngon_ngu ?? ""}`;
+      const k = `${c.doi_tuong_id ?? ""}|${c.dinh_dang}|${c.ngon_ngu ?? ""}|${c.dich_den ?? ""}`;
       if (daCo.has(k)) return false;
       daCo.add(k);
       return true;
@@ -252,6 +255,11 @@ export function chonDauRa(
       if (chon.doi_tuong_id && !layDoiTuong(db, chon.doi_tuong_id)) {
         dsLoi.push(`ds_chon[${i}].doi_tuong_id '${chon.doi_tuong_id}' không tồn tại.`);
       }
+      if (chon.dich_den !== undefined && typeof chon.dich_den !== "string") {
+        dsLoi.push(`ds_chon[${i}].dich_den phải là chuỗi.`);
+      } else if ((chon.dich_den ?? "").length > 120) {
+        dsLoi.push(`ds_chon[${i}].dich_den quá dài (tối đa 120 ký tự).`);
+      }
     }
     if (dsLoi.length > 0) throw new LoiApi(400, "VALIDATION", "ds_chon không hợp lệ.", dsLoi);
 
@@ -265,6 +273,7 @@ export function chonDauRa(
         dinh_dang: chon.dinh_dang,
         ngon_ngu: chon.ngon_ngu || "vi",
         doi_tuong: dtTen(chon.doi_tuong_id),
+        dich_den: (chon.dich_den ?? "").trim(),
       };
       const bth = timBanTheHien(db, khoa) ?? taoBanTheHien(db, khoa, tacGia);
       dsBth.push(bth);
@@ -277,6 +286,11 @@ export function chonDauRa(
           dinh_dang: chon.dinh_dang,
           ngon_ngu: khoa.ngon_ngu,
           doi_tuong: dtTen(chon.doi_tuong_id) || undefined,
+          // Hồ sơ đối tượng đi vào context sinh (#6) — bản kỹ sư/lãnh đạo
+          // khác nhau ở hồ sơ, không chỉ ở nhãn. dich_den giữ cho job và
+          // bản thể hiện cùng một kênh đích (vd ba script video ngắn).
+          doi_tuong_id: chon.doi_tuong_id ?? undefined,
+          dich_den: khoa.dich_den || undefined,
         },
         entityLoai: "ban_the_hien",
         entityId: bth.id,
