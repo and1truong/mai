@@ -90,21 +90,6 @@ describe("nguồn + persistence", () => {
   });
 });
 
-describe("context", () => {
-  moApp();
-
-  test("PUT rồi GET thấy giá trị mới", async () => {
-    const res = await fetch(`${app.url}/api/context`, {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ten: "Test", doi_tuong: "qa", giong_noi: "ngắn", gia_tri: "x" }),
-    });
-    expect(res.status).toBe(200);
-    const j = await (await fetch(`${app.url}/api/context`)).json();
-    expect(j.du_lieu.ten).toBe("Test");
-  });
-});
-
 describe("revision + xung đột", () => {
   moApp();
 

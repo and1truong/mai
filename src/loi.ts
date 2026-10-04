@@ -30,6 +30,27 @@ export function tuyChonChuoi(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
+// Chuỗi (mỗi dòng hoặc phẩy một mục) hoặc mảng → mảng chuỗi đã trim, bỏ rỗng.
+export function tuyChonMangChuoi(v: unknown): string[] {
+  if (Array.isArray(v)) {
+    return v.map((x) => String(x).trim()).filter(Boolean);
+  }
+  if (typeof v === "string") {
+    return v
+      .split(/\n|,/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+// Object không phải mảng → giữ nguyên; còn lại → {}.
+export function tuyChonObject(v: unknown): Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v)
+    ? (v as Record<string, unknown>)
+    : {};
+}
+
 export function nemLoiValidation(dsLoi: string[]): void {
   if (dsLoi.length > 0) {
     loiRequest(400, "VALIDATION", "Dữ liệu không hợp lệ.", dsLoi);

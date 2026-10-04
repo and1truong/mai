@@ -31,6 +31,7 @@ export type Revision = {
   so_thu_tu: number;
   noi_dung: string;
   dua_tren_revision_id: string | null;
+  context_sinh_id: string | null;
   tao_luc: string;
   tao_boi: string;
 };
@@ -106,7 +107,13 @@ export function danhSachRevision(db: Database, banTheHienId: string): Revision[]
 // Khác với head hiện tại → 409 XUNG_DOT_REVISION.
 export function themRevision(
   db: Database,
-  input: { ban_the_hien_id: string; noi_dung: string; dua_tren_revision_id: string | null },
+  input: {
+    ban_the_hien_id: string;
+    noi_dung: string;
+    dua_tren_revision_id: string | null;
+    // Context sinh đã dùng khi tạo revision này (job sinh ghi; nhập tay = null).
+    context_sinh_id?: string | null;
+  },
   tacGia: string,
 ): Revision {
   const bth = layBanTheHien(db, input.ban_the_hien_id);
@@ -128,8 +135,8 @@ export function themRevision(
   db.exec("BEGIN IMMEDIATE");
   try {
     db.query(
-      "INSERT INTO revision (id, ban_the_hien_id, so_thu_tu, noi_dung, dua_tren_revision_id, tao_luc, tao_boi) VALUES (?, ?, ?, ?, ?, ?, ?)",
-    ).run(id, input.ban_the_hien_id, soTiep, input.noi_dung, duaTren, ts, tacGia);
+      "INSERT INTO revision (id, ban_the_hien_id, so_thu_tu, noi_dung, dua_tren_revision_id, context_sinh_id, tao_luc, tao_boi) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(id, input.ban_the_hien_id, soTiep, input.noi_dung, duaTren, input.context_sinh_id ?? null, ts, tacGia);
     db.query("UPDATE ban_the_hien SET head_revision_id = ? WHERE id = ?").run(
       id,
       input.ban_the_hien_id,
