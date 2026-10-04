@@ -2,7 +2,7 @@ import { Badge, Button, Callout, Card, Checkbox, Flex, Grid, Heading, Table, Tex
 import { useEffect, useState } from "react";
 import { api, fmtLuc, LoiApiClient, useApi } from "../api.ts";
 import { TrangThai } from "../components/TrangThai.tsx";
-import type { BanTheHien, Revision } from "../../modules/content/index.ts";
+import type { BanTheHien, Revision, XuatBan } from "../../modules/content/index.ts";
 import type { ContextSinhSnapshot } from "../../modules/context/index.ts";
 import type { Asset } from "../../modules/nap/index.ts";
 
@@ -17,7 +17,23 @@ type ContextSinhDaDoc = {
 };
 
 type RevisionKemContext = Revision & { context_sinh: ContextSinhDaDoc | null };
-type ChiTiet = BanTheHien & { revisions: RevisionKemContext[]; assets: Asset[] };
+type ChiTiet = BanTheHien & {
+  revisions: RevisionKemContext[];
+  assets: Asset[];
+  ds_xuat_ban: XuatBan[];
+};
+
+// Kết quả GET /api/ban-the-hien/:id/xem-truoc (#19): nội dung đã render
+// sang markdown/text/HTML an toàn + lỗi field theo schema định dạng.
+type KetQuaXemTruoc = {
+  revision_id: string | null;
+  dinh_dang: string;
+  phien_ban_dinh_dang: number;
+  html: string;
+  markdown: string;
+  text: string;
+  ds_loi: { truong: string; loi: string }[];
+};
 
 function moTaContextSinh(cs: ContextSinhDaDoc): string {
   const th = cs.snapshot.thuong_hieu?.ten ?? "—";
@@ -41,6 +57,21 @@ export default function BanTheHienPage() {
   const [dangGui, setDangGui] = useState(false);
   const dsAsset = useApi<Asset[]>("/api/assets");
   const [dsAssetChon, setDsAssetChon] = useState<string[]>([]);
+  const [xemTruoc, setXemTruoc] = useState<{ revId: string; kq: KetQuaXemTruoc } | null>(null);
+  const [dsCanhBao, setDsCanhBao] = useState<string[]>([]);
+
+  async function taiXemTruoc(revisionId: string) {
+    if (!chiTiet.data) return;
+    setDsLoi([]);
+    try {
+      const kq = await api<KetQuaXemTruoc>(
+        `/api/ban-the-hien/${chiTiet.data.id}/xem-truoc?revision_id=${revisionId}`,
+      );
+      setXemTruoc({ revId: revisionId, kq });
+    } catch (e) {
+      setDsLoi([e instanceof LoiApiClient ? `${e.ma}: ${e.message}` : String(e)]);
+    }
+  }
 
   // Đồng bộ checkbox với danh sách asset đang đính kèm mỗi khi đổi bản thể
   // hiện hoặc khi server trả tập asset khác (reload, client khác sửa).
@@ -54,14 +85,19 @@ export default function BanTheHienPage() {
     setDangGui(true);
     setDsLoi([]);
     try {
-      await api(`/api/ban-the-hien/${chiTiet.data.id}/revision`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          noi_dung: noiDung,
-          dua_tren_revision_id: chiTiet.data.head_revision_id,
-        }),
-      });
+      const rev = await api<Revision & { ds_loi_dinh_dang?: { truong: string; loi: string }[] }>(
+        `/api/ban-the-hien/${chiTiet.data.id}/revision`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            noi_dung: noiDung,
+            dua_tren_revision_id: chiTiet.data.head_revision_id,
+          }),
+        },
+      );
+      // Lỗi field định dạng từ server → cảnh báo để sửa, không chặn lưu (#19).
+      setDsCanhBao(rev.ds_loi_dinh_dang?.map((l) => `${l.truong}: ${l.loi}`) ?? []);
       setNoiDung("");
       chiTiet.reload();
       ds.reload();
@@ -96,6 +132,8 @@ export default function BanTheHienPage() {
                   onClick={() => {
                     setChon(b.id);
                     setDsLoi([]);
+                    setDsCanhBao([]);
+                    setXemTruoc(null);
                   }}
                   style={{ cursor: "pointer", background: chon === b.id ? "var(--accent-3)" : undefined }}
                 >
@@ -141,6 +179,48 @@ export default function BanTheHienPage() {
                       <pre style={{ whiteSpace: "pre-wrap", margin: "8px 0 0", fontSize: 13 }}>
                         {r.noi_dung}
                       </pre>
+                      <Flex justify="end" mt="2">
+                        <Button
+                          variant="soft"
+                          size="1"
+                          onClick={() =>
+                            xemTruoc?.revId === r.id ? setXemTruoc(null) : taiXemTruoc(r.id)
+                          }
+                        >
+                          {xemTruoc?.revId === r.id ? "Đóng xem trước" : "Xem trước"}
+                        </Button>
+                      </Flex>
+                      {xemTruoc?.revId === r.id && (
+                        <Flex direction="column" gap="2" mt="2">
+                          {xemTruoc.kq.ds_loi.length > 0 && (
+                            <Callout.Root color="amber" size="1">
+                              {xemTruoc.kq.ds_loi.map((l, i) => (
+                                <Callout.Text key={i}>
+                                  {l.truong}: {l.loi}
+                                </Callout.Text>
+                              ))}
+                            </Callout.Root>
+                          )}
+                          <div
+                            style={{
+                              border: "1px solid var(--gray-5)",
+                              borderRadius: 8,
+                              padding: "8px 12px",
+                            }}
+                            // HTML đã escape + whitelist từ renderer server (#19).
+                            dangerouslySetInnerHTML={{ __html: xemTruoc.kq.html }}
+                          />
+                          <details>
+                            <summary>Markdown / text</summary>
+                            <pre style={{ whiteSpace: "pre-wrap", fontSize: 12 }}>
+                              {xemTruoc.kq.markdown}
+                            </pre>
+                            <pre style={{ whiteSpace: "pre-wrap", fontSize: 12 }}>
+                              {xemTruoc.kq.text}
+                            </pre>
+                          </details>
+                        </Flex>
+                      )}
                     </Card>
                   ))}
                   <Text size="2" weight="bold">
@@ -199,6 +279,39 @@ export default function BanTheHienPage() {
                       Lưu đính kèm
                     </Button>
                   </Flex>
+                  {(chiTiet.data.ds_xuat_ban ?? []).length > 0 && (
+                    <>
+                      <Text size="2" weight="bold">
+                        Bản đã xuất bản
+                      </Text>
+                      {chiTiet.data.ds_xuat_ban.map((x) => (
+                        <Flex key={x.id} align="center" gap="2">
+                          <Text size="2" style={{ flex: 1 }}>
+                            {x.dich_den || "—"} — {fmtLuc(x.tao_luc)}
+                          </Text>
+                          <Button
+                            variant="soft"
+                            size="1"
+                            onClick={() =>
+                              window.open(
+                                `/api/ban-the-hien/${chiTiet.data!.id}/xuat-ban/${x.id}/tai-ve`,
+                                "_blank",
+                              )
+                            }
+                          >
+                            Tải bundle
+                          </Button>
+                        </Flex>
+                      ))}
+                    </>
+                  )}
+                  {dsCanhBao.length > 0 && (
+                    <Callout.Root color="amber">
+                      {dsCanhBao.map((l, i) => (
+                        <Callout.Text key={i}>{l}</Callout.Text>
+                      ))}
+                    </Callout.Root>
+                  )}
                   <Text size="2" weight="bold">
                     Thêm revision
                   </Text>

@@ -374,7 +374,7 @@ describe("API job", () => {
       // Lên lịch xa để job ở 'cho' — tránh race với runner trong test.
       const res = await post(app, "/api/job", {
         loai: "sinh_ban_the_hien",
-        payload: { thong_diep_id: "seed-td-1", dinh_dang: "mang-xa-hoi" },
+        payload: { thong_diep_id: "seed-td-1", dinh_dang: "caption" },
         chay_som_nhat: new Date(Date.now() + 60_000).toISOString(),
       });
       expect(res.status).toBe(201);
@@ -389,7 +389,7 @@ describe("API job", () => {
       // Enqueue lặp trong khi job còn sống → cùng job logic, không tạo thêm.
       const res2 = await post(app, "/api/job", {
         loai: "sinh_ban_the_hien",
-        payload: { thong_diep_id: "seed-td-1", dinh_dang: "mang-xa-hoi" },
+        payload: { thong_diep_id: "seed-td-1", dinh_dang: "caption" },
       });
       expect(res2.status).toBe(200);
       const job2 = (await res2.json()).du_lieu;
@@ -401,7 +401,7 @@ describe("API job", () => {
       expect(huy.status).toBe(200);
       const res3 = await post(app, "/api/job", {
         loai: "sinh_ban_the_hien",
-        payload: { thong_diep_id: "seed-td-1", dinh_dang: "mang-xa-hoi" },
+        payload: { thong_diep_id: "seed-td-1", dinh_dang: "caption" },
       });
       expect(res3.status).toBe(201);
       const job3 = (await res3.json()).du_lieu;
@@ -425,7 +425,7 @@ describe("API job", () => {
       // doi_tuong "chung" khớp danh tính của seed-bth-1 → job ghim đúng bản đó.
       const res = await post(app, "/api/job", {
         loai: "sinh_ban_the_hien",
-        payload: { thong_diep_id: "seed-td-1", dinh_dang: "web", doi_tuong: "chung" },
+        payload: { thong_diep_id: "seed-td-1", dinh_dang: "bai-viet", doi_tuong: "chung" },
         chay_som_nhat: new Date(Date.now() + 300).toISOString(),
         mui_gio: "Asia/Ho_Chi_Minh",
       });
@@ -477,7 +477,7 @@ describe("API job", () => {
       seed(app.db);
       const res = await post(app, "/api/job", {
         loai: "sinh_ban_the_hien",
-        payload: { thong_diep_id: "seed-td-1", dinh_dang: "web" },
+        payload: { thong_diep_id: "seed-td-1", dinh_dang: "bai-viet" },
       });
       const { du_lieu: job } = await res.json();
       // Chờ job xong.
@@ -515,7 +515,7 @@ describe("API job", () => {
       const gui = (extra: Record<string, unknown>) =>
         post(app, "/api/job", {
           loai: "sinh_ban_the_hien",
-          payload: { thong_diep_id: "seed-td-1", dinh_dang: "web" },
+          payload: { thong_diep_id: "seed-td-1", dinh_dang: "bai-viet" },
           ...extra,
         });
       expect((await gui({ chay_som_nhat: "khong-phai-ngay" })).status).toBe(400);

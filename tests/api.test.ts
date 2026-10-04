@@ -249,7 +249,7 @@ describe("ràng buộc unique danh tính đầu ra", () => {
         .query(
           `INSERT INTO ban_the_hien
              (id, thong_diep_id, dinh_dang, ngon_ngu, phien_ban_dinh_dang, doi_tuong, dich_den, trang_thai, head_revision_id, tao_luc, tao_boi)
-           VALUES ('trung', 'seed-td-1', 'web', 'vi', 1, 'chung', '', 'nhap', NULL, 'x', 'demo')`,
+           VALUES ('trung', 'seed-td-1', 'bai-viet', 'vi', 1, 'chung', '', 'nhap', NULL, 'x', 'demo')`,
         )
         .run(),
     ).toThrow();

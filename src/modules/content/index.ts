@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { LoiApi, loiRequest } from "../../loi.ts";
 import { DANH_SACH_TRANG_THAI, chuyenHopLe, laTrangThai } from "../review/index.ts";
 import type { GhiDeCampaign } from "../context/index.ts";
+import { layDinhDang } from "../formats/index.ts";
 
 // Module nội dung: contract dữ liệu dùng chung cho mọi story MAI.
 //
@@ -726,6 +727,9 @@ export function taoBanTheHien(
       loiRequest(400, "VALIDATION", `Thông điệp không tồn tại: ${input.thong_diep_id}`);
     }
     const id = tuyChon.id ?? crypto.randomUUID();
+    // Bản thể hiện ghim phiên bản định dạng lúc tạo — renderer đổi sau này
+    // vẫn truy về được schema đã dùng (#19).
+    const phienBan = input.phien_ban_dinh_dang ?? layDinhDang(input.dinh_dang)?.phien_ban ?? 1;
     db.query(
       `INSERT INTO ban_the_hien
          (id, thong_diep_id, dinh_dang, ngon_ngu, phien_ban_dinh_dang, doi_tuong, dich_den, trang_thai, head_revision_id, tao_luc, tao_boi)
@@ -735,7 +739,7 @@ export function taoBanTheHien(
       input.thong_diep_id,
       input.dinh_dang,
       input.ngon_ngu ?? "vi",
-      input.phien_ban_dinh_dang ?? 1,
+      phienBan,
       input.doi_tuong ?? "",
       input.dich_den ?? "",
       bayGio(),
@@ -1013,7 +1017,7 @@ export function nhapBaiViet(
       },
       tacGia,
     );
-    const dsOut = input.ds_ban_the_hien ?? [{ dinh_dang: "web" }];
+    const dsOut = input.ds_ban_the_hien ?? [{ dinh_dang: "bai-viet" }];
     const dsBth: BanTheHien[] = [];
     for (const o of dsOut) {
       // Dedupe theo danh tính đầu ra: intake lặp cùng bộ không tạo trùng.

@@ -42,7 +42,7 @@ describe("contract dữ liệu nội dung (#4)", () => {
           { loai: "section", tieu_de: "Mở đầu", noi_dung: "Đoạn một." },
         ],
         ds_ban_the_hien: [
-          { dinh_dang: "web" },
+          { dinh_dang: "bai-viet" },
           { dinh_dang: "newsletter", doi_tuong: "Kỹ sư", dich_den: "email" },
         ],
       });
@@ -76,7 +76,7 @@ describe("contract dữ liệu nội dung (#4)", () => {
       // Dedupe danh tính đầu ra: POST lại cùng bộ → trả bản ghi cũ.
       const lai = await post(app, "/api/ban-the-hien", {
         thong_diep_id: du_lieu.thong_diep.id,
-        dinh_dang: "web",
+        dinh_dang: "bai-viet",
       });
       expect(lai.status).toBe(200);
       expect((await lai.json()).du_lieu.da_tao).toBe(false);
@@ -174,7 +174,7 @@ describe("contract dữ liệu nội dung (#4)", () => {
       const tao = await post(app, "/api/bai-viet", {
         tieu_de: "Bài duyệt",
         noi_dung: "nội dung",
-        ds_ban_the_hien: [{ dinh_dang: "web" }],
+        ds_ban_the_hien: [{ dinh_dang: "bai-viet" }],
       });
       const bthId = (await tao.json()).du_lieu.ds_ban_the_hien[0].id;
 

@@ -31,6 +31,7 @@ import {
   layCampaign,
   layNguon,
   layNguonRevision,
+  layRevision,
   layThongDiep,
   layThongDiepRevision,
   nhapBaiViet,
@@ -70,7 +71,17 @@ import {
   type NguonDuLieu,
   type NhapThuatNgu,
 } from "../modules/context/index.ts";
-import { DANH_SACH_DINH_DANG, laDinhDang } from "../modules/formats/index.ts";
+import {
+  DANH_SACH_DINH_DANG,
+  danhSachDinhDang,
+  kiemTraNoiDung,
+  kiemTraNgonNgu,
+  layDinhDang,
+  renderHtml,
+  renderMarkdown,
+  renderText,
+} from "../modules/formats/index.ts";
+import { taoBundleXuatBan } from "../modules/formats/xuat.ts";
 import {
   capNhatVanBan,
   danhSachAsset,
@@ -309,15 +320,22 @@ function docDsDauRa(v: unknown, dsLoi: string[]): Omit<NhapBanTheHien, "thong_di
     }
     const d = dong as Record<string, unknown>;
     const dinhDang = tuyChonChuoi(d.dinh_dang);
-    if (!dinhDang || !laDinhDang(dinhDang)) {
+    const def = dinhDang ? layDinhDang(dinhDang) : undefined;
+    if (!def) {
       dsLoi.push(
         `ds_ban_the_hien[${i}].dinh_dang không hợp lệ. Cho phép: ${DANH_SACH_DINH_DANG.join(", ")}.`,
       );
       continue;
     }
+    const ngonNgu = tuyChonChuoi(d.ngon_ngu) || undefined;
+    const loiNg = kiemTraNgonNgu(def, ngonNgu);
+    if (loiNg) {
+      dsLoi.push(`ds_ban_the_hien[${i}].ngon_ngu: ${loiNg}`);
+      continue;
+    }
     ds.push({
       dinh_dang: dinhDang,
-      ngon_ngu: tuyChonChuoi(d.ngon_ngu) || undefined,
+      ngon_ngu: ngonNgu,
       doi_tuong: tuyChonChuoi(d.doi_tuong) || undefined,
       dich_den: tuyChonChuoi(d.dich_den) || undefined,
     });
@@ -748,14 +766,18 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       const dsLoi: string[] = [];
       const thongDiepId = batBuocChuoi(body.thong_diep_id, "thong_diep_id", dsLoi);
       const dinhDang = batBuocChuoi(body.dinh_dang, "dinh_dang", dsLoi);
-      if (dinhDang && !laDinhDang(dinhDang)) {
+      const def = dinhDang ? layDinhDang(dinhDang) : undefined;
+      if (dinhDang && !def) {
         dsLoi.push(`dinh_dang không hợp lệ. Cho phép: ${DANH_SACH_DINH_DANG.join(", ")}.`);
       }
+      const ngonNgu = tuyChonChuoi(body.ngon_ngu) || "vi";
+      const loiNg = def ? kiemTraNgonNgu(def, ngonNgu) : null;
+      if (loiNg) dsLoi.push(loiNg);
       nemLoiValidation(dsLoi);
       const khoa = {
         thong_diep_id: thongDiepId,
         dinh_dang: dinhDang,
-        ngon_ngu: tuyChonChuoi(body.ngon_ngu) || "vi",
+        ngon_ngu: ngonNgu,
         doi_tuong: tuyChonChuoi(body.doi_tuong),
         dich_den: tuyChonChuoi(body.dich_den),
       };
@@ -799,8 +821,18 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       const noiDung = batBuocChuoi(body.noi_dung, "noi_dung", dsLoi);
       nemLoiValidation(dsLoi);
       const duaTren = tuyChonChuoi(body.dua_tren_revision_id) || null;
+      const rev = themRevision(
+        c.db,
+        { ban_the_hien_id: p.id!, noi_dung: noiDung, dua_tren_revision_id: duaTren },
+        c.actor,
+      );
+      // Trả kèm lỗi field theo schema định dạng để UI báo chỗ cần sửa ngay
+      // (#19): vi phạm required/độ dài → feedback cụ thể. Content vẫn lưu;
+      // lỗi chỉ là cảnh báo để sửa/duyệt.
+      const bth = layBanTheHien(c.db, p.id!);
+      const def = bth ? layDinhDang(bth.dinh_dang) : undefined;
       return ok(
-        themRevision(c.db, { ban_the_hien_id: p.id!, noi_dung: noiDung, dua_tren_revision_id: duaTren }, c.actor),
+        { ...rev, ds_loi_dinh_dang: def ? kiemTraNoiDung(def, rev.noi_dung) : [] },
         201,
       );
     }),
@@ -859,6 +891,60 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       return ok(danhSachXuatBan(c.db, bth.id));
     }),
 
+    // Xem trước (#19): render revision đã ghim (mặc định head) sang
+    // markdown/text/HTML an toàn theo schema định dạng, kèm ds_loi field
+    // để sửa trước khi duyệt. Không gọi provider, không sửa nội dung.
+    route("GET", "/api/ban-the-hien/:id/xem-truoc", (req, p, c) => {
+      const bth = layBanTheHien(c.db, p.id!);
+      if (!bth) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy bản thể hiện.");
+      const def = layDinhDang(bth.dinh_dang);
+      if (!def) {
+        loiRequest(500, "LOI_CAU_HINH", `Định dạng '${bth.dinh_dang}' không còn trong registry.`);
+      }
+      const revisionId = new URL(req.url).searchParams.get("revision_id") || bth.head_revision_id;
+      if (!revisionId) {
+        return ok({
+          revision_id: null,
+          dinh_dang: def.id,
+          phien_ban_dinh_dang: def.phien_ban,
+          html: "",
+          markdown: "",
+          text: "",
+          ds_loi: [],
+        });
+      }
+      const rev = layRevision(c.db, revisionId);
+      if (!rev || rev.ban_the_hien_id !== bth.id) {
+        loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy revision của bản thể hiện.");
+      }
+      return ok({
+        revision_id: rev.id,
+        dinh_dang: def.id,
+        phien_ban_dinh_dang: def.phien_ban,
+        html: renderHtml(def, rev.noi_dung),
+        markdown: renderMarkdown(def, rev.noi_dung),
+        text: renderText(def, rev.noi_dung),
+        ds_loi: kiemTraNoiDung(def, rev.noi_dung),
+      });
+    }),
+
+    // Tải bundle export deterministic của một record xuất bản (#19):
+    // render đúng revision đã ghim tại lúc đăng + manifest dòng nguồn +
+    // chỉ asset được chọn tường minh.
+    route("GET", "/api/ban-the-hien/:id/xuat-ban/:xbId/tai-ve", async (_req, p, c) => {
+      const bth = layBanTheHien(c.db, p.id!);
+      if (!bth) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy bản thể hiện.");
+      const xb = danhSachXuatBan(c.db, bth.id).find((x) => x.id === p.xbId);
+      if (!xb) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy bản xuất bản.");
+      const { tenFile, byte } = await taoBundleXuatBan(c.db, bth, xb, kho);
+      return new Response(new Blob([byte]), {
+        headers: {
+          "content-type": "application/zip",
+          "content-disposition": `attachment; filename="${tenFile}"`,
+        },
+      });
+    }),
+
     // --- Sự kiện mutation nhẹ ---
     route("GET", "/api/su-kien", (req, _p, c) => {
       const url = new URL(req.url);
@@ -904,11 +990,14 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       let dichDen = "";
       if (loai === "sinh_ban_the_hien") {
         thongDiepId = batBuocChuoi(payload.thong_diep_id, "payload.thong_diep_id", dsLoi);
-        dinhDang = tuyChonChuoi(payload.dinh_dang) || "web";
-        if (!laDinhDang(dinhDang)) {
+        dinhDang = tuyChonChuoi(payload.dinh_dang) || "bai-viet";
+        const def = layDinhDang(dinhDang);
+        if (!def) {
           dsLoi.push(`payload.dinh_dang không hợp lệ. Cho phép: ${DANH_SACH_DINH_DANG.join(", ")}.`);
         }
         ngonNgu = tuyChonChuoi(payload.ngon_ngu) || "vi";
+        const loiNg = def ? kiemTraNgonNgu(def, ngonNgu) : null;
+        if (loiNg) dsLoi.push(loiNg);
         dichDen = tuyChonChuoi(payload.dich_den);
         if (thongDiepId && !layThongDiep(c.db, thongDiepId)) {
           dsLoi.push("payload.thong_diep_id không tồn tại.");
@@ -1120,7 +1209,13 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
     route("POST", "/api/assets/:id/luu-tru", (_req, p, c) => ok(luuTruAsset(c.db, p.id!, c.actor))),
 
     // --- Danh mục dùng chung cho UI ---
-    route("GET", "/api/dinh-dang", () => ok(DANH_SACH_DINH_DANG)),
+    // Registry định dạng đầy đủ: id + phiên bản + schema trường (#19).
+    route("GET", "/api/dinh-dang", () => ok(danhSachDinhDang())),
+    route("GET", "/api/dinh-dang/:id", (_req, p) => {
+      const def = layDinhDang(p.id!);
+      if (!def) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy định dạng.");
+      return ok(def);
+    }),
   ];
 
   return async (req) => {
