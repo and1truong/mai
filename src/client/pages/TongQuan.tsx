@@ -114,9 +114,10 @@ function FormIntake() {
             placeholder="CTA (tùy chọn)"
             style={{ flex: 1, minWidth: 200 }}
           />
-          <Select.Root value={nguonId} onValueChange={setNguonId}>
+          <Select.Root value={nguonId} onValueChange={(v) => setNguonId(v === "-" ? "" : v)}>
             <Select.Trigger placeholder="Nguồn kèm (tùy chọn)" />
             <Select.Content>
+              <Select.Item value="-">(không kèm nguồn)</Select.Item>
               {(dsNguon.data ?? []).map((n) => (
                 <Select.Item key={n.id} value={n.id}>
                   {n.tieu_de}

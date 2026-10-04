@@ -195,9 +195,10 @@ export function capNhatKeHoach(
     if (input.van_ban !== undefined && !input.van_ban.trim()) {
       loiRequest(400, "VALIDATION", "van_ban không được rỗng — intake không thể hủy lặng.");
     }
-    const vanBan = input.van_ban !== undefined ? input.van_ban : kh.intake;
-    const tieuDe = input.tieu_de !== undefined ? input.tieu_de : td.tieu_de;
-    const cta = input.cta !== undefined ? input.cta : kh.cta;
+    // Trim như POST — không để whitespace thừa tạo revision/intake giả.
+    const vanBan = input.van_ban !== undefined ? input.van_ban.trim() : kh.intake;
+    const tieuDe = input.tieu_de !== undefined ? input.tieu_de.trim() : td.tieu_de;
+    const cta = input.cta !== undefined ? input.cta.trim() : kh.cta;
     const noiDungDoi = vanBan !== kh.intake || tieuDe !== td.tieu_de;
     if (noiDungDoi) {
       capNhatThongDiep(
