@@ -17,9 +17,12 @@ export default function NguonPage() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [dsLoiFile, setDsLoiFile] = useState<string[]>([]);
   const [dangTai, setDangTai] = useState(false);
+  // Khóa idem giữ nguyên suốt một lần điền form — retry/double-click không
+  // tạo nguồn trùng; reset sau khi gửi thành công.
+  const khoaRef = useRef<string>(`ui-${crypto.randomUUID()}`);
 
   // Dán text → endpoint nạp (#17): tự chuẩn hóa cac_muc, khoa_idem chặn
-  // double-click tạo nguồn trùng.
+  // retry tạo nguồn trùng.
   async function gui() {
     setDangGui(true);
     setDsLoi([]);
@@ -30,11 +33,12 @@ export default function NguonPage() {
         body: JSON.stringify({
           tieu_de: tieuDe,
           noi_dung: noiDung,
-          khoa_idem: `ui-${crypto.randomUUID()}`,
+          khoa_idem: khoaRef.current,
         }),
       });
       setTieuDe("");
       setNoiDung("");
+      khoaRef.current = `ui-${crypto.randomUUID()}`;
       reload();
     } catch (e) {
       if (e instanceof LoiApiClient) {
@@ -59,7 +63,7 @@ export default function NguonPage() {
     setDsLoiFile([]);
     try {
       await api<KetQuaUpload>(
-        `/api/assets?ten=${encodeURIComponent(tep.name)}&tieu_de=${encodeURIComponent(tieuDe || tep.name)}`,
+        `/api/assets?ten=${encodeURIComponent(tep.name)}&tieu_de=${encodeURIComponent(tieuDe || tep.name)}&khoa_idem=${encodeURIComponent(`file:${tep.name}:${tep.size}:${tep.lastModified}`)}`,
         { method: "POST", body: tep },
       );
       if (fileRef.current) fileRef.current.value = "";

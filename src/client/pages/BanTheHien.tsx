@@ -42,10 +42,12 @@ export default function BanTheHienPage() {
   const dsAsset = useApi<Asset[]>("/api/assets");
   const [dsAssetChon, setDsAssetChon] = useState<string[]>([]);
 
-  // Đồng bộ checkbox với danh sách asset đang đính kèm mỗi khi đổi bản thể hiện.
+  // Đồng bộ checkbox với danh sách asset đang đính kèm mỗi khi đổi bản thể
+  // hiện hoặc khi server trả tập asset khác (reload, client khác sửa).
+  const khoaAssetServer = chiTiet.data?.assets.map((a) => a.id).join(",") ?? "";
   useEffect(() => {
-    setDsAssetChon(chiTiet.data?.assets.map((a) => a.id) ?? []);
-  }, [chiTiet.data?.id]);
+    setDsAssetChon(khoaAssetServer ? khoaAssetServer.split(",") : []);
+  }, [khoaAssetServer]);
 
   async function themRev() {
     if (!chiTiet.data) return;

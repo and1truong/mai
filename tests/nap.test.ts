@@ -216,6 +216,59 @@ describe("API nạp nguồn + asset", () => {
     expect(du_lieu.revision.so_thu_tu).toBe(2);
   });
 
+  test("upload file text lỗi không để lại nguồn/revision", async () => {
+    const truoc = await (await fetch(`${app.url}/api/nguon`)).json();
+    const soTruoc = truoc.du_lieu.length;
+
+    // rỗng → 400; quá 2MB → 413; non-UTF8 → 400 (không phải 500)
+    expect((await upload(app, "ten=rong.txt", "")).status).toBe(400);
+    const lon = new Uint8Array(2 * 1024 * 1024 + 1).fill(97);
+    expect((await upload(app, "ten=lon.txt", lon)).status).toBe(413);
+    expect((await upload(app, "ten=rac.txt", new Uint8Array([0xff, 0xfe, 0x00]))).status).toBe(400);
+
+    const sau = await (await fetch(`${app.url}/api/nguon`)).json();
+    expect(sau.du_lieu.length).toBe(soTruoc);
+  });
+
+  test("re-upload cùng file text không khóa → không tạo nguồn trùng", async () => {
+    const md = "# Trùng\nnội dung trùng";
+    const lan1 = await upload(app, "ten=trung.md", md);
+    const { du_lieu: a1 } = await lan1.json();
+    const lan2 = await upload(app, "ten=trung-2.md", md); // tên khác, cùng byte
+    const { du_lieu: a2 } = await lan2.json();
+    expect(lan2.status).toBe(200);
+    expect(a2.id).toBe(a1.id);
+    expect(a2.nguon.id).toBe(a1.nguon.id); // cùng nguồn đã gắn lần đầu
+  });
+
+  test("GET /api/assets mặc định ẩn asset lưu trữ; ?trang_thai=tat_ca hiện lại", async () => {
+    const up = await upload(app, "ten=sau-nay-luu-tru.png", new Uint8Array([3, 3, 3]));
+    const { du_lieu: asset } = await up.json();
+    await post(app, `/api/assets/${asset.id}/luu-tru`, {});
+
+    const macDinh = await (await fetch(`${app.url}/api/assets`)).json();
+    expect(macDinh.du_lieu.map((a: { id: string }) => a.id)).not.toContain(asset.id);
+    const tatCa = await (await fetch(`${app.url}/api/assets?trang_thai=tat_ca`)).json();
+    expect(tatCa.du_lieu.map((a: { id: string }) => a.id)).toContain(asset.id);
+  });
+
+  test("dua_tren_revision_id cũ + nội dung giống head → 409 XUNG_DOT_REVISION", async () => {
+    const tao = await post(app, "/api/nguon/nhap", { tieu_de: "A", noi_dung: "v1" });
+    const { du_lieu: t } = await tao.json();
+    const nguonId = t.nguon.id;
+    const rev1 = t.revision.id;
+    const up = await post(app, `/api/nguon/${nguonId}/nhap`, { noi_dung: "v2" });
+    expect(up.status).toBe(201);
+
+    // base = rev1 cũ nhưng nội dung trùng head → vẫn phải 409, không no-op 200.
+    const cu = await post(app, `/api/nguon/${nguonId}/nhap`, {
+      noi_dung: "v2",
+      dua_tren_revision_id: rev1,
+    });
+    expect(cu.status).toBe(409);
+    expect((await cu.json()).loi.ma).toBe("XUNG_DOT_REVISION");
+  });
+
   test("đính kèm tường minh → xuất bản snapshot asset_ids; xóa asset được tham chiếu → 409", async () => {
     const up = await upload(app, "ten=san-pham.png", new Uint8Array([5, 5, 5]));
     const { du_lieu: asset } = await up.json();
@@ -246,6 +299,19 @@ describe("API nạp nguồn + asset", () => {
       asset_ids: [asset.id],
     });
     expect(ganLai.status).toBe(400);
+  });
+
+  test("asset nằm trong snapshot xuất bản → gỡ đính kèm vẫn không xóa được", async () => {
+    const up = await upload(app, "ten=snap.png", new Uint8Array([6, 6]));
+    const { du_lieu: asset } = await up.json();
+    await put(app, "/api/ban-the-hien/seed-bth-1/assets", { asset_ids: [asset.id] });
+    const xb = await post(app, "/api/ban-the-hien/seed-bth-1/xuat-ban", {});
+    expect((await xb.json()).du_lieu.asset_ids).toEqual([asset.id]);
+
+    // Gỡ khỏi đính kèm → vẫn còn tham chiếu trong record xuất bản → 409.
+    await put(app, "/api/ban-the-hien/seed-bth-1/assets", { asset_ids: [] });
+    const xoa = await fetch(`${app.url}/api/assets/${asset.id}`, { method: "DELETE" });
+    expect(xoa.status).toBe(409);
   });
 
   test("xóa asset không được tham chiếu → file biến mất", async () => {

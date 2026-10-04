@@ -72,18 +72,19 @@ import {
 } from "../modules/context/index.ts";
 import { DANH_SACH_DINH_DANG, laDinhDang } from "../modules/formats/index.ts";
 import {
-  MIME_ASSET,
   capNhatVanBan,
   danhSachAsset,
   danhSachAssetBanTheHien,
   datAssetBanTheHien,
   dsAssetIdBanTheHien,
   khoByteLocal,
+  kiemTraByteAsset,
   layAsset,
   luuAsset,
   luuTruAsset,
   napVanBan,
   sachTenFile,
+  timAssetTheoChecksum,
   xoaAsset,
 } from "../modules/nap/index.ts";
 import {
@@ -1002,18 +1003,44 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       kiemTraGioiHanBody(req);
       const buf = new Uint8Array(await req.arrayBuffer());
       kiemTraByteDaDoc(buf.byteLength);
+      // Validate TRƯỚC mọi mutation: file hỏng (đuôi lạ/rỗng/quá lớn/không
+      // UTF-8) không được để lại nguồn/revision rỗng.
+      const dinhNghia = kiemTraByteAsset(ten, buf);
       let nguonId = url.searchParams.get("nguon_id") || null;
       const ghiChu = url.searchParams.get("ghi_chu") ?? "";
       const khoaIdem = url.searchParams.get("khoa_idem") || undefined;
 
-      // Văn bản: nạp vào nguồn trước để asset ghi đúng liên kết. Dedupe theo
-      // khoa_idem/checksum nằm trong luuAsset + napVanBan/capNhatVanBan —
-      // khóa revision prefix 'asset:' để không đụng khóa của /api/nguon/nhap.
-      const ext = "." + (ten.split(".").pop() ?? "").toLowerCase();
+      // Retry/đăng lại cùng byte: đã có asset (kể cả khi khóa idem khác) →
+      // không ingest thêm, trả về asset + nguồn đã gắn từ lần trước.
+      const tonTai = timAssetTheoChecksum(c.db, buf);
+      if (tonTai) {
+        const { asset } = await luuAsset(
+          c.db,
+          kho,
+          { tenFile: ten, byte: buf, nguonId, ghiChu, khoaIdem },
+          c.actor,
+        );
+        const nguonCu = asset.nguon_id ? layNguon(c.db, asset.nguon_id) : null;
+        return ok(
+          {
+            ...asset,
+            nguon: nguonCu,
+            revision: nguonCu?.head_revision_id
+              ? layNguonRevision(c.db, nguonCu.head_revision_id)
+              : null,
+            da_tao: false,
+          },
+          200,
+        );
+      }
+
+      // Văn bản: nạp vào nguồn trước để asset ghi đúng liên kết. Dedupe
+      // khoa_idem nằm trong napVanBan/capNhatVanBan — khóa revision prefix
+      // 'asset:' để không đụng khóa của /api/nguon/nhap.
       let nguon: unknown = null;
       let revision: unknown = null;
-      if (MIME_ASSET[ext]?.loai === "van_ban") {
-        const noiDung = new TextDecoder("utf-8", { fatal: true }).decode(buf);
+      if (dinhNghia.loai === "van_ban") {
+        const noiDung = new TextDecoder("utf-8").decode(buf);
         const kq = nguonId
           ? capNhatVanBan(
               c.db,
@@ -1049,7 +1076,7 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
         danhSachAsset(c.db, {
           nguonId: url.searchParams.get("nguon_id") ?? undefined,
           // Mặc định chỉ asset hoạt động; ?trang_thai=tat_ca xem cả lưu trữ.
-          trangThai: !trangThai || trangThai === "tat_ca" ? undefined : trangThai,
+          trangThai: trangThai === "tat_ca" ? undefined : (trangThai ?? "hoat_dong"),
         }),
       );
     }),

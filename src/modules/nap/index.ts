@@ -241,75 +241,109 @@ function sha256Hex(byte: Uint8Array): string {
   return new Bun.CryptoHasher("sha256").update(byte).digest("hex");
 }
 
-// Lưu một file upload: validate đuôi/loại/giới hạn/UTF-8, dedupe theo
-// khoa_idem rồi checksum, ghi byte dưới tên '<id>.<ext>' rồi mới ghi DB —
-// file mồ côi (ghi xong chưa commit) được dọn lúc xóa/dọn thủ công.
-export async function luuAsset(
-  db: Database,
-  kho: KhoByte,
-  input: NhapAsset,
-  tacGia: string,
-): Promise<{ asset: Asset; da_tao: boolean }> {
-  const tenFile = sachTenFile(input.tenFile);
-  const ext = extname(tenFile).toLowerCase();
+export function timAssetTheoChecksum(db: Database, byte: Uint8Array): Asset | null {
+  return (
+    (db
+      .query("SELECT * FROM asset WHERE checksum = ?")
+      .get(sha256Hex(byte)) as Asset | null) ?? null
+  );
+}
+
+// Kiểm tra byte upload trước mọi mutation: đuôi được hỗ trợ, không rỗng,
+// trong giới hạn loại, văn bản decode được UTF-8. Route phải gọi hàm này
+// trước khi ingest để request lỗi không để lại nguồn/revision rỗng.
+export function kiemTraByteAsset(tenFile: string, byte: Uint8Array): {
+  loai: "van_ban" | "hinh_anh";
+  mime: string;
+} {
+  const ext = extname(sachTenFile(tenFile)).toLowerCase();
   const dinhNghia = MIME_ASSET[ext];
   if (!dinhNghia) {
     throw new LoiApi(400, "VALIDATION", "Loại file không hỗ trợ.", [
       `Cho phép: ${DANH_SACH_EXT_ASSET.join(", ")}`,
     ]);
   }
-  const gioiHan = dinhNghia.loai === "van_ban" ? GIOI_HAN_VAN_BAN : GIOI_HAN_HINH_ANH;
-  if (input.byte.byteLength === 0) {
+  if (byte.byteLength === 0) {
     throw new LoiApi(400, "VALIDATION", "File rỗng.");
   }
-  if (input.byte.byteLength > gioiHan) {
+  const gioiHan = dinhNghia.loai === "van_ban" ? GIOI_HAN_VAN_BAN : GIOI_HAN_HINH_ANH;
+  if (byte.byteLength > gioiHan) {
     throw new LoiApi(413, "PAYLOAD_QUA_LON", `File vượt giới hạn ${gioiHan} byte (${dinhNghia.loai}).`);
   }
-  // Văn bản phải decode được UTF-8 — byte rác không lọt vào thư viện text.
   if (dinhNghia.loai === "van_ban") {
     try {
-      new TextDecoder("utf-8", { fatal: true }).decode(input.byte);
+      new TextDecoder("utf-8", { fatal: true }).decode(byte);
     } catch {
       throw new LoiApi(400, "VALIDATION", "File văn bản không phải UTF-8 hợp lệ.");
     }
   }
+  return dinhNghia;
+}
+
+// Lưu một file upload: validate đuôi/loại/giới hạn/UTF-8, dedupe theo
+// khoa_idem rồi checksum, ghi byte dưới tên '<id>.<ext>' rồi mới ghi DB —
+// file mồ côi (ghi xong chưa commit) được dọn lúc xóa/dọn thủ công.
+// Dedupe hit mà request gửi nguon_id mới trong khi asset chưa có liên kết
+// thì gắn liên kết đó — cùng byte không đáng lưu hai lần.
+export async function luuAsset(
+  db: Database,
+  kho: KhoByte,
+  input: NhapAsset,
+  tacGia: string,
+): Promise<{ asset: Asset; da_tao: boolean }> {
+  const dinhNghia = kiemTraByteAsset(input.tenFile, input.byte);
+  const tenFile = sachTenFile(input.tenFile);
+  const ext = extname(tenFile).toLowerCase();
   if (input.nguonId && !layNguon(db, input.nguonId)) {
     throw new LoiApi(400, "VALIDATION", `Nguồn liên kết không tồn tại: ${input.nguonId}`);
   }
-  if (input.khoaIdem) {
-    const cu = db
-      .query("SELECT * FROM asset WHERE khoa_idem = ?")
-      .get(input.khoaIdem) as Asset | null;
-    if (cu) return { asset: cu, da_tao: false };
+  const cu = input.khoaIdem
+    ? ((db.query("SELECT * FROM asset WHERE khoa_idem = ?").get(input.khoaIdem) as Asset | null) ??
+      null)
+    : null;
+  const trung = cu ?? timAssetTheoChecksum(db, input.byte);
+  if (trung) {
+    if (input.nguonId && trung.nguon_id !== input.nguonId && trung.nguon_id === null) {
+      db.query("UPDATE asset SET nguon_id = ? WHERE id = ?").run(input.nguonId, trung.id);
+      trung.nguon_id = input.nguonId;
+    }
+    return { asset: trung, da_tao: false };
   }
-  const checksum = sha256Hex(input.byte);
-  const trung = db
-    .query("SELECT * FROM asset WHERE checksum = ?")
-    .get(checksum) as Asset | null;
-  if (trung) return { asset: trung, da_tao: false };
 
   const id = crypto.randomUUID();
   const duongDan = `${id}${ext}`;
   await kho.ghi(duongDan, input.byte);
   const ts = bayGio();
-  db.query(
-    `INSERT INTO asset
-       (id, ten_file, duong_dan, loai, mime, kich_thuoc, checksum, nguon_id, ghi_chu, khoa_idem, trang_thai, tao_luc, tao_boi)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'hoat_dong', ?, ?)`,
-  ).run(
-    id,
-    tenFile,
-    duongDan,
-    dinhNghia.loai,
-    dinhNghia.mime,
-    input.byte.byteLength,
-    checksum,
-    input.nguonId ?? null,
-    input.ghiChu ?? "",
-    input.khoaIdem ?? null,
-    ts,
-    tacGia,
-  );
+  try {
+    db.query(
+      `INSERT INTO asset
+         (id, ten_file, duong_dan, loai, mime, kich_thuoc, checksum, nguon_id, ghi_chu, khoa_idem, trang_thai, tao_luc, tao_boi)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'hoat_dong', ?, ?)`,
+    ).run(
+      id,
+      tenFile,
+      duongDan,
+      dinhNghia.loai,
+      dinhNghia.mime,
+      input.byte.byteLength,
+      sha256Hex(input.byte),
+      input.nguonId ?? null,
+      input.ghiChu ?? "",
+      input.khoaIdem ?? null,
+      ts,
+      tacGia,
+    );
+  } catch (e) {
+    // Race: upload đồng thời cùng khoa_idem — INSERT đối phương đã thắng,
+    // tra lại và trả bản ghi đó thay vì 500 UNIQUE.
+    if (input.khoaIdem && e instanceof Error && e.message.includes("UNIQUE")) {
+      const thang = db
+        .query("SELECT * FROM asset WHERE khoa_idem = ?")
+        .get(input.khoaIdem) as Asset | null;
+      if (thang) return { asset: thang, da_tao: false };
+    }
+    throw e;
+  }
   ghiSuKien(db, "asset", id, "tao", { loai: dinhNghia.loai, kich_thuoc: input.byte.byteLength }, tacGia);
   return { asset: layAsset(db, id)!, da_tao: true };
 }
@@ -377,7 +411,7 @@ export function datAssetBanTheHien(
 export function demThamChieuAsset(
   db: Database,
   assetId: string,
-): { ban_the_hien: number; nguon: number; nguon_revision: number } {
+): { ban_the_hien: number; nguon: number; nguon_revision: number; xuat_ban: number } {
   const mau = `%"${assetId}"%`;
   return {
     ban_the_hien: (
@@ -393,21 +427,42 @@ export function demThamChieuAsset(
         c: number;
       }
     ).c,
+    // Snapshot xuất bản cũng là tham chiếu provenance — đã xuất bản kèm
+    // asset thì byte không được mất.
+    xuat_ban: (
+      db.query("SELECT COUNT(*) AS c FROM xuat_ban WHERE asset_ids LIKE ?").get(mau) as {
+        c: number;
+      }
+    ).c,
   };
 }
 
 // Xóa asset: còn tham chiếu → 409 (không gãy provenance); sạch → xóa row và
-// byte trên đĩa trong một transaction nhìn từ phía DB.
+// byte trên đĩa. Đếm tham chiếu + DELETE trong một transaction để attach
+// đồng thời không lọt giữa hai bước; xóa file sau COMMIT (file thừa dọn
+// được, thiếu file thì /noi-dung đã trả 404).
 export async function xoaAsset(db: Database, kho: KhoByte, id: string, tacGia: string): Promise<void> {
   const asset = layAsset(db, id);
   if (!asset) throw new LoiApi(404, "KHONG_TIM_THAY", "Không tìm thấy asset.");
-  const ref = demThamChieuAsset(db, id);
-  if (ref.ban_the_hien + ref.nguon + ref.nguon_revision > 0) {
-    throw new LoiApi(409, "XUNG_DOT_TRANG_THAI", "Asset đang được tham chiếu. Lưu trữ thay vì xóa.", ref);
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const ref = demThamChieuAsset(db, id);
+    if (ref.ban_the_hien + ref.nguon + ref.nguon_revision + ref.xuat_ban > 0) {
+      throw new LoiApi(
+        409,
+        "XUNG_DOT_TRANG_THAI",
+        "Asset đang được tham chiếu. Lưu trữ thay vì xóa.",
+        ref,
+      );
+    }
+    db.query("DELETE FROM asset WHERE id = ?").run(id);
+    ghiSuKien(db, "asset", id, "xoa", {}, tacGia);
+    db.exec("COMMIT");
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
   }
-  db.query("DELETE FROM asset WHERE id = ?").run(id);
   kho.xoa(asset.duong_dan);
-  ghiSuKien(db, "asset", id, "xoa", {}, tacGia);
 }
 
 // Lưu trữ: ẩn khỏi danh sách chọn nhưng giữ byte + metadata → provenance cũ
@@ -471,11 +526,21 @@ export function capNhatVanBan(
       return { nguon, revision: cu, da_tao: false };
     }
   }
+  // Caller gửi dua_tren_revision_id rõ thì kiểm xung đột trước cả no-op —
+  // base cũ + nội dung giống head vẫn phải 409 theo convention revision.
+  const duaTren = input.dua_tren_revision_id ?? nguon.head_revision_id;
+  if (
+    input.dua_tren_revision_id !== undefined &&
+    input.dua_tren_revision_id !== nguon.head_revision_id
+  ) {
+    throw new LoiApi(409, "XUNG_DOT_REVISION", "dua_tren_revision_id khác head hiện tại.", {
+      head_revision_id: nguon.head_revision_id,
+    });
+  }
   const head = nguon.head_revision_id ? layNguonRevision(db, nguon.head_revision_id) : null;
   if (head && head.noi_dung === input.noi_dung) {
     return { nguon, revision: head, da_tao: false };
   }
-  const duaTren = input.dua_tren_revision_id ?? nguon.head_revision_id;
   const moi = capNhatNguon(
     db,
     nguonId,
