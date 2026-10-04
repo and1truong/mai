@@ -15,6 +15,7 @@ Mã lỗi hiện có:
 | `KHONG_TIM_THAY` | 404 | Tài nguyên hoặc route không tồn tại. |
 | `XUNG_DOT_REVISION` | 409 | `dua_tren_revision_id` khác `head_revision_id` hiện tại. |
 | `XUNG_DOT_TRANG_THAI` | 409 | Chuyển trạng thái review không hợp lệ. |
+| `PAYLOAD_QUA_LON` | 413 | Body request vượt 50 MB. |
 | `LOI_CAU_HINH` | 500 | Config/provider sai. |
 | `LOI_NOI_BO` | 500 | Lỗi không lường trước. |
 
@@ -44,7 +45,8 @@ Chuyển sai → 409 `XUNG_DOT_TRANG_THAI`.
 ## Migration
 
 - File `NNNN_ten.sql` trong `src/server/migrations/`, tăng dần.
-- Mỗi file chạy trong một transaction. Ghi `schema_migrations` nên idempotent.
+- Mỗi file chạy trong một transaction. Ghi `schema_migrations(so, tep)` nên idempotent.
+- Số đã apply mà tên file khác → runner báo lỗi (không skip âm thầm).
 - Thêm bảng/cột: tạo file mới, không sửa file cũ đã apply.
 
 ## Seed / fixture

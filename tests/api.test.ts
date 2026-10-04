@@ -1,32 +1,43 @@
 import { Database } from "bun:sqlite";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { startServer } from "../src/server/index.ts";
+import { chayMigration, moDb } from "../src/server/db.ts";
 import { seed } from "../src/server/seed.ts";
 import { taoServerTam } from "./helpers.ts";
 
-// Harness smoke/integration: SQLite + thư mục data tạm, server thật, fetch thật.
+// Mỗi describe một server + thư mục data tạm riêng → test độc lập, không phụ thứ tự.
 
-let app: Awaited<ReturnType<typeof taoServerTam>>;
+type App = Awaited<ReturnType<typeof taoServerTam>>;
 
-beforeAll(async () => {
-  app = await taoServerTam();
-  seed(app.db);
-});
-
-afterAll(async () => {
-  await app.dong();
-});
-
-const post = (path: string, body: unknown) =>
-  fetch(`${app.url}${path}`, {
+function post(app: App, path: string, body: unknown) {
+  return fetch(`${app.url}${path}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
+}
+
+// beforeAll của mỗi describe gán lại `app` → biến luôn trỏ server của describe đang chạy.
+let app!: App;
+
+function moApp(coSeed = true) {
+  beforeAll(async () => {
+    app = await taoServerTam();
+    if (coSeed) seed(app.db);
+  });
+  afterAll(async () => {
+    await app.dong();
+  });
+}
 
 describe("envelope + validation", () => {
+  moApp();
+
   test("thiếu trường bắt buộc → 400 VALIDATION theo envelope chuẩn", async () => {
-    const res = await post("/api/nguon", { noi_dung: "abc" });
+    const res = await post(app, "/api/nguon", { noi_dung: "abc" });
     expect(res.status).toBe(400);
     const j = await res.json();
     expect(j.ok).toBe(false);
@@ -38,31 +49,51 @@ describe("envelope + validation", () => {
   test("route lạ → 404 KHONG_TIM_THAY", async () => {
     const res = await fetch(`${app.url}/api/khong-co`);
     expect(res.status).toBe(404);
+    expect((await res.json()).loi.ma).toBe("KHONG_TIM_THAY");
+  });
+
+  test("tham số URL méo → 400 envelope, không lộ stack", async () => {
+    const res = await fetch(`${app.url}/api/ban-the-hien/%`);
+    expect(res.status).toBe(400);
     const j = await res.json();
-    expect(j.loi.ma).toBe("KHONG_TIM_THAY");
+    expect(j.ok).toBe(false);
+    expect(j.loi.ma).toBe("VALIDATION");
   });
 });
 
-describe("mutation + đọc + persistence", () => {
+describe("nguồn + persistence", () => {
+  moApp();
+  let idTao = "";
+
   test("tạo nguồn rồi liệt kê thấy lại", async () => {
-    const res = await post("/api/nguon", { tieu_de: "Nguồn test", noi_dung: "Nội dung test" });
+    const res = await post(app, "/api/nguon", {
+      tieu_de: "Nguồn test",
+      noi_dung: "Nội dung test",
+    });
     expect(res.status).toBe(201);
     const j = await res.json();
     expect(j.ok).toBe(true);
     expect(j.du_lieu.tao_boi).toBe("demo");
+    idTao = j.du_lieu.id;
 
     const ds = await (await fetch(`${app.url}/api/nguon`)).json();
-    expect(ds.du_lieu.some((n: { id: string }) => n.id === j.du_lieu.id)).toBe(true);
+    expect(ds.du_lieu.some((n: { id: string }) => n.id === idTao)).toBe(true);
   });
 
   test("dữ liệu còn nguyên khi mở lại db (persistence)", async () => {
     const db2 = new Database(join(app.dataDir, "mai.sqlite"));
-    const c = (db2.query("SELECT COUNT(*) AS c FROM nguon").get() as { c: number }).c;
-    expect(c).toBeGreaterThanOrEqual(2); // seed + nguồn vừa tạo
+    const row = db2.query("SELECT COUNT(*) AS c FROM nguon WHERE id = ?").get(idTao) as {
+      c: number;
+    };
+    expect(row.c).toBe(1);
     db2.close();
   });
+});
 
-  test("context: PUT rồi GET thấy giá trị mới", async () => {
+describe("context", () => {
+  moApp();
+
+  test("PUT rồi GET thấy giá trị mới", async () => {
     const res = await fetch(`${app.url}/api/context`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
@@ -75,45 +106,96 @@ describe("mutation + đọc + persistence", () => {
 });
 
 describe("revision + xung đột", () => {
-  test("dua_tren_revision_id sai → 409 XUNG_DOT_REVISION", async () => {
-    const res = await post("/api/ban-the-hien/seed-bth-1/revision", {
+  moApp();
+
+  test("dua_tren_revision_id sai → 409; đúng head → 201", async () => {
+    const sai = await post(app, "/api/ban-the-hien/seed-bth-1/revision", {
       noi_dung: "rev sai",
       dua_tren_revision_id: "khong-dung",
     });
-    expect(res.status).toBe(409);
-    const j = await res.json();
-    expect(j.loi.ma).toBe("XUNG_DOT_REVISION");
-  });
+    expect(sai.status).toBe(409);
+    expect((await sai.json()).loi.ma).toBe("XUNG_DOT_REVISION");
 
-  test("dua_tren_revision_id đúng head → 201, so_thu_tu tăng", async () => {
-    const res = await post("/api/ban-the-hien/seed-bth-1/revision", {
+    const dung = await post(app, "/api/ban-the-hien/seed-bth-1/revision", {
       noi_dung: "rev đúng",
       dua_tren_revision_id: "seed-rev-1",
     });
+    expect(dung.status).toBe(201);
+    expect((await dung.json()).du_lieu.so_thu_tu).toBe(2);
+  });
+});
+
+describe("trạng thái review", () => {
+  moApp();
+
+  test("chuyển sai → 409; chuyển đúng chuỗi → 200", async () => {
+    const goi = (tt: string) =>
+      post(app, "/api/ban-the-hien/seed-bth-1/trang-thai", { trang_thai: tt });
+
+    const sai = await goi("da_duyet"); // nhap → da_duyet không hợp lệ
+    expect(sai.status).toBe(409);
+    expect((await sai.json()).loi.ma).toBe("XUNG_DOT_TRANG_THAI");
+
+    const rac = await post(app, "/api/ban-the-hien/seed-bth-1/trang-thai", {
+      trang_thai: "khong-co",
+    });
+    expect(rac.status).toBe(400);
+
+    expect((await goi("cho_duyet")).status).toBe(200);
+    expect((await goi("da_duyet")).status).toBe(200);
+  });
+});
+
+describe("assets", () => {
+  moApp();
+
+  test("upload → GET trả đúng nội dung", async () => {
+    const res = await fetch(`${app.url}/api/assets?ten=ghi-chu.txt`, {
+      method: "POST",
+      body: "nội dung asset test",
+    });
     expect(res.status).toBe(201);
-    const j = await res.json();
-    expect(j.du_lieu.so_thu_tu).toBe(2);
+    const { du_lieu } = await res.json();
+    expect(du_lieu.file.endsWith(".txt")).toBe(true);
+
+    const tai = await fetch(`${app.url}/api/assets/${du_lieu.file}`);
+    expect(tai.status).toBe(200);
+    expect(await tai.text()).toBe("nội dung asset test");
+  });
+
+  test("đuôi file lạ → 400; asset không có → 404", async () => {
+    const res = await fetch(`${app.url}/api/assets?ten=doc.exe`, {
+      method: "POST",
+      body: "x",
+    });
+    expect(res.status).toBe(400);
+
+    const miss = await fetch(`${app.url}/api/assets/khong-co.txt`);
+    expect(miss.status).toBe(404);
   });
 });
 
 describe("job nền trong process", () => {
+  moApp();
+
+  async function choJobXong(id: string): Promise<string> {
+    for (let i = 0; i < 100; i++) {
+      const ds = await (await fetch(`${app.url}/api/job`)).json();
+      const j = ds.du_lieu.find((x: { id: string }) => x.id === id);
+      if (j && j.trang_thai !== "cho" && j.trang_thai !== "dang_chay") return j.trang_thai;
+      await Bun.sleep(30);
+    }
+    return "timeout";
+  }
+
   test("job sinh_ban_the_hien chạy xong và tạo bản thể hiện", async () => {
-    const res = await post("/api/job", {
+    const res = await post(app, "/api/job", {
       loai: "sinh_ban_the_hien",
       payload: { nguon_id: "seed-nguon-1", dinh_dang: "newsletter" },
     });
     expect(res.status).toBe(201);
     const { du_lieu: job } = await res.json();
-
-    let trangThai = "";
-    for (let i = 0; i < 100; i++) {
-      const ds = await (await fetch(`${app.url}/api/job`)).json();
-      const j = ds.du_lieu.find((x: { id: string }) => x.id === job.id);
-      trangThai = j.trang_thai;
-      if (trangThai !== "cho" && trangThai !== "dang_chay") break;
-      await Bun.sleep(30);
-    }
-    expect(trangThai).toBe("xong");
+    expect(await choJobXong(job.id)).toBe("xong");
 
     const bth = await (
       await fetch(`${app.url}/api/ban-the-hien?nguon_id=seed-nguon-1`)
@@ -124,8 +206,56 @@ describe("job nền trong process", () => {
   });
 
   test("job thiếu payload.nguon_id → 400 VALIDATION", async () => {
-    const res = await post("/api/job", { loai: "sinh_ban_the_hien", payload: {} });
+    const res = await post(app, "/api/job", { loai: "sinh_ban_the_hien", payload: {} });
     expect(res.status).toBe(400);
     expect((await res.json()).loi.ma).toBe("VALIDATION");
+  });
+});
+
+describe("job mồ côi sau restart", () => {
+  test("job 'dang_chay' được requeue và chạy lại khi runner khởi động", async () => {
+    // Dựng data có sẵn một job mồ côi rồi mới start server.
+    const dir = mkdtempSync(join(tmpdir(), "mai-orphan-"));
+    const db0 = moDb(dir);
+    chayMigration(db0);
+    seed(db0);
+    db0
+      .query(
+        "INSERT INTO job (id, loai, trang_thai, payload, tao_luc) VALUES ('orphan-1', 'sinh_ban_the_hien', 'dang_chay', ?, ?)",
+      )
+      .run(
+        JSON.stringify({ nguon_id: "seed-nguon-1", dinh_dang: "web" }),
+        new Date().toISOString(),
+      );
+    db0.close();
+
+    const app2 = await startServer({ port: 0, dataDir: dir, chuKyJobMs: 10 });
+    try {
+      let trangThai = "";
+      for (let i = 0; i < 100; i++) {
+        const ds = await (await fetch(`${app2.url}/api/job`)).json();
+        const j = ds.du_lieu.find((x: { id: string }) => x.id === "orphan-1");
+        trangThai = j?.trang_thai ?? "";
+        if (trangThai !== "cho" && trangThai !== "dang_chay") break;
+        await Bun.sleep(30);
+      }
+      expect(trangThai).toBe("xong");
+    } finally {
+      await app2.dong();
+    }
+  });
+});
+
+describe("ràng buộc unique (nguon_id, dinh_dang)", () => {
+  moApp();
+
+  test("tạo trùng bản thể hiện cùng (nguồn, định dạng) → lỗi constraint", async () => {
+    expect(() =>
+      app.db
+        .query(
+          "INSERT INTO ban_the_hien (id, nguon_id, dinh_dang, doi_tuong, trang_thai, head_revision_id, tao_luc, tao_boi) VALUES ('trung', 'seed-nguon-1', 'web', '', 'nhap', NULL, 'x', 'demo')",
+        )
+        .run(),
+    ).toThrow();
   });
 });

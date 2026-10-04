@@ -28,12 +28,12 @@ bun run reset   # xóa data, migrate, seed — chạy lại được
 | `bun run dev` | Dev: watch build frontend + hot reload server. |
 | `bun run build` | Build frontend → `dist/client`. |
 | `bun run start` | Chạy server: frontend + API + job runner trong 1 process. |
-| `bun run reset` | Xóa `data/`, chạy migration, seed lại. |
+| `bun run reset` | Xóa `data/`, chạy migration, seed lại (từ chối khi server đang chạy). |
 | `bun run seed` | Ghi dữ liệu demo (idempotent). |
 | `bun test` | Chạy test (unit + smoke). |
 | `bun run typecheck` | Kiểm tra kiểu TypeScript. |
 | `bun run backup` | Backup `data/` → `backups/<timestamp>/`. |
-| `bun run restore -- <dir> [--thay-the]` | Restore từ một thư mục backup. |
+| `bun run restore -- <dir> [--thay-the]` | Restore từ một thư mục backup (từ chối khi server đang chạy). |
 
 ## Config
 

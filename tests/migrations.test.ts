@@ -20,3 +20,13 @@ test("migration chạy được và idempotent", () => {
   }
   db.close();
 });
+
+test("số migration đã áp dụng với file khác tên → báo lỗi", () => {
+  const dir = mkdtempSync(join(tmpdir(), "mai-mig-dup-"));
+  const db = moDb(dir);
+  chayMigration(db);
+  // Giả lập: số 1 đã ghi với tên file khác (đổi tên file sau khi apply).
+  db.query("UPDATE schema_migrations SET tep = '0001_ten_cu.sql' WHERE so = 1").run();
+  expect(() => chayMigration(db)).toThrow(/0001_ten_cu\.sql/);
+  db.close();
+});
