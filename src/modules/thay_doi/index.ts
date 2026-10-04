@@ -666,7 +666,7 @@ function daSuaXong(db: Database, task: TaskSua, thayDoi: ThayDoiNguon): boolean 
 
 // Đọc + tự đóng task đã sửa xong. Chạy lười trong các hàm liệt kê để danh
 // sách luôn phản ánh trạng thái thật sau khi user sửa xong bản.
-function dongTaskTuDong(db: Database, task: TaskSua): TaskSua {
+export function dongTaskTuDong(db: Database, task: TaskSua): TaskSua {
   if (task.trang_thai !== "mo" && task.trang_thai !== "dang_lam") return task;
   const thayDoi = layThayDoi(db, task.thay_doi_nguon_id);
   if (!thayDoi || !daSuaXong(db, task, thayDoi)) return task;

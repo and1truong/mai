@@ -132,6 +132,7 @@ import {
   danhSachTaskSua,
   danhSachThayDoi,
   deXuatSuaTask,
+  dongTaskTuDong,
   layTaskSua,
   layThayDoi,
   phatHienThayDoiHoSo,
@@ -1136,8 +1137,10 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       );
     }),
     route("GET", "/api/task-sua/:id", (_req, p, c) => {
-      const task = layTaskSua(c.db, p.id!);
-      if (!task) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy task sửa.");
+      const taskTruoc = layTaskSua(c.db, p.id!);
+      if (!taskTruoc) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy task sửa.");
+      // Lazy close: sinh_lai tự đóng khi head đã ghim revision nguồn mới.
+      const task = dongTaskTuDong(c.db, taskTruoc);
       const thayDoi = layThayDoi(c.db, task.thay_doi_nguon_id);
       return ok({ ...docTaskView(c.db, task), thay_doi_nguon: thayDoi });
     }),
