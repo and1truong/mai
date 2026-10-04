@@ -60,11 +60,45 @@ export type NguonRevision = {
   tao_boi: string;
 };
 
+// Một tham chiếu nguồn được khai báo trên số báo (#8): tên đoạn + bản dịch
+// đã chọn + nguon_id trỏ vào thư viện nguồn (văn bản thật để đối chiếu
+// trích dẫn). nguon_id null = chưa có văn bản nguồn → gắn cờ, không để
+// bộ sinh bịa trích dẫn.
+export type ThamChieu = {
+  id: string;
+  tham_chieu: string;
+  ban_dich: string;
+  nguon_id: string | null;
+  ghi_chu: string;
+};
+
+// Một mục trong mục lục đề xuất của số báo (#8): khay bài/đầu ra biên tập
+// sửa được. Khi được chọn, mục map tới một ban_the_hien có danh tính
+// (thong_diep, dinh_dang, ngon_ngu, doi_tuong, dich_den).
+export type MucLuc = {
+  id: string;
+  tieu_de: string;
+  dinh_dang: string;
+  doi_tuong_id: string | null;
+  dich_den: string;
+  ly_do: string;
+};
+
 export type Campaign = {
   id: string;
   ten: string;
   mo_ta: string;
   ghi_de: GhiDeCampaign;
+  // Trường số báo (#8): rỗng/mặc định = campaign thường, không phải số báo.
+  so_thu_tu: number | null;
+  ngay_phat_hanh: string; // ISO date "YYYY-MM-DD" hoặc rỗng
+  chu_de: string;
+  lap_truong: string; // lập trường biên tập cấu hình được — đi vào context sinh
+  chu_bien: string; // chủ biên tập phụ trách số
+  thuong_hieu_id: string | null; // hồ sơ style/thuật ngữ dùng lại
+  doi_tuong_id: string | null; // hồ sơ đối tượng chính của số
+  tham_chieu: ThamChieu[]; // tham chiếu nguồn được khai báo
+  muc_luc: MucLuc[]; // mục lục đề xuất đã sửa
   tao_luc: string;
   tao_boi: string;
   cap_nhat_luc: string;
@@ -235,7 +269,11 @@ function docCacMucJson(v: string): MucNguon[] {
 
 type DongNguon = Omit<Nguon, "cac_muc"> & { cac_muc: string };
 type DongNguonRevision = Omit<NguonRevision, "cac_muc"> & { cac_muc: string };
-type DongCampaign = Omit<Campaign, "ghi_de"> & { ghi_de: string };
+type DongCampaign = Omit<Campaign, "ghi_de" | "tham_chieu" | "muc_luc"> & {
+  ghi_de: string;
+  tham_chieu: string;
+  muc_luc: string;
+};
 type DongThongDiepRevision = Omit<ThongDiepRevision, "nguon_revision_ids"> & {
   nguon_revision_ids: string;
 };
@@ -245,9 +283,57 @@ const docNguonRevision = (row: DongNguonRevision): NguonRevision => ({
   ...row,
   cac_muc: docCacMucJson(row.cac_muc),
 });
+// Parse JSON lưu trên campaign — dung sai giống docCacMucJson: JSON hỏng
+// hoặc mục lạ bị rỗng thay vì ném lỗi khi đọc.
+export function docThamChieu(v: string): ThamChieu[] {
+  try {
+    const j = JSON.parse(v) as unknown;
+    if (!Array.isArray(j)) return [];
+    return j
+      .filter((x) => typeof x === "object" && x !== null)
+      .map((x, i) => {
+        const r = x as Record<string, unknown>;
+        return {
+          id: typeof r.id === "string" && r.id ? r.id : `tc${i + 1}`,
+          tham_chieu: typeof r.tham_chieu === "string" ? r.tham_chieu : "",
+          ban_dich: typeof r.ban_dich === "string" ? r.ban_dich : "",
+          nguon_id: typeof r.nguon_id === "string" && r.nguon_id ? r.nguon_id : null,
+          ghi_chu: typeof r.ghi_chu === "string" ? r.ghi_chu : "",
+        };
+      });
+  } catch {
+    return [];
+  }
+}
+
+export function docMucLuc(v: string): MucLuc[] {
+  try {
+    const j = JSON.parse(v) as unknown;
+    if (!Array.isArray(j)) return [];
+    return j
+      .filter((x) => typeof x === "object" && x !== null)
+      .map((x, i) => {
+        const r = x as Record<string, unknown>;
+        return {
+          id: typeof r.id === "string" && r.id ? r.id : `muc${i + 1}`,
+          tieu_de: typeof r.tieu_de === "string" ? r.tieu_de : "",
+          dinh_dang: typeof r.dinh_dang === "string" ? r.dinh_dang : "",
+          doi_tuong_id:
+            typeof r.doi_tuong_id === "string" && r.doi_tuong_id ? r.doi_tuong_id : null,
+          dich_den: typeof r.dich_den === "string" ? r.dich_den : "",
+          ly_do: typeof r.ly_do === "string" ? r.ly_do : "",
+        };
+      });
+  } catch {
+    return [];
+  }
+}
+
 const docCampaign = (row: DongCampaign): Campaign => ({
   ...row,
   ghi_de: JSON.parse(row.ghi_de) as GhiDeCampaign,
+  tham_chieu: docThamChieu(row.tham_chieu),
+  muc_luc: docMucLuc(row.muc_luc),
 });
 const docThongDiepRevision = (row: DongThongDiepRevision): ThongDiepRevision => {
   let ids: string[] = [];
@@ -462,21 +548,59 @@ export type NhapCampaign = {
   ten: string;
   mo_ta?: string;
   ghi_de?: GhiDeCampaign;
+  // Trường số báo (#8) — tất cả tùy chọn; thiếu = giữ giá trị mặc định.
+  so_thu_tu?: number | null;
+  ngay_phat_hanh?: string;
+  chu_de?: string;
+  lap_truong?: string;
+  chu_bien?: string;
+  thuong_hieu_id?: string | null;
+  doi_tuong_id?: string | null;
+  tham_chieu?: ThamChieu[];
+  muc_luc?: MucLuc[];
 };
 
-export function taoCampaign(db: Database, input: NhapCampaign, tacGia: string): Campaign {
+const COT_SO_BAO =
+  "so_thu_tu, ngay_phat_hanh, chu_de, lap_truong, chu_bien, thuong_hieu_id, doi_tuong_id, tham_chieu, muc_luc";
+
+export function taoCampaign(
+  db: Database,
+  input: NhapCampaign,
+  tacGia: string,
+  tuyChon: { id?: string } = {},
+): Campaign {
   return txn(db, () => {
-    const id = crypto.randomUUID();
+    const id = tuyChon.id ?? crypto.randomUUID();
     const ts = bayGio();
     db.query(
-      `INSERT INTO campaign (id, ten, mo_ta, ghi_de, tao_luc, tao_boi, cap_nhat_luc, cap_nhat_boi)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(id, input.ten, input.mo_ta ?? "", JSON.stringify(input.ghi_de ?? {}), ts, tacGia, ts, tacGia);
+      `INSERT INTO campaign (id, ten, mo_ta, ghi_de, ${COT_SO_BAO}, tao_luc, tao_boi, cap_nhat_luc, cap_nhat_boi)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      id,
+      input.ten,
+      input.mo_ta ?? "",
+      JSON.stringify(input.ghi_de ?? {}),
+      input.so_thu_tu ?? null,
+      input.ngay_phat_hanh ?? "",
+      input.chu_de ?? "",
+      input.lap_truong ?? "",
+      input.chu_bien ?? "",
+      input.thuong_hieu_id ?? null,
+      input.doi_tuong_id ?? null,
+      JSON.stringify(input.tham_chieu ?? []),
+      JSON.stringify(input.muc_luc ?? []),
+      ts,
+      tacGia,
+      ts,
+      tacGia,
+    );
     ghiSuKien(db, "campaign", id, "tao", {}, tacGia);
     return layCampaign(db, id)!;
   });
 }
 
+// Cập nhật campaign: trường số báo thiếu trong input thì giữ giá trị đã
+// lưu — biên tập sửa một ô không phải gửi lại toàn bộ danh sách.
 export function capNhatCampaign(
   db: Database,
   id: string,
@@ -484,10 +608,29 @@ export function capNhatCampaign(
   tacGia: string,
 ): Campaign {
   return txn(db, () => {
-    if (!layCampaign(db, id)) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy campaign.");
+    const cu = layCampaign(db, id);
+    if (!cu) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy campaign.");
     db.query(
-      "UPDATE campaign SET ten = ?, mo_ta = ?, ghi_de = ?, cap_nhat_luc = ?, cap_nhat_boi = ? WHERE id = ?",
-    ).run(input.ten, input.mo_ta ?? "", JSON.stringify(input.ghi_de ?? {}), bayGio(), tacGia, id);
+      `UPDATE campaign SET ten = ?, mo_ta = ?, ghi_de = ?, ${COT_SO_BAO.split(", ")
+        .map((c) => `${c} = ?`)
+        .join(", ")}, cap_nhat_luc = ?, cap_nhat_boi = ? WHERE id = ?`,
+    ).run(
+      input.ten,
+      input.mo_ta ?? cu.mo_ta,
+      JSON.stringify(input.ghi_de ?? cu.ghi_de),
+      input.so_thu_tu !== undefined ? input.so_thu_tu : cu.so_thu_tu,
+      input.ngay_phat_hanh ?? cu.ngay_phat_hanh,
+      input.chu_de ?? cu.chu_de,
+      input.lap_truong ?? cu.lap_truong,
+      input.chu_bien ?? cu.chu_bien,
+      input.thuong_hieu_id !== undefined ? input.thuong_hieu_id : cu.thuong_hieu_id,
+      input.doi_tuong_id !== undefined ? input.doi_tuong_id : cu.doi_tuong_id,
+      JSON.stringify(input.tham_chieu ?? cu.tham_chieu),
+      JSON.stringify(input.muc_luc ?? cu.muc_luc),
+      bayGio(),
+      tacGia,
+      id,
+    );
     ghiSuKien(db, "campaign", id, "cap_nhat", {}, tacGia);
     return layCampaign(db, id)!;
   });
@@ -686,23 +829,33 @@ export function layBanTheHien(db: Database, id: string): BanTheHien | null {
 
 // Lọc theo thong_diep_id trực tiếp, hoặc nguon_id qua link nhiều-nhiều —
 // một bản thể hiện xuất hiện dưới mọi nguồn mà thông điệp của nó dùng.
+// campaignId lọc bản thể hiện dưới mọi thông điệp của campaign (hàng chờ
+// review theo số báo, #8).
 export function danhSachBanTheHien(
   db: Database,
-  loc: { thongDiepId?: string; nguonId?: string; trangThai?: string } = {},
+  loc: { thongDiepId?: string; nguonId?: string; campaignId?: string; trangThai?: string } = {},
 ): BanTheHien[] {
-  const ds = loc.nguonId
+  const ds = loc.campaignId
     ? (db
         .query(
           `SELECT b.* FROM ban_the_hien b
+           JOIN thong_diep td ON td.id = b.thong_diep_id
+           WHERE td.campaign_id = ? ORDER BY b.tao_luc DESC`,
+        )
+        .all(loc.campaignId) as BanTheHien[])
+    : loc.nguonId
+      ? (db
+          .query(
+            `SELECT b.* FROM ban_the_hien b
            JOIN thong_diep_nguon tn ON tn.thong_diep_id = b.thong_diep_id
            WHERE tn.nguon_id = ? ORDER BY b.tao_luc DESC`,
-        )
-        .all(loc.nguonId) as BanTheHien[])
-    : loc.thongDiepId
-      ? (db
-          .query("SELECT * FROM ban_the_hien WHERE thong_diep_id = ? ORDER BY tao_luc DESC")
-          .all(loc.thongDiepId) as BanTheHien[])
-      : (db.query("SELECT * FROM ban_the_hien ORDER BY tao_luc DESC").all() as BanTheHien[]);
+          )
+          .all(loc.nguonId) as BanTheHien[])
+      : loc.thongDiepId
+        ? (db
+            .query("SELECT * FROM ban_the_hien WHERE thong_diep_id = ? ORDER BY tao_luc DESC")
+            .all(loc.thongDiepId) as BanTheHien[])
+        : (db.query("SELECT * FROM ban_the_hien ORDER BY tao_luc DESC").all() as BanTheHien[]);
   // Lọc trạng thái cho hàng chờ review (#21) — nhỏ, lọc trong bộ nhớ đủ.
   return loc.trangThai ? ds.filter((b) => b.trang_thai === loc.trangThai) : ds;
 }

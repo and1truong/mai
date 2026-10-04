@@ -38,8 +38,11 @@ export type ContextTask = {
   doi_tuong: string;
   ngon_ngu: string;
   context_sinh: ContextSinhSnapshot | null;
-  // Chứng cứ còn thiếu trong input (số liệu/mốc thời gian) — provider phải
-  // để câu hỏi/khoảng trống tường minh thay vì bịa.
+  // Lập trường biên tập cấu hình trên campaign/số báo (#8) — provider áp
+  // định hướng này, không ngầm áp một diễn giải riêng.
+  lap_truong?: string | null;
+  // Chứng cứ còn thiếu trong input (số liệu/mốc thời gian/văn bản tham
+  // chiếu) — provider phải để câu hỏi/khoảng trống tường minh thay vì bịa.
   thieu_chung_cu: string[];
   gioi_han_dau_ra: number; // ký tự
   // Danh sách lỗi của lần sinh trước — đường sửa có biên của handler.

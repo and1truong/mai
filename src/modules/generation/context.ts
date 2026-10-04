@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { loiRequest } from "../../loi.ts";
 import {
   layBanTheHien,
+  layCampaign,
   layNguonRevision,
   layThongDiep,
   layThongDiepRevision,
@@ -30,8 +31,12 @@ export const MAC_DINH_GIOI_HAN_CONTEXT: GioiHanContext = {
 };
 
 // Cắt gọn một văn bản ở ranh đoạn/câu gần trần; đánh dấu [...] khi bị cắt.
+// toiDa không hữu hạn hoặc <= 0 (vd NaN từ cấu hình thiếu) → không cắt;
+// giới hạn lỗi không được biến thành cắt mọi nguồn thành "[...]".
 export function catGon(vanBan: string, toiDa: number): { text: string; daCat: boolean } {
-  if (vanBan.length <= toiDa) return { text: vanBan, daCat: false };
+  if (!Number.isFinite(toiDa) || toiDa <= 0 || vanBan.length <= toiDa) {
+    return { text: vanBan, daCat: false };
+  }
   const dat = vanBan.slice(0, toiDa);
   const ranh = Math.max(dat.lastIndexOf("\n\n"), dat.lastIndexOf(". "), dat.lastIndexOf("\n"));
   // Chỉ cắt theo ranh khi không mất quá nửa phần cho phép.
@@ -79,9 +84,20 @@ export function lapContextNoiDung(
     context_sinh: ContextSinhSnapshot | null;
     doi_tuong: string;
     gioi_han?: Partial<GioiHanContext>;
+    // Campaign/số báo tường minh từ payload job (#8); vắng mặt → theo
+    // thong_diep.campaign_id.
+    campaign_id?: string;
   },
 ): ContextTask {
-  const gioiHan: GioiHanContext = { ...MAC_DINH_GIOI_HAN_CONTEXT, ...input.gioi_han };
+  // Merge từng field với ?? — key có mặt nhưng undefined (vd server truyền
+  // gioi_han: {toi_da_ky_tu_nguon: undefined} khi chưa cấu hình) không được
+  // đè mặc định thành undefined/NaN.
+  const gh = input.gioi_han ?? {};
+  const gioiHan: GioiHanContext = {
+    toi_da_ky_tu_nguon: gh.toi_da_ky_tu_nguon ?? MAC_DINH_GIOI_HAN_CONTEXT.toi_da_ky_tu_nguon,
+    toi_da_ky_tu_context: gh.toi_da_ky_tu_context ?? MAC_DINH_GIOI_HAN_CONTEXT.toi_da_ky_tu_context,
+    toi_da_ky_tu_dau_ra: gh.toi_da_ky_tu_dau_ra ?? MAC_DINH_GIOI_HAN_CONTEXT.toi_da_ky_tu_dau_ra,
+  };
   const bth = layBanTheHien(db, input.bth.id);
   if (!bth) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy bản thể hiện.");
   const thongDiep = layThongDiep(db, bth.thong_diep_id);
@@ -117,6 +133,19 @@ export function lapContextNoiDung(
     ...ds_nguon.map((n) => n.noi_dung),
   ].join("\n");
 
+  // Số báo (#8): thông điệp thuộc campaign số báo → lập trường biên tập đi
+  // vào context; tham chiếu đã khai báo mà văn bản không có trong nguồn đã
+  // resolve là chứng cứ thiếu — provider gắn cờ thay vì bịa trích dẫn.
+  const cpId = input.campaign_id ?? thongDiep.campaign_id;
+  const cp = cpId ? layCampaign(db, cpId) : null;
+  const thieuCc = thieuChungCu(vanBanNguon);
+  if (cp && cp.tham_chieu.length > 0) {
+    const nguonIds = new Set(ds_nguon.map((n) => n.nguon_id));
+    if (cp.tham_chieu.some((t) => !t.nguon_id || !nguonIds.has(t.nguon_id))) {
+      thieuCc.push("van_ban_tham_chieu");
+    }
+  }
+
   return {
     task: input.task,
     thong_diep: {
@@ -129,7 +158,8 @@ export function lapContextNoiDung(
     doi_tuong: input.doi_tuong,
     ngon_ngu: bth.ngon_ngu,
     context_sinh: input.context_sinh,
-    thieu_chung_cu: thieuChungCu(vanBanNguon),
+    lap_truong: cp?.lap_truong || null,
+    thieu_chung_cu: thieuCc,
     gioi_han_dau_ra: gioiHan.toi_da_ky_tu_dau_ra,
   };
 }

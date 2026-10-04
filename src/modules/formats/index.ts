@@ -178,6 +178,142 @@ const DANG_FAQ: DinhNghiaDinhDang = {
   ],
 };
 
+// --- Định dạng số báo (#8) ---
+// Các định dạng cho luồng số tạp chí: bài học tài liệu nền, giải thích cho
+// thiếu niên, hỏi-đáp độc giả, chuỗi social theo số, script thảo luận.
+// Tên field giữ trung lập — định dạng dùng được ngoài ngữ cảnh tạp chí.
+
+const DANG_HOC_TAI_LIEU: DinhNghiaDinhDang = {
+  id: "hoc-tai-lieu",
+  phien_ban: 1,
+  nhan: "Học tài liệu nền",
+  mo_ta: "Bài học theo đoạn tài liệu nền: tham chiếu đoạn, nội dung học, câu hỏi thảo luận, áp dụng.",
+  ngon_ngu: NGON_NGU,
+  truong: [
+    { ten: "tieu_de", nhan: "Tiêu đề", loai: "van_ban", bat_buoc: true, do_dai_toi_da: 200 },
+    {
+      ten: "tham_chieu",
+      nhan: "Tham chiếu",
+      loai: "danh_sach",
+      bat_buoc: true,
+      so_muc_toi_da: 30,
+      do_dai_toi_da: 300,
+    },
+    { ten: "noi_dung", nhan: "Nội dung", loai: "markdown", bat_buoc: true },
+    {
+      ten: "cau_hoi_thao_luan",
+      nhan: "Câu hỏi thảo luận",
+      loai: "danh_sach",
+      so_muc_toi_da: 20,
+      do_dai_toi_da: 500,
+    },
+    { ten: "ung_dung", nhan: "Áp dụng", loai: "markdown" },
+  ],
+};
+
+// Giải thích cho thiếu niên (#8): nội dung viết lại theo từ vựng/ví dụ của
+// đối tượng, còn diễn giải và bằng chứng đã duyệt là TRƯỜNG RIÊNG giữ
+// nguyên — schema tách bạch để kiểm được "đổi từ vựng, giữ diễn giải".
+const DANG_GIAI_THICH_THIEU_NIEN: DinhNghiaDinhDang = {
+  id: "giai-thich-thieu-nien",
+  phien_ban: 1,
+  nhan: "Giải thích cho thiếu niên",
+  mo_ta: "Bài giải thích đơn giản cho độc giả trẻ: viết lại từ vựng/ví dụ, giữ nguyên diễn giải và bằng chứng đã duyệt.",
+  ngon_ngu: NGON_NGU,
+  truong: [
+    { ten: "tieu_de", nhan: "Tiêu đề", loai: "van_ban", bat_buoc: true, do_dai_toi_da: 200 },
+    { ten: "noi_dung", nhan: "Nội dung", loai: "markdown", bat_buoc: true },
+    {
+      ten: "dien_giai",
+      nhan: "Diễn giải đã duyệt",
+      loai: "markdown",
+      bat_buoc: true,
+    },
+    {
+      ten: "bang_chung",
+      nhan: "Bằng chứng đã duyệt",
+      loai: "danh_sach",
+      bat_buoc: true,
+      so_muc_toi_da: 30,
+      do_dai_toi_da: 500,
+    },
+    {
+      ten: "vi_du",
+      nhan: "Ví dụ",
+      loai: "danh_sach",
+      so_muc_toi_da: 20,
+      do_dai_toi_da: 500,
+    },
+  ],
+};
+
+const DANG_HOI_DAP_DOC_GIA: DinhNghiaDinhDang = {
+  id: "hoi-dap-doc-gia",
+  phien_ban: 1,
+  nhan: "Hỏi-đáp độc giả",
+  mo_ta: "Chuyên mục hỏi-đáp với độc giả: giới thiệu nhẹ + các cặp hỏi/đáp.",
+  ngon_ngu: NGON_NGU,
+  truong: [
+    { ten: "tieu_de", nhan: "Tiêu đề", loai: "van_ban", do_dai_toi_da: 200 },
+    { ten: "gioi_thieu", nhan: "Giới thiệu", loai: "markdown" },
+    {
+      ten: "hoi_dap",
+      nhan: "Hỏi đáp",
+      loai: "danh_sach",
+      bat_buoc: true,
+      so_muc_toi_da: 50,
+      do_dai_toi_da: 2000,
+    },
+  ],
+};
+
+const DANG_CHUOI_SOCIAL: DinhNghiaDinhDang = {
+  id: "chuoi-social",
+  phien_ban: 1,
+  nhan: "Chuỗi social",
+  mo_ta: "Chuỗi bài social theo một số/chủ đề: các bài có thứ tự + gợi ý lịch đăng.",
+  ngon_ngu: NGON_NGU,
+  truong: [
+    { ten: "tieu_de", nhan: "Tiêu đề chuỗi", loai: "van_ban", do_dai_toi_da: 200 },
+    {
+      ten: "cac_bai",
+      nhan: "Các bài",
+      loai: "danh_sach",
+      bat_buoc: true,
+      so_muc_toi_da: 30,
+      do_dai_toi_da: 500,
+    },
+    { ten: "lich_dang", nhan: "Lịch đăng gợi ý", loai: "markdown" },
+  ],
+};
+
+const DANG_SCRIPT_THAO_LUAN: DinhNghiaDinhDang = {
+  id: "script-thao-luan",
+  phien_ban: 1,
+  nhan: "Script thảo luận",
+  mo_ta: "Script video/nhóm thảo luận: mục tiêu, lời thoại dẫn, câu hỏi thảo luận, tài liệu kèm.",
+  ngon_ngu: NGON_NGU,
+  truong: [
+    { ten: "tieu_de", nhan: "Tiêu đề", loai: "van_ban", bat_buoc: true, do_dai_toi_da: 200 },
+    { ten: "muc_tieu", nhan: "Mục tiêu", loai: "van_ban", do_dai_toi_da: 300 },
+    { ten: "loi_thoai", nhan: "Lời thoại", loai: "markdown", bat_buoc: true },
+    {
+      ten: "cau_hoi_thao_luan",
+      nhan: "Câu hỏi thảo luận",
+      loai: "danh_sach",
+      so_muc_toi_da: 20,
+      do_dai_toi_da: 500,
+    },
+    {
+      ten: "tai_lieu",
+      nhan: "Tài liệu kèm",
+      loai: "danh_sach",
+      so_muc_toi_da: 20,
+      do_dai_toi_da: 300,
+    },
+  ],
+};
+
 const REGISTRY: Record<string, DinhNghiaDinhDang> = Object.fromEntries(
   [
     DANG_BAI_VIET,
@@ -189,6 +325,11 @@ const REGISTRY: Record<string, DinhNghiaDinhDang> = Object.fromEntries(
     DANG_GOOGLE_BUSINESS,
     DANG_EMAIL_KHACH,
     DANG_FAQ,
+    DANG_HOC_TAI_LIEU,
+    DANG_GIAI_THICH_THIEU_NIEN,
+    DANG_HOI_DAP_DOC_GIA,
+    DANG_CHUOI_SOCIAL,
+    DANG_SCRIPT_THAO_LUAN,
   ].map((d) => [d.id, d]),
 );
 

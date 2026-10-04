@@ -70,12 +70,17 @@ describe("registry định dạng (#19)", () => {
       [
         "bai-viet",
         "caption",
+        "chuoi-social",
         "email-khach",
         "faq",
+        "giai-thich-thieu-nien",
         "google-business",
+        "hoc-tai-lieu",
+        "hoi-dap-doc-gia",
         "newsletter",
         "script-dai",
         "script-ngan",
+        "script-thao-luan",
         "thread",
       ].sort(),
     );

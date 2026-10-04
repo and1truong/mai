@@ -61,6 +61,12 @@ export function dungPrompt(ctx: ContextTask): { system: string; user: string } {
     if (dt.tu_vung) dongUser.push(`- Từ vựng: ${dt.tu_vung}`);
     if (dt.nhu_cau_giao_tiep) dongUser.push(`- Nhu cầu giao tiếp: ${dt.nhu_cau_giao_tiep}`);
   }
+  // Lập trường biên tập cấu hình trên campaign/số báo (#8): định hướng
+  // diễn giải do biên tập đặt — provider áp đúng hướng này, không tự áp
+  // một diễn giải/thần học khác.
+  if (ctx.lap_truong) {
+    dongUser.push(`LẬP TRƯỜNG BIÊN TẬP (cấu hình số báo — áp định hướng này): ${ctx.lap_truong}`);
+  }
   if (ctx.thieu_chung_cu.length > 0) {
     dongUser.push(`CHỨNG CỚ THIẾU (phải để [CÂU HỎI: ...], không bịa): ${ctx.thieu_chung_cu.join(", ")}`);
   }

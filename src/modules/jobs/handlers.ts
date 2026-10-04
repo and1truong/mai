@@ -137,6 +137,9 @@ export function taoHandlers(
           context_sinh: snapshot,
           doi_tuong: String(payload.doi_tuong ?? bth.doi_tuong),
           gioi_han: tuyChon.gioi_han,
+          // Số báo (#8): campaign_id từ payload → lập trường + cờ thiếu
+          // văn bản tham chiếu trong context. Vắng mặt → td.campaign_id.
+          campaign_id: payload.campaign_id ? String(payload.campaign_id) : undefined,
         });
       } catch (e) {
         if (e instanceof LoiApi) throw new LoiVinhVien(e.message);
