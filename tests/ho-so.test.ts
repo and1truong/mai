@@ -279,16 +279,16 @@ describe("seed fixture", () => {
         "SELECT ten, la_fixture, nguon_du_lieu FROM ho_so_thuong_hieu WHERE la_fixture = 1 ORDER BY id",
       )
       .all() as { ten: string; la_fixture: number; nguon_du_lieu: string }[];
-    expect(th.length).toBe(5); // 3 cũ + MaiSuite (#9) + Giọt Nước Chung (#10)
+    expect(th.length).toBe(6); // 3 cũ + MaiSuite (#9) + Giọt Nước Chung (#10) + Sở Ban An Khang (#11)
     expect(th.every((t) => t.la_fixture === 1 && t.nguon_du_lieu === "he_thong")).toBe(true);
 
     // 3 đối tượng gốc + "Lãnh đạo kỹ thuật" (#6) + "Khách quen khu phố" (#7)
     // + "Độc giả Phúc Âm" + "Thiếu niên" (#8) + 6 đối tượng bản phát hành (#9)
-    // + 4 đối tượng gây quỹ (#10).
+    // + 4 đối tượng gây quỹ (#10) + 5 đối tượng công quyền (#11).
     const dt = app.db
       .query("SELECT ten FROM ho_so_doi_tuong WHERE la_fixture = 1 ORDER BY id")
       .all() as { ten: string }[];
-    expect(dt.length).toBe(17);
+    expect(dt.length).toBe(22);
 
     const tn = app.db
       .query(

@@ -8,6 +8,7 @@ import {
   layThongDiepRevision,
   type BanTheHien,
 } from "../content/index.ts";
+import { timDieuKhoanMoHo } from "../cong_quyen/index.ts";
 import type { ContextSinhSnapshot } from "../context/index.ts";
 import { layDinhDang } from "../formats/index.ts";
 import type { ContextTask, NguonContext } from "./index.ts";
@@ -211,6 +212,45 @@ export function lapContextNoiDung(
     };
   }
 
+  // Chiến dịch công quyền (#11): phiên bản/phạm vi/ngày hiệu lực của
+  // chính sách + yêu cầu/ngoại lệ/fact vận hành đi vào context. Mục
+  // được xác nhận chỉ khi nguồn bằng chứng của nó nằm trong chuỗi
+  // provenance — mục chưa xác nhận là chứng cứ thiếu (provider để
+  // [CÂU HỎI], không bịa luật). Điều khoản nguồn mơ hồ cũng đi kèm để
+  // provider để câu hỏi review thay vì diễn giải thay thẩm quyền.
+  let congQuyen: ContextTask["cong_quyen"];
+  if (cp && cp.loai === "cong_quyen") {
+    const dsYeuCau = cp.ds_yeu_cau.map((t) => {
+      const tieuDe = daXacNhan(t.nguon_id, t.muc_id);
+      return { ...t, xac_nhan: !!tieuDe, nguon_tieu_de: tieuDe };
+    });
+    const dsNgoaiLe = cp.ds_ngoai_le.map((t) => {
+      const tieuDe = daXacNhan(t.nguon_id, t.muc_id);
+      return { ...t, xac_nhan: !!tieuDe, nguon_tieu_de: tieuDe };
+    });
+    const dsFactVanHanh = cp.ds_fact_van_hanh.map((t) => {
+      const tieuDe = daXacNhan(t.nguon_id, t.muc_id);
+      return { ...t, xac_nhan: !!tieuDe, nguon_tieu_de: tieuDe };
+    });
+    if (dsYeuCau.some((t) => !t.xac_nhan)) thieuCc.push("yeu_cau_chua_xac_nhan");
+    if (dsNgoaiLe.some((t) => !t.xac_nhan)) thieuCc.push("ngoai_le_chua_xac_nhan");
+    if (dsFactVanHanh.some((t) => !t.xac_nhan)) thieuCc.push("fact_van_hanh_chua_nguon");
+    const dsMoHo = timDieuKhoanMoHo(db, cp);
+    if (dsMoHo.length > 0) thieuCc.push("dieu_khoan_mo_ho");
+    congQuyen = {
+      ten: cp.ten,
+      phien_ban: cp.phien_ban,
+      pham_vi_quyen_han: cp.pham_vi_quyen_han,
+      ngay_hieu_luc: cp.ngay_hieu_luc,
+      ngon_ngu_phu: cp.ngon_ngu_phu,
+      cta: cp.cta,
+      ds_yeu_cau: dsYeuCau,
+      ds_ngoai_le: dsNgoaiLe,
+      ds_fact_van_hanh: dsFactVanHanh,
+      dieu_khoan_mo_ho: dsMoHo.map((d) => d.trich),
+    };
+  }
+
   return {
     task: input.task,
     thong_diep: {
@@ -226,6 +266,7 @@ export function lapContextNoiDung(
     lap_truong: cp?.lap_truong || null,
     phat_hanh: phatHanh,
     gay_quy: gayQuy,
+    cong_quyen: congQuyen,
     thieu_chung_cu: thieuCc,
     gioi_han_dau_ra: gioiHan.toi_da_ky_tu_dau_ra,
   };

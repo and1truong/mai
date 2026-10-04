@@ -34,6 +34,12 @@ import {
   dongBoNguonGayQuy,
 } from "../modules/gay_quy/index.ts";
 import {
+  damBaoThongDiepCongQuyen,
+  deXuatDauRaCongQuyen,
+  dongBoNguonCongQuyen,
+} from "../modules/cong_quyen/index.ts";
+import { enqueueJob } from "../modules/jobs/index.ts";
+import {
   datAssetBanTheHien,
   duongDanTepAsset,
   kiemTraByteAsset,
@@ -1542,6 +1548,436 @@ export function seed(
     daSeed.push("story_nonprofit_gay_quy");
   }
 
+  // --- Story #11: Sở Ban Quản lý Đô thị TP An Khang — giải thích luật
+  // tái chế cho nhiều đối tượng ---
+  // Campaign loại 'cong_quyen': văn bản chính sách chính thức đã nạp
+  // (phiên bản + phạm vi quyền hạn + ngày hiệu lực), yêu cầu tách
+  // 'bắt buộc' vs 'giải thích', ngoại lệ liên kết yêu cầu, fact vận
+  // hành, danh sách reviewer thẩm quyền của POC và chế độ bảo vệ bật.
+  // Một điều khoản xử phạt cố ý viết mơ hồ → câu hỏi review, không phải
+  // luật bịa. Toàn bộ văn bản là HƯ CẤU (ghi trong tiêu đề nguồn).
+  // Trạng thái sau seed: chính sách đang có hiệu lực 2027-01-01 và đầu
+  // ra rải đủ vòng đời — FAQ đã xuất (trang /p/), checklist đã xuất +
+  // đã đăng kênh ngoài, bài trường học chờ duyệt với job đã lên lịch,
+  // tóm tắt nhà thầu còn nháp. Walkthrough: sửa ngày hiệu lực thành
+  // 2027-03-01 → mọi đầu ra đánh dấu cũ và liệt kê theo đích.
+  if (!db.query("SELECT id FROM campaign WHERE id = 'seed-cp-cong-quyen-tai-che'").get()) {
+    themDoiTuong(
+      db,
+      "seed-dt-ho-gia-dinh",
+      {
+        ten: "Hộ gia đình (fixture)",
+        ngon_ngu: "vi",
+        dia_diem: "Hộ dân trên địa bàn thành phố An Khang.",
+        kien_thuc_nen: "Không đọc văn bản pháp quy.",
+        moi_quan_tam: "Phải làm gì, từ ngày nào, đổ rác ở đâu.",
+        do_sau: "so_luoc",
+        tu_vung: "Đời thường; giải thích từng khái niệm một lần.",
+        quan_he_to_chuc: "Cư dân đọc cổng thông tin của thành phố.",
+        nhu_cau_giao_tiep: "Câu hỏi — trả lời ngắn; nêu ngày và địa điểm cụ thể.",
+        nhan_khau_hoc: "",
+      },
+      tacGia,
+    );
+    themDoiTuong(
+      db,
+      "seed-dt-co-so-kinh-doanh",
+      {
+        ten: "Cơ sở kinh doanh (fixture)",
+        ngon_ngu: "vi",
+        dia_diem: "Cửa hàng, cơ sở sản xuất trên địa bàn An Khang.",
+        kien_thuc_nen: "Biết quy trình đăng ký hành chính cơ bản.",
+        moi_quan_tam: "Nghĩa vụ phải làm, hạn nộp, giấy tờ cần chuẩn bị.",
+        do_sau: "vua_phai",
+        tu_vung: "Thuật ngữ hành chính phổ biến.",
+        quan_he_to_chuc: "Chủ cơ sở hoặc kế toán phụ trách tuân thủ.",
+        nhu_cau_giao_tiep: "Checklist các bước; ngoại lệ nêu riêng.",
+        nhan_khau_hoc: "",
+      },
+      tacGia,
+    );
+    themDoiTuong(
+      db,
+      "seed-dt-truong-hoc",
+      {
+        ten: "Trường học (fixture)",
+        ngon_ngu: "vi",
+        dia_diem: "Trường học trên địa bàn An Khang.",
+        kien_thuc_nen: "Giáo viên cần văn bản dạy được cho học sinh.",
+        moi_quan_tam: "Vì sao phải phân loại; hoạt động gợi ý trong lớp.",
+        do_sau: "so_luoc",
+        tu_vung: "Đơn giản, dạy được; tránh văn phong hành chính.",
+        quan_he_to_chuc: "Nhà trường nhận văn bản từ cơ quan quản lý.",
+        nhu_cau_giao_tiep: "Bài giải thích tách 'phải làm' và 'nên làm'.",
+        nhan_khau_hoc: "",
+      },
+      tacGia,
+    );
+    themDoiTuong(
+      db,
+      "seed-dt-nha-thau",
+      {
+        ten: "Nhà thầu thu gom (fixture)",
+        ngon_ngu: "vi",
+        dia_diem: "Đơn vị thi công thu gom — vận chuyển ký hợp đồng với thành phố.",
+        kien_thuc_nen: "Quen hợp đồng và điều kiện thi công.",
+        moi_quan_tam: "Nghĩa vụ hợp đồng, lịch thu, điểm tiếp nhận.",
+        do_sau: "vua_phai",
+        tu_vung: "Thuật ngữ hợp đồng phổ biến.",
+        quan_he_to_chuc: "Nhà thầu phụ của sở ban quản lý.",
+        nhu_cau_giao_tiep: "Tóm tắt nghĩa vụ ngắn gọn qua email.",
+        nhan_khau_hoc: "",
+      },
+      tacGia,
+    );
+    themDoiTuong(
+      db,
+      "seed-dt-nguoi-nhap-cu",
+      {
+        ten: "Người nhập cư mới (fixture)",
+        ngon_ngu: "en",
+        dia_diem: "Người nước ngoài mới chuyển đến An Khang.",
+        kien_thuc_nen: "Chưa biết quy định địa phương; đọc tiếng Anh đơn giản.",
+        moi_quan_tam: "Quy tắc bắt buộc, ngày bắt đầu, nơi hỏi thêm.",
+        do_sau: "so_luoc",
+        tu_vung: "Ngôn ngữ giản dị.",
+        quan_he_to_chuc: "Cư dân mới trên địa bàn.",
+        nhu_cau_giao_tiep: "Bản dịch ngôn ngữ giản dị, giữ nguyên nghĩa vụ và ngày tháng.",
+        nhan_khau_hoc: "",
+      },
+      tacGia,
+    );
+
+    themThuongHieu(
+      db,
+      "seed-th-so-ban-an-khang",
+      {
+        ten: "Sở Ban Quản lý Đô thị TP An Khang (fixture)",
+        nhan_dien:
+          "Cơ quan quản lý đô thị của một thành phố hư cấu. Công bố chính sách bằng ngôn ngữ công dân đọc được.",
+        ngon_ngu_uu_tien: ["vi", "en"],
+        vi_du_giong_van: "Từ ngày 01/03/2027, hộ gia đình phân loại rác thành 3 nhóm.",
+        nguyen_tac:
+          "Yêu cầu bắt buộc trình bày nguyên văn nghĩa vụ; ngoại lệ luôn đi kèm yêu cầu; ngày hiệu lực và phạm vi quyền hạn không được bỏ hay đổi; điều khoản mơ hồ thành câu hỏi review, không diễn giải.",
+        claim_duyet: [
+          "Nghĩa vụ, ngoại lệ, ngày hiệu lực và phạm vi áp dụng trích từ văn bản đã nạp.",
+          "Điều khoản chưa rõ trình bày là câu hỏi cho thẩm quyền, không phải quy định mới.",
+        ],
+        claim_cam: [
+          "Khẳng định nghĩa vụ không có trong văn bản",
+          "Tư vấn pháp lý hay hứa độ chính xác pháp lý của AI",
+          "Số tiền xử phạt tự đặt",
+        ],
+        assets: [],
+      },
+      tacGia,
+    );
+
+    // Văn bản chính sách chính thức (hư cấu): 4 điều rõ + 1 điều mơ hồ
+    // + phụ lục vận hành. Mục id cố định để con trỏ bằng chứng của
+    // yêu cầu/ngoại lệ/fact resolve được.
+    const nguonChinhSach = taoNguon(
+      db,
+      {
+        tieu_de: "QĐ-2027-15/UBND — Phân loại chất thải sinh hoạt TP An Khang (văn bản hư cấu)",
+        noi_dung:
+          "Quyết định của UBND thành phố An Khang về phân loại chất thải sinh hoạt. Văn bản demo, hư cấu.",
+        loai: "van_ban",
+        cac_muc: [
+          {
+            id: "dieu-1-pham-vi",
+            loai: "fact",
+            tieu_de: "Điều 1 — Phạm vi áp dụng",
+            noi_dung:
+              "Quyết định này áp dụng trên địa bàn thành phố An Khang. Mọi hộ gia đình, cơ sở kinh doanh, trường học và đơn vị thi công trên địa bàn phải tuân thủ.",
+            assets: [],
+          },
+          {
+            id: "dieu-2-ho-gia-dinh",
+            loai: "fact",
+            tieu_de: "Điều 2 — Phân loại tại hộ gia đình",
+            noi_dung:
+              "Từ ngày hiệu lực, hộ gia đình phải phân loại chất thải sinh hoạt thành 3 nhóm: tái chế, hữu cơ và còn lại. Việc phân loại phải hoàn thành trước khi đổ tại điểm thu gom.",
+            assets: [],
+          },
+          {
+            id: "dieu-3-doanh-nghiep",
+            loai: "fact",
+            tieu_de: "Điều 3 — Nghĩa vụ cơ sở kinh doanh",
+            noi_dung:
+              "Cơ sở kinh doanh phải đăng ký điểm thu gom với Sở Ban trước ngày hiệu lực 30 ngày và nộp báo cáo khối lượng chất thải hằng quý.",
+            assets: [],
+          },
+          {
+            id: "dieu-4-ngoai-le",
+            loai: "fact",
+            tieu_de: "Điều 4 — Ngoại lệ và gia hạn",
+            noi_dung:
+              "Hộ gia đình có hộ khẩu tạm trú được gia hạn thực hiện Điều 2 thêm 6 tháng kể từ ngày hiệu lực. Cơ sở kinh doanh có dưới 5 lao động được miễn nộp báo cáo hằng quý nhưng vẫn phải đăng ký điểm thu gom.",
+            assets: [],
+          },
+          {
+            // Cố ý mơ hồ: 'phù hợp', 'theo quy định', 'tùy trường hợp',
+            // 'xem xét', 'linh hoạt' → câu hỏi review, không phải luật bịa.
+            id: "dieu-5-xu-phat",
+            loai: "fact",
+            tieu_de: "Điều 5 — Xử phạt và tổ chức thực hiện",
+            noi_dung:
+              "Mức xử phạt áp dụng phù hợp theo quy định hiện hành và tùy trường hợp cụ thể do Sở Ban xem xét. Việc phối hợp giữa các phường có thể linh hoạt theo tình hình thực tế.",
+            assets: [],
+          },
+        ],
+      },
+      tacGia,
+      { id: "seed-nguon-chinh-sach-tai-che" },
+    );
+    const nguonVanHanh = taoNguon(
+      db,
+      {
+        tieu_de: "Thông báo vận hành của Sở Ban (dữ liệu hư cấu)",
+        noi_dung:
+          "Điểm thu gom tập trung và kênh hỗ trợ cho giai đoạn đầu thực hiện. Dữ liệu demo, hư cấu.",
+        loai: "van_ban",
+        cac_muc: [
+          {
+            id: "vh-diem-thu",
+            loai: "fact",
+            tieu_de: "Điểm thu gom tập trung",
+            noi_dung:
+              "Điểm thu gom tập trung: công viên trung tâm và chợ đầu mối, mở cửa 6h-18h hằng ngày. Thùng phân loại 3 màu phát miễn phí tại UBND phường.",
+            assets: [],
+          },
+          {
+            id: "vh-hotline",
+            loai: "fact",
+            tieu_de: "Kênh hỗ trợ",
+            noi_dung: "Đường dây nóng hỗ trợ: 1900-6868 (giờ hành chính).",
+            assets: [],
+          },
+        ],
+      },
+      tacGia,
+      { id: "seed-nguon-van-hanh-tai-che" },
+    );
+
+    const cpCq = taoCampaign(
+      db,
+      {
+        loai: "cong_quyen",
+        ten: "Luật tái chế thành phố An Khang",
+        mo_ta:
+          "Sở Ban Quản lý Đô thị công bố quyết định phân loại chất thải sinh hoạt — giải thích cho hộ gia đình, cơ sở kinh doanh, trường học, nhà thầu và người nhập cư. Persona demo: cơ quan công quyền (hư cấu).",
+        phien_ban: "QĐ-2027-15/UBND",
+        pham_vi_quyen_han:
+          "Địa bàn thành phố An Khang — mọi hộ gia đình, cơ sở kinh doanh, trường học và đơn vị thi công trên địa bàn.",
+        ngay_hieu_luc: "2027-01-01",
+        ngon_ngu_phu: "en",
+        nguon_chinh_sach_id: nguonChinhSach.id,
+        che_do_bao_ve: 1,
+        thuong_hieu_id: "seed-th-so-ban-an-khang",
+        doi_tuong_id: "seed-dt-ho-gia-dinh",
+        ds_yeu_cau: [
+          {
+            id: "yc-phan-loai",
+            noi_dung:
+              "Hộ gia đình phải phân loại chất thải sinh hoạt thành 3 nhóm: tái chế, hữu cơ và còn lại, trước khi đổ tại điểm thu gom.",
+            loai: "bat_buoc",
+            doi_tuong_ap_dung: "ho_gia_dinh",
+            nguon_id: nguonChinhSach.id,
+            muc_id: "dieu-2-ho-gia-dinh",
+          },
+          {
+            id: "yc-dang-ky-diem",
+            noi_dung:
+              "Cơ sở kinh doanh phải đăng ký điểm thu gom với Sở Ban trước ngày hiệu lực 30 ngày.",
+            loai: "bat_buoc",
+            doi_tuong_ap_dung: "doanh_nghiep",
+            nguon_id: nguonChinhSach.id,
+            muc_id: "dieu-3-doanh-nghiep",
+          },
+          {
+            id: "yc-bao-cao",
+            noi_dung: "Cơ sở kinh doanh phải nộp báo cáo khối lượng chất thải hằng quý.",
+            loai: "bat_buoc",
+            doi_tuong_ap_dung: "doanh_nghiep",
+            nguon_id: nguonChinhSach.id,
+            muc_id: "dieu-3-doanh-nghiep",
+          },
+          {
+            id: "yc-truong-hoc",
+            noi_dung:
+              "Trường học trên địa bàn thuộc phạm vi áp dụng; nội dung giải thích giúp học sinh hiểu cách phân loại.",
+            loai: "giai_thich",
+            doi_tuong_ap_dung: "truong_hoc",
+            nguon_id: nguonChinhSach.id,
+            muc_id: "dieu-1-pham-vi",
+          },
+          {
+            // Cố ý không trỏ nguồn: lịch thu từng tuyến phố chưa có văn
+            // bản — đầu ra chỉ được để [CÂU HỎI], không viết như quy định.
+            id: "yc-lich-thu",
+            noi_dung: "Lịch thu gom từng tuyến phố theo công bố của phường.",
+            loai: "giai_thich",
+            doi_tuong_ap_dung: "",
+            nguon_id: null,
+            muc_id: null,
+          },
+        ],
+        ds_ngoai_le: [
+          {
+            id: "nl-tam-tru",
+            noi_dung:
+              "Hộ gia đình có hộ khẩu tạm trú được gia hạn thực hiện thêm 6 tháng kể từ ngày hiệu lực.",
+            yeu_cau_id: "yc-phan-loai",
+            nguon_id: nguonChinhSach.id,
+            muc_id: "dieu-4-ngoai-le",
+          },
+          {
+            id: "nl-it-lao-dong",
+            noi_dung:
+              "Cơ sở kinh doanh dưới 5 lao động được miễn nộp báo cáo hằng quý nhưng vẫn phải đăng ký điểm thu gom.",
+            yeu_cau_id: "yc-bao-cao",
+            nguon_id: nguonChinhSach.id,
+            muc_id: "dieu-4-ngoai-le",
+          },
+        ],
+        ds_fact_van_hanh: [
+          {
+            id: "fv-diem-thu",
+            tieu_de: "Điểm thu gom tập trung",
+            noi_dung:
+              "Điểm thu gom tập trung: công viên trung tâm và chợ đầu mối; mở 6h-18h hằng ngày; thùng phân loại phát miễn phí tại UBND phường.",
+            nguon_id: nguonVanHanh.id,
+            muc_id: "vh-diem-thu",
+          },
+          {
+            id: "fv-hotline",
+            tieu_de: "Đường dây nóng",
+            noi_dung: "Đường dây nóng hỗ trợ: 1900-6868 (giờ hành chính).",
+            nguon_id: nguonVanHanh.id,
+            muc_id: "vh-hotline",
+          },
+        ],
+        ds_nguoi_duyet: [
+          { id: "nd-lan", ten: "Nguyễn Thị Lan", vai_tro: "Tham mưu pháp chế" },
+          { id: "nd-hung", ten: "Trần Minh Hùng", vai_tro: "Lãnh đạo phòng truyền thông" },
+        ],
+        tham_chieu: [
+          {
+            id: "tc-van-ban",
+            tham_chieu: "Văn bản QĐ-2027-15/UBND",
+            ban_dich: "",
+            nguon_id: nguonChinhSach.id,
+            ghi_chu: "Văn bản chính sách chính thức — claim yêu cầu/ngày ghim vào đây.",
+          },
+          {
+            id: "tc-van-hanh",
+            tham_chieu: "Thông báo vận hành của Sở Ban",
+            ban_dich: "",
+            nguon_id: nguonVanHanh.id,
+            ghi_chu: "Điểm thu gom và kênh hỗ trợ — nguồn của fact vận hành.",
+          },
+        ],
+        cta: [
+          {
+            id: "cta-cong-thong-tin",
+            nhan: "Cổng thông tin của thành phố",
+            loai: "chung",
+            url: "https://ankhang.example.com/tai-che",
+          },
+        ],
+      },
+      tacGia,
+      { id: "seed-cp-cong-quyen-tai-che" },
+    );
+    capNhatCampaign(
+      db,
+      cpCq.id,
+      { ten: cpCq.ten, muc_luc: deXuatDauRaCongQuyen(db, cpCq) },
+      tacGia,
+    );
+    // Nguồn fact tự động 'cq-*' + thông điệp chủ đề pin nguồn — đầu ra
+    // demo dưới đây pin đúng chuỗi provenance.
+    dongBoNguonCongQuyen(db, cpCq, tacGia);
+    const tdCq = damBaoThongDiepCongQuyen(db, layCampaign(db, cpCq.id)!, tacGia);
+    const tdRevCq = tdCq.head_revision_id;
+
+    const mucTheoDauRaCq = new Map(
+      layCampaign(db, cpCq.id)!.muc_luc.map((m) => [
+        `${m.dinh_dang}|${m.dich_den}|${m.ngon_ngu ?? "vi"}`,
+        m,
+      ]),
+    );
+    for (const o of NOI_DUNG_DAU_RA_CONG_QUYEN) {
+      const muc = mucTheoDauRaCq.get(`${o.dinh_dang}|${o.dich_den}|${o.ngon_ngu}`);
+      const doiTuongTen =
+        (muc?.doi_tuong_id ? layDoiTuong(db, muc.doi_tuong_id)?.ten : null) ?? o.doi_tuong;
+      taoBanTheHien(
+        db,
+        {
+          thong_diep_id: tdCq.id,
+          dinh_dang: o.dinh_dang,
+          ngon_ngu: o.ngon_ngu,
+          doi_tuong: doiTuongTen,
+          dich_den: o.dich_den,
+        },
+        tacGia,
+        { id: o.id },
+      );
+      themRevision(
+        db,
+        {
+          ban_the_hien_id: o.id,
+          noi_dung: o.noi_dung,
+          dua_tren_revision_id: null,
+          thong_diep_revision_id: tdRevCq,
+        },
+        tacGia,
+      );
+      if (o.trang_thai === "nhap") continue;
+      chuyenTrangThai(db, o.id, "cho_duyet", "seed: gửi duyệt", tacGia);
+      if (o.trang_thai === "cho_duyet") continue;
+      const head = layBanTheHien(db, o.id)?.head_revision_id ?? undefined;
+      // Duyệt ghi reviewer thẩm quyền của POC vào record duyet (#11).
+      chuyenTrangThai(db, o.id, "da_duyet", "seed: duyệt", tacGia, head, "nd-lan");
+      if (o.xuat_ban) {
+        // dich_den_xuat '': xuất lên trang nội bộ /p (nhóm 'đã xuất');
+        // có giá trị: copy đã đăng tay ra kênh ngoài (nhóm 'đã đăng').
+        // Chuỗi rỗng phải truyền nguyên — để undefined là service fallback
+        // về dich_den của bản thể hiện.
+        xuatBanBanTheHien(
+          db,
+          o.id,
+          {
+            dich_den:
+              o.dich_den_xuat !== undefined ? o.dich_den_xuat : o.dich_den || undefined,
+          },
+          tacGia,
+        );
+      }
+    }
+    // Job sinh đã lên lịch cho bài trường học (tái sinh theo lịch): đổi
+    // ngày hiệu lực → job này bị chặn cho tới khi review lại, liệt kê
+    // riêng ở nhóm 'đã lên lịch'.
+    const bthTruongHoc = layBanTheHien(db, "seed-bth-cq-truong-hoc");
+    if (bthTruongHoc) {
+      enqueueJob(db, {
+        loai: "sinh_ban_the_hien",
+        khoaIdem: "sinh_ban_the_hien:seed-bth-cq-truong-hoc",
+        entityLoai: "ban_the_hien",
+        entityId: bthTruongHoc.id,
+        revisionId: bthTruongHoc.head_revision_id ?? null,
+        payload: {
+          ban_the_hien_id: bthTruongHoc.id,
+          campaign_id: cpCq.id,
+          doi_tuong: bthTruongHoc.doi_tuong,
+        },
+        chaySomNhat: new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString(),
+      });
+    }
+    daSeed.push("story_cong_quyen_tai_che");
+  }
+
   return { da_seed: daSeed };
 }
 
@@ -2451,6 +2887,227 @@ ${GQ_CTA}`,
       ],
       cta: GQ_CTA,
       lien_ket: GQ_LIEN_KET,
+    }),
+  },
+];
+
+// Nội dung đầu ra của chiến dịch công quyền — viết tay đúng canonical
+// JSON, giữ marker [YC]/[NL]/[FV] pin provenance, giữ nguyên văn ngày
+// hiệu lực '2027-01-01' và phạm vi quyền hạn; mục chưa xác nhận và
+// điều khoản mơ hồ chỉ để [CÂU HỎI] — không bịa luật.
+const CQ_PHAM_VI =
+  "Địa bàn thành phố An Khang — mọi hộ gia đình, cơ sở kinh doanh, trường học và đơn vị thi công trên địa bàn.";
+const CQ_CAU_HOI_LICH_THU =
+  "[CÂU HỎI: yêu cầu 'Lịch thu gom từng tuyến phố theo công bố của phường' chưa có bằng chứng nguồn — cần thẩm quyền xác nhận.]";
+const CQ_CAU_HOI_XU_PHAT =
+  "[CÂU HỎI: điều khoản nguồn mơ hồ — 'Mức xử phạt áp dụng phù hợp theo quy định hiện hành và tùy trường hợp cụ thể do Sở Ban xem xét.' cần thẩm quyền diễn giải, đầu ra không được bịa luật.]";
+
+const NOI_DUNG_DAU_RA_CONG_QUYEN: {
+  id: string;
+  dinh_dang: string;
+  doi_tuong: string;
+  dich_den: string;
+  // Đích ghi trên record xuất bản — khác dich_den của bản thể hiện:
+  // '' = chỉ đăng trang nội bộ /p (nhóm 'đã xuất'); bỏ qua = dùng
+  // dich_den của bản (nhóm 'đã đăng' — copy tay ở kênh ngoài).
+  dich_den_xuat?: string;
+  ngon_ngu: string;
+  trang_thai: "nhap" | "cho_duyet" | "da_duyet" | "tu_choi";
+  xuat_ban: boolean;
+  noi_dung: string;
+}[] = [
+  {
+    // FAQ hộ gia đình — đã duyệt bởi reviewer + đã xuất trên trang /p/
+    // (xuất bản không dich_den → chỉ thuộc nhóm 'đã xuất').
+    id: "seed-bth-cq-faq",
+    dinh_dang: "faq-cong-dan",
+    doi_tuong: "Hộ gia đình (fixture)",
+    dich_den: "cong-thong-tin",
+    dich_den_xuat: "",
+    ngon_ngu: "vi",
+    trang_thai: "da_duyet",
+    xuat_ban: true,
+    noi_dung: JSON.stringify({
+      tieu_de: "Hỏi đáp: phân loại rác tại hộ gia đình",
+      gioi_thieu: `Luật tái chế thành phố An Khang (QĐ-2027-15/UBND) áp dụng cho mọi hộ gia đình trên địa bàn.\n\n${CQ_CAU_HOI_XU_PHAT}`,
+      hoi_dap: [
+        "Hỏi: Tôi phải phân loại rác thế nào? Đáp: Phân thành 3 nhóm — tái chế, hữu cơ và còn lại — trước khi đổ tại điểm thu gom. [YC:yc-phan-loai]",
+        "Hỏi: Tôi là hộ khẩu tạm trú thì sao? Đáp: Hộ có hộ khẩu tạm trú được gia hạn thực hiện thêm 6 tháng kể từ ngày hiệu lực. [NL:nl-tam-tru]",
+        "Hỏi: Đổ rác ở đâu? Đáp: Điểm thu gom tập trung tại công viên trung tâm và chợ đầu mối, mở 6h-18h hằng ngày. [FV:fv-diem-thu]",
+      ],
+      yeu_cau: [
+        "Hộ gia đình phải phân loại chất thải sinh hoạt thành 3 nhóm: tái chế, hữu cơ và còn lại, trước khi đổ tại điểm thu gom. [BẮT BUỘC] (ho_gia_dinh) [YC:yc-phan-loai]",
+        CQ_CAU_HOI_LICH_THU,
+      ],
+      ngoai_le: [
+        "Hộ gia đình có hộ khẩu tạm trú được gia hạn thực hiện thêm 6 tháng kể từ ngày hiệu lực. (ngoại lệ của yêu cầu yc-phan-loai) [NL:nl-tam-tru]",
+      ],
+      pham_vi: CQ_PHAM_VI,
+      ngay_hieu_luc: "2027-01-01",
+      hoi_them: "Cổng thông tin của thành phố: https://ankhang.example.com/tai-che",
+    }),
+  },
+  {
+    // Checklist doanh nghiệp — đã duyệt + đã xuất và đã đăng kênh ngoài
+    // (dich_den trên record xuất bản) → sau đổi ngày hiệu lực cần sửa
+    // copy tay ở đích ngoài, không khẳng định cập nhật từ xa.
+    id: "seed-bth-cq-checklist",
+    dinh_dang: "checklist-doanh-nghiep",
+    doi_tuong: "Cơ sở kinh doanh (fixture)",
+    dich_den: "cong-thong-tin",
+    ngon_ngu: "vi",
+    trang_thai: "da_duyet",
+    xuat_ban: true,
+    noi_dung: JSON.stringify({
+      tieu_de: "Checklist tuân thủ cho cơ sở kinh doanh",
+      gioi_thieu: `Quyết định phân loại chất thải sinh hoạt có hiệu lực từ 2027-01-01.\n\n${CQ_CAU_HOI_XU_PHAT}`,
+      cac_buoc: [
+        "Đăng ký điểm thu gom với Sở Ban trước ngày hiệu lực 30 ngày. [BẮT BUỘC] (doanh_nghiep) [YC:yc-dang-ky-diem]",
+        "Nộp báo cáo khối lượng chất thải hằng quý. [BẮT BUỘC] (doanh_nghiep) [YC:yc-bao-cao]",
+      ],
+      yeu_cau: [
+        "Cơ sở kinh doanh phải đăng ký điểm thu gom với Sở Ban trước ngày hiệu lực 30 ngày. [BẮT BUỘC] (doanh_nghiep) [YC:yc-dang-ky-diem]",
+        "Cơ sở kinh doanh phải nộp báo cáo khối lượng chất thải hằng quý. [BẮT BUỘC] (doanh_nghiep) [YC:yc-bao-cao]",
+        "Hộ gia đình phải phân loại chất thải sinh hoạt thành 3 nhóm: tái chế, hữu cơ và còn lại, trước khi đổ tại điểm thu gom. [BẮT BUỘC] (ho_gia_dinh) [YC:yc-phan-loai]",
+        "Trường học trên địa bàn thuộc phạm vi áp dụng; nội dung giải thích giúp học sinh hiểu cách phân loại. [GIẢI THÍCH] (truong_hoc) [YC:yc-truong-hoc]",
+        CQ_CAU_HOI_LICH_THU,
+      ],
+      ngoai_le: [
+        "Hộ gia đình có hộ khẩu tạm trú được gia hạn thực hiện thêm 6 tháng kể từ ngày hiệu lực. (ngoại lệ của yêu cầu yc-phan-loai) [NL:nl-tam-tru]",
+        "Cơ sở kinh doanh dưới 5 lao động được miễn nộp báo cáo hằng quý nhưng vẫn phải đăng ký điểm thu gom. (ngoại lệ của yêu cầu yc-bao-cao) [NL:nl-it-lao-dong]",
+      ],
+      pham_vi: CQ_PHAM_VI,
+      ngay_hieu_luc: "2027-01-01",
+      lien_ket: "https://ankhang.example.com/tai-che",
+    }),
+  },
+  {
+    // Bài giải thích trường học — chờ duyệt; kèm job sinh đã lên lịch
+    // (enqueue ở block seed trên) → sau đổi ngày hiệu lực job bị chặn
+    // và đầu ra không được duyệt cho tới khi sinh lại.
+    id: "seed-bth-cq-truong-hoc",
+    dinh_dang: "giai-thich-truong-hoc",
+    doi_tuong: "Trường học (fixture)",
+    dich_den: "website",
+    ngon_ngu: "vi",
+    trang_thai: "cho_duyet",
+    xuat_ban: false,
+    noi_dung: JSON.stringify({
+      tieu_de: "Vì sao thành phố bắt đầu phân loại rác",
+      noi_dung: `Chính sách Luật tái chế thành phố An Khang (phiên bản QĐ-2027-15/UBND).
+Có hiệu lực từ 2027-01-01.
+Áp dụng: ${CQ_PHAM_VI}.
+
+**Bắt buộc:**
+- Hộ gia đình phải phân loại chất thải sinh hoạt thành 3 nhóm: tái chế, hữu cơ và còn lại, trước khi đổ tại điểm thu gom. [BẮT BUỘC] (ho_gia_dinh) [YC:yc-phan-loai]
+- Cơ sở kinh doanh phải đăng ký điểm thu gom với Sở Ban trước ngày hiệu lực 30 ngày. [BẮT BUỘC] (doanh_nghiep) [YC:yc-dang-ky-diem]
+- Cơ sở kinh doanh phải nộp báo cáo khối lượng chất thải hằng quý. [BẮT BUỘC] (doanh_nghiep) [YC:yc-bao-cao]
+
+**Ngoại lệ:**
+- Hộ gia đình có hộ khẩu tạm trú được gia hạn thực hiện thêm 6 tháng kể từ ngày hiệu lực. (ngoại lệ của yêu cầu yc-phan-loai) [NL:nl-tam-tru]
+- Cơ sở kinh doanh dưới 5 lao động được miễn nộp báo cáo hằng quý nhưng vẫn phải đăng ký điểm thu gom. (ngoại lệ của yêu cầu yc-bao-cao) [NL:nl-it-lao-dong]
+
+**Giải thích:**
+- Trường học trên địa bàn thuộc phạm vi áp dụng; nội dung giải thích giúp học sinh hiểu cách phân loại. [GIẢI THÍCH] (truong_hoc) [YC:yc-truong-hoc]
+- ${CQ_CAU_HOI_LICH_THU}
+
+**Thông tin vận hành:**
+- Điểm thu gom tập trung: Điểm thu gom tập trung: công viên trung tâm và chợ đầu mối; mở 6h-18h hằng ngày; thùng phân loại phát miễn phí tại UBND phường. [FV:fv-diem-thu]
+- Đường dây nóng: Đường dây nóng hỗ trợ: 1900-6868 (giờ hành chính). [FV:fv-hotline]
+
+${CQ_CAU_HOI_XU_PHAT}`,
+      yeu_cau: [
+        "Hộ gia đình phải phân loại chất thải sinh hoạt thành 3 nhóm: tái chế, hữu cơ và còn lại, trước khi đổ tại điểm thu gom. [BẮT BUỘC] (ho_gia_dinh) [YC:yc-phan-loai]",
+        "Cơ sở kinh doanh phải đăng ký điểm thu gom với Sở Ban trước ngày hiệu lực 30 ngày. [BẮT BUỘC] (doanh_nghiep) [YC:yc-dang-ky-diem]",
+        "Cơ sở kinh doanh phải nộp báo cáo khối lượng chất thải hằng quý. [BẮT BUỘC] (doanh_nghiep) [YC:yc-bao-cao]",
+        "Trường học trên địa bàn thuộc phạm vi áp dụng; nội dung giải thích giúp học sinh hiểu cách phân loại. [GIẢI THÍCH] (truong_hoc) [YC:yc-truong-hoc]",
+        CQ_CAU_HOI_LICH_THU,
+      ],
+      ngoai_le: [
+        "Hộ gia đình có hộ khẩu tạm trú được gia hạn thực hiện thêm 6 tháng kể từ ngày hiệu lực. (ngoại lệ của yêu cầu yc-phan-loai) [NL:nl-tam-tru]",
+        "Cơ sở kinh doanh dưới 5 lao động được miễn nộp báo cáo hằng quý nhưng vẫn phải đăng ký điểm thu gom. (ngoại lệ của yêu cầu yc-bao-cao) [NL:nl-it-lao-dong]",
+      ],
+      goi_y_hoat_dong: [
+        "Trường học trên địa bàn thuộc phạm vi áp dụng; nội dung giải thích giúp học sinh hiểu cách phân loại. [GIẢI THÍCH] (truong_hoc) [YC:yc-truong-hoc]",
+        CQ_CAU_HOI_LICH_THU,
+      ],
+      pham_vi: CQ_PHAM_VI,
+      ngay_hieu_luc: "2027-01-01",
+    }),
+  },
+  {
+    // Tóm tắt cho nhà thầu — còn nháp.
+    id: "seed-bth-cq-nha-thau",
+    dinh_dang: "tom-tat-nha-thau",
+    doi_tuong: "Nhà thầu thu gom (fixture)",
+    dich_den: "email",
+    ngon_ngu: "vi",
+    trang_thai: "nhap",
+    xuat_ban: false,
+    noi_dung: JSON.stringify({
+      tieu_de: "Tóm tắt cho nhà thầu — luật tái chế An Khang",
+      tom_tat: `Chính sách Luật tái chế thành phố An Khang có hiệu lực từ 2027-01-01, áp dụng: ${CQ_PHAM_VI}.`,
+      nghia_vu: [
+        "Hộ gia đình phải phân loại chất thải sinh hoạt thành 3 nhóm: tái chế, hữu cơ và còn lại, trước khi đổ tại điểm thu gom. [BẮT BUỘC] (ho_gia_dinh) [YC:yc-phan-loai]",
+        "Cơ sở kinh doanh phải đăng ký điểm thu gom với Sở Ban trước ngày hiệu lực 30 ngày. [BẮT BUỘC] (doanh_nghiep) [YC:yc-dang-ky-diem]",
+        "Cơ sở kinh doanh phải nộp báo cáo khối lượng chất thải hằng quý. [BẮT BUỘC] (doanh_nghiep) [YC:yc-bao-cao]",
+      ],
+      yeu_cau: [
+        "Hộ gia đình phải phân loại chất thải sinh hoạt thành 3 nhóm: tái chế, hữu cơ và còn lại, trước khi đổ tại điểm thu gom. [BẮT BUỘC] (ho_gia_dinh) [YC:yc-phan-loai]",
+        "Cơ sở kinh doanh phải đăng ký điểm thu gom với Sở Ban trước ngày hiệu lực 30 ngày. [BẮT BUỘC] (doanh_nghiep) [YC:yc-dang-ky-diem]",
+        "Cơ sở kinh doanh phải nộp báo cáo khối lượng chất thải hằng quý. [BẮT BUỘC] (doanh_nghiep) [YC:yc-bao-cao]",
+        "Trường học trên địa bàn thuộc phạm vi áp dụng; nội dung giải thích giúp học sinh hiểu cách phân loại. [GIẢI THÍCH] (truong_hoc) [YC:yc-truong-hoc]",
+        CQ_CAU_HOI_LICH_THU,
+      ],
+      ngoai_le: [
+        "Hộ gia đình có hộ khẩu tạm trú được gia hạn thực hiện thêm 6 tháng kể từ ngày hiệu lực. (ngoại lệ của yêu cầu yc-phan-loai) [NL:nl-tam-tru]",
+        "Cơ sở kinh doanh dưới 5 lao động được miễn nộp báo cáo hằng quý nhưng vẫn phải đăng ký điểm thu gom. (ngoại lệ của yêu cầu yc-bao-cao) [NL:nl-it-lao-dong]",
+      ],
+      pham_vi: CQ_PHAM_VI,
+      ngay_hieu_luc: "2027-01-01",
+    }),
+  },
+  {
+    // Bản dịch ngôn ngữ giản dị (en) cho người nhập cư — còn nháp;
+    // giữ nguyên nghĩa vụ, ngoại lệ, phạm vi và ngày hiệu lực.
+    id: "seed-bth-cq-ban-dich",
+    dinh_dang: "ban-dich-gian-di",
+    doi_tuong: "Người nhập cư mới (fixture)",
+    dich_den: "cong-thong-tin",
+    ngon_ngu: "en",
+    trang_thai: "nhap",
+    xuat_ban: false,
+    noi_dung: JSON.stringify({
+      tieu_de: "New recycling law in An Khang — simple English",
+      noi_dung: `The policy Luật tái chế thành phố An Khang (version QĐ-2027-15/UBND).
+It takes effect on 2027-01-01.
+It applies to: ${CQ_PHAM_VI}.
+
+**You must:**
+- Households must sort household waste into 3 groups: recyclable, organic, and the rest, before dropping at collection points. [YC:yc-phan-loai]
+- Businesses must register a collection point with the So Ban 30 days before the effective date. [YC:yc-dang-ky-diem]
+- Businesses must submit a quarterly waste-quantity report. [YC:yc-bao-cao]
+
+**Exceptions:**
+- Households with temporary-residence registration get a 6-month extension from the effective date. [NL:nl-tam-tru]
+- Businesses with under 5 workers are exempt from the quarterly report but must still register a collection point. [NL:nl-it-lao-dong]
+
+**Operational info:**
+- Collection points: central park and the wholesale market, open 6h-18h daily. [FV:fv-diem-thu]
+- Support hotline: 1900-6868 (office hours). [FV:fv-hotline]
+
+${CQ_CAU_HOI_XU_PHAT}`,
+      yeu_cau: [
+        "Hộ gia đình phải phân loại chất thải sinh hoạt thành 3 nhóm: tái chế, hữu cơ và còn lại, trước khi đổ tại điểm thu gom. [BẮT BUỘC] (ho_gia_dinh) [YC:yc-phan-loai]",
+        CQ_CAU_HOI_LICH_THU,
+      ],
+      ngoai_le: [
+        "Hộ gia đình có hộ khẩu tạm trú được gia hạn thực hiện thêm 6 tháng kể từ ngày hiệu lực. (ngoại lệ của yêu cầu yc-phan-loai) [NL:nl-tam-tru]",
+        "Cơ sở kinh doanh dưới 5 lao động được miễn nộp báo cáo hằng quý nhưng vẫn phải đăng ký điểm thu gom. (ngoại lệ của yêu cầu yc-bao-cao) [NL:nl-it-lao-dong]",
+      ],
+      pham_vi: CQ_PHAM_VI,
+      ngay_hieu_luc: "2027-01-01",
+      ghi_chu: [CQ_CAU_HOI_XU_PHAT],
     }),
   },
 ];

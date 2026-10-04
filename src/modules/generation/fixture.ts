@@ -39,6 +39,12 @@ function dongThieuChungCu(ctx: ContextTask): string[] {
     // để câu hỏi biên tập, không bịa số đo hay lời người thụ hưởng.
     tac_dong_chua_xac_nhan: "bằng chứng nguồn cho một số tác động đã khai báo",
     trich_dan_chua_nguon: "nguồn tư liệu cho một số trích dẫn đã khai báo",
+    // Công quyền (#11): mục chưa trỏ nguồn chính sách → câu hỏi thẩm
+    // quyền; điều khoản nguồn mơ hồ → câu hỏi diễn giải, không bịa luật.
+    yeu_cau_chua_xac_nhan: "bằng chứng nguồn cho một số yêu cầu chính sách",
+    ngoai_le_chua_xac_nhan: "bằng chứng nguồn cho một số ngoại lệ chính sách",
+    fact_van_hanh_chua_nguon: "nguồn cho một số fact vận hành đã khai báo",
+    dieu_khoan_mo_ho: "diễn giải của thẩm quyền cho một số điều khoản nguồn mơ hồ",
   };
   return ctx.thieu_chung_cu.map(
     (t) => `[CÂU HỎI: nguồn chưa có ${nhan[t] ?? t} — cần người viết bổ sung.]`,
@@ -269,6 +275,163 @@ function noiDungTruongGayQuy(
   return undefined;
 }
 
+// Field theo tên cho ngữ cảnh công quyền (#11) — trả undefined để rơi
+// về luồng chung khi field không thuộc từ điển chính sách.
+function noiDungTruongCongQuyen(
+  t: DinhNghiaTruong,
+  ctx: ContextTask,
+): string | string[] | undefined {
+  const cq = ctx.cong_quyen;
+  if (!cq) return undefined;
+  const ctaChinh = cq.cta[0];
+
+  // Một dòng mỗi mục: mục chưa xác nhận thành [CÂU HỎI] — fixture không
+  // bịa luật; mục xác nhận giữ nhãn [BẮT BUỘC]/[GIẢI THÍCH] để đầu ra
+  // phân biệt nghĩa vụ với ngôn ngữ giải thích.
+  const dongYeuCau = (loai?: string) =>
+    cq.ds_yeu_cau
+      .filter((y) => (loai ? y.loai === loai : true))
+      .map((y) => {
+        if (!y.xac_nhan) {
+          return `[CÂU HỎI: yêu cầu '${y.noi_dung.slice(0, 60)}' chưa có bằng chứng nguồn — cần thẩm quyền xác nhận trước khi công bố.]`;
+        }
+        const nhanLoai = y.loai === "bat_buoc" ? "BẮT BUỘC" : "GIẢI THÍCH";
+        const dt = y.doi_tuong_ap_dung ? ` (${y.doi_tuong_ap_dung})` : "";
+        return `${y.noi_dung} [${nhanLoai}]${dt} [YC:${y.id}]`;
+      });
+  const dongNgoaiLe = () =>
+    cq.ds_ngoai_le.map((nl) => {
+      if (!nl.xac_nhan) {
+        return `[CÂU HỎI: ngoại lệ '${nl.noi_dung.slice(0, 60)}' chưa có bằng chứng nguồn — cần thẩm quyền xác nhận.]`;
+      }
+      const lienKet = nl.yeu_cau_id ? ` (ngoại lệ của yêu cầu ${nl.yeu_cau_id})` : "";
+      return `${nl.noi_dung}${lienKet} [NL:${nl.id}]`;
+    });
+  const dongFact = () =>
+    cq.ds_fact_van_hanh.map((f) => {
+      if (!f.xac_nhan) {
+        return `[CÂU HỎI: fact '${f.tieu_de}' chưa có nguồn — cần xác nhận trước khi công bố.]`;
+      }
+      return `${f.tieu_de}: ${f.noi_dung} [FV:${f.id}]`;
+    });
+  // Điều khoản nguồn mơ hồ/mâu thuẫn đổ thành câu hỏi review — không
+  // phải luật bịa.
+  const dongMoHo = () =>
+    cq.dieu_khoan_mo_ho.map(
+      (d) =>
+        `[CÂU HỎI: điều khoản nguồn mơ hồ — '${d.slice(0, 120)}' cần thẩm quyền diễn giải, đầu ra không được bịa luật.]`,
+    );
+
+  if (t.loai === "van_ban") {
+    if (t.ten === "tieu_de") return `Chính sách ${cq.ten}`;
+    if (t.ten === "pham_vi") return cq.pham_vi_quyen_han || "Theo văn bản chính sách";
+    if (t.ten === "ngay_hieu_luc") {
+      return cq.ngay_hieu_luc || "[CÂU HỎI: ngày hiệu lực chưa được đặt trong chiến dịch.]";
+    }
+    if (t.ten === "tom_tat") {
+      return `Chính sách ${cq.ten}${cq.ngay_hieu_luc ? ` có hiệu lực từ ${cq.ngay_hieu_luc}` : ""}${cq.pham_vi_quyen_han ? `, áp dụng: ${cq.pham_vi_quyen_han}` : ""}.`;
+    }
+    if (t.ten === "phan_doan") {
+      return ctx.context_sinh?.doi_tuong?.ten || ctx.doi_tuong || "chung";
+    }
+    if (t.ten === "lien_ket" || t.ten === "hoi_them") {
+      return ctaChinh?.url;
+    }
+    if (t.ten === "cta" || t.ten === "hanh_dong" || t.ten === "tiep_theo") {
+      return ctaChinh ? `${ctaChinh.nhan}: ${ctaChinh.url}` : undefined;
+    }
+    return undefined;
+  }
+
+  if (t.loai === "danh_sach") {
+    if (t.ten === "yeu_cau") return dongYeuCau();
+    if (t.ten === "ngoai_le") return dongNgoaiLe();
+    if (t.ten === "hoi_dap") {
+      const ds = cq.ds_yeu_cau.map((y) => {
+        if (!y.xac_nhan) {
+          return `[CÂU HỎI: yêu cầu '${y.noi_dung.slice(0, 60)}' chưa có bằng chứng nguồn — cần thẩm quyền xác nhận.]`;
+        }
+        return `Hỏi: ${y.noi_dung}? Đáp: ${y.noi_dung} [YC:${y.id}]`;
+      });
+      for (const nl of cq.ds_ngoai_le) {
+        if (!nl.xac_nhan) continue;
+        ds.push(`Hỏi: có ngoại lệ nào? Đáp: ${nl.noi_dung} [NL:${nl.id}]`);
+      }
+      return ds;
+    }
+    if (t.ten === "cac_buoc" || t.ten === "nghia_vu") {
+      const ds = dongYeuCau("bat_buoc");
+      return ds.length > 0 ? ds : undefined;
+    }
+    if (t.ten === "goi_y_hoat_dong") {
+      const ds = dongYeuCau("giai_thich");
+      return ds.length > 0 ? ds : undefined;
+    }
+    if (t.ten === "ghi_chu") return dongMoHo();
+    if (t.ten === "bang_chung") {
+      return [
+        ...cq.ds_yeu_cau
+          .filter((x) => x.xac_nhan)
+          .map(
+            (x) =>
+              `${x.noi_dung} [YC:${x.id}]${x.nguon_tieu_de ? ` — nguồn: ${x.nguon_tieu_de}` : ""}`,
+          ),
+        ...cq.ds_ngoai_le
+          .filter((x) => x.xac_nhan)
+          .map((x) => `${x.noi_dung} [NL:${x.id}]`),
+        ...cq.ds_fact_van_hanh
+          .filter((x) => x.xac_nhan)
+          .map((x) => `${x.tieu_de}: ${x.noi_dung} [FV:${x.id}]`),
+      ];
+    }
+    if (t.ten === "con_thieu") {
+      return [
+        ...cq.ds_yeu_cau
+          .filter((x) => !x.xac_nhan)
+          .map(
+            (x) =>
+              `[CÂU HỎI: yêu cầu '${x.noi_dung.slice(0, 60)}' chưa có bằng chứng nguồn — cần thẩm quyền xác nhận.]`,
+          ),
+        ...cq.ds_ngoai_le
+          .filter((x) => !x.xac_nhan)
+          .map(
+            (x) =>
+              `[CÂU HỎI: ngoại lệ '${x.noi_dung.slice(0, 60)}' chưa có bằng chứng nguồn — cần thẩm quyền xác nhận.]`,
+          ),
+        ...cq.ds_fact_van_hanh
+          .filter((x) => !x.xac_nhan)
+          .map((x) => `[CÂU HỎI: fact '${x.tieu_de}' chưa có nguồn — cần xác nhận trước khi công bố.]`),
+        ...dongMoHo(),
+      ];
+    }
+    return undefined;
+  }
+
+  if (t.loai === "markdown" && (t.ten === "noi_dung" || t.ten === "gioi_thieu")) {
+    // Thân bài giải thích chính sách: phạm vi + ngày hiệu lực → yêu cầu
+    // bắt buộc → ngoại lệ → điểm giải thích → fact vận hành → điều khoản
+    // mơ hồ đổ thành [CÂU HỎI]. Đơn giản hóa giữ nguyên bốn phần đó.
+    const dong: string[] = [
+      `Chính sách ${cq.ten}${cq.phien_ban ? ` (phiên bản ${cq.phien_ban})` : ""}.`,
+    ];
+    if (cq.ngay_hieu_luc) dong.push(`Có hiệu lực từ ${cq.ngay_hieu_luc}.`);
+    if (cq.pham_vi_quyen_han) dong.push(`Áp dụng: ${cq.pham_vi_quyen_han}.`);
+    const batBuoc = dongYeuCau("bat_buoc");
+    if (batBuoc.length > 0) dong.push("", "**Bắt buộc:**", ...batBuoc.map((d) => `- ${d}`));
+    const ngoaiLe = dongNgoaiLe();
+    if (ngoaiLe.length > 0) dong.push("", "**Ngoại lệ:**", ...ngoaiLe.map((d) => `- ${d}`));
+    const giaiThich = dongYeuCau("giai_thich");
+    if (giaiThich.length > 0) dong.push("", "**Giải thích:**", ...giaiThich.map((d) => `- ${d}`));
+    const fact = dongFact();
+    if (fact.length > 0) dong.push("", "**Thông tin vận hành:**", ...fact.map((d) => `- ${d}`));
+    const moHo = dongMoHo();
+    if (moHo.length > 0) dong.push("", ...moHo);
+    if (ctaChinh) dong.push("", `${ctaChinh.nhan}: ${ctaChinh.url}`);
+    return dong.join("\n");
+  }
+  return undefined;
+}
+
 // Gán nội dung cho một trường theo kiểu — deterministic từ context.
 function noiDungTruong(t: DinhNghiaTruong, ctx: ContextTask): string | string[] {
   if (ctx.phat_hanh) {
@@ -278,6 +441,10 @@ function noiDungTruong(t: DinhNghiaTruong, ctx: ContextTask): string | string[] 
   if (ctx.gay_quy) {
     const gq = noiDungTruongGayQuy(t, ctx);
     if (gq !== undefined) return gq;
+  }
+  if (ctx.cong_quyen) {
+    const cq = noiDungTruongCongQuyen(t, ctx);
+    if (cq !== undefined) return cq;
   }
   const dongMeta = [
     `Đối tượng: ${ctx.context_sinh?.doi_tuong?.ten || ctx.doi_tuong || "chung"}`,
@@ -296,6 +463,11 @@ function noiDungTruong(t: DinhNghiaTruong, ctx: ContextTask): string | string[] 
   }
   if (ctx.gay_quy) {
     dongMeta.push(`Gây quỹ: ${ctx.gay_quy.ten}`);
+  }
+  if (ctx.cong_quyen) {
+    dongMeta.push(
+      `Chính sách: ${ctx.cong_quyen.ten}${ctx.cong_quyen.phien_ban ? ` ${ctx.cong_quyen.phien_ban}` : ""}`,
+    );
   }
   const dongThieu = dongThieuChungCu(ctx);
 

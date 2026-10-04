@@ -90,7 +90,7 @@ export type MucLuc = {
 // Loại campaign: '' = campaign thường, 'so_bao' = số báo (#8),
 // 'phat_hanh' = bản phát hành phần mềm (#9), 'gay_quy' = chiến dịch gây
 // quỹ nonprofit (#10). Giá trị do api.ts validate.
-export const DANH_SACH_LOAI_CAMPAIGN = ["so_bao", "phat_hanh", "gay_quy"] as const;
+export const DANH_SACH_LOAI_CAMPAIGN = ["so_bao", "phat_hanh", "gay_quy", "cong_quyen"] as const;
 
 // Giới hạn gói/vùng/khả dụng của bản phát hành (#9): tinh_nang = tên tính
 // năng bị giới hạn; mo_ta = câu phải hiển thị trên đầu ra bị ảnh hưởng.
@@ -160,12 +160,57 @@ export type GhiChuQuyen = {
   ghi_chu: string;
 };
 
+// --- Chiến dịch công quyền (#11) ---
+
+// Một yêu cầu hoặc điểm giải thích của chính sách: loai phân biệt yêu
+// cầu bắt buộc với ngôn ngữ giải thích — giải thích trình bày như nghĩa
+// vụ là cảnh báo review. doi_tuong_ap_dung = nhóm đối tượng chịu yêu
+// cầu ('' = chung). nguon_id + muc_id trỏ mục nguồn chính sách làm
+// bằng chứng; null = chưa xác nhận → đầu ra chỉ để [CÂU HỎI].
+export type YeuCauCongQuyen = {
+  id: string;
+  noi_dung: string;
+  loai: string; // 'bat_buoc' | 'giai_thich'
+  doi_tuong_ap_dung: string;
+  nguon_id: string | null;
+  muc_id: string | null;
+};
+
+// Ngoại lệ của chính sách: yeu_cau_id trỏ yêu cầu nó sửa ('' = ngoại
+// lệ chung). Đơn giản hóa/dịch phải giữ ngoại lệ nguyên — đầu ra nhắc
+// yêu cầu mà bỏ ngoại lệ là cảnh báo review.
+export type NgoaiLeCongQuyen = {
+  id: string;
+  noi_dung: string;
+  yeu_cau_id: string;
+  nguon_id: string | null;
+  muc_id: string | null;
+};
+
+// Fact vận hành hỗ trợ chính sách (lịch thu gom, điểm thu, hotline):
+// fact chính sách đã duyệt là ràng buộc — bản dịch giữ nguyên số/giờ.
+export type FactVanHanh = {
+  id: string;
+  tieu_de: string;
+  noi_dung: string;
+  nguon_id: string | null;
+  muc_id: string | null;
+};
+
+// Reviewer local được ghi trong POC (#11): người chấm thẩm quyền của
+// cơ quan — duyệt công quyền ghi ai trong danh sách này đã chấm.
+export type NguoiDuyetCongQuyen = {
+  id: string;
+  ten: string;
+  vai_tro: string;
+};
+
 export type Campaign = {
   id: string;
   ten: string;
   mo_ta: string;
   ghi_de: GhiDeCampaign;
-  loai: string; // '' | 'so_bao' | 'phat_hanh' | 'gay_quy'
+  loai: string; // '' | 'so_bao' | 'phat_hanh' | 'gay_quy' | 'cong_quyen'
   // Trường số báo (#8): rỗng/mặc định = campaign thường, không phải số báo.
   so_thu_tu: number | null;
   ngay_phat_hanh: string; // ISO date "YYYY-MM-DD" hoặc rỗng
@@ -193,6 +238,16 @@ export type Campaign = {
   ds_trich_dan: TrichDanGayQuy[]; // trích dẫn được phép dùng + nguồn
   ghi_chu_quyen: GhiChuQuyen[]; // quyền/đồng ý cho asset tổ chức cung cấp
   nguon_gay_quy_id: string; // nguồn fact tự động chiếu từ field gây quỹ
+  // Trường công quyền (#11): chỉ dùng khi loai = 'cong_quyen'.
+  pham_vi_quyen_han: string; // phạm vi quyền hạn — giữ nguyên khi đơn giản hóa
+  ngay_hieu_luc: string; // ISO date "YYYY-MM-DD" hoặc rỗng
+  ds_yeu_cau: YeuCauCongQuyen[]; // yêu cầu/điểm giải thích + bằng chứng nguồn
+  ds_ngoai_le: NgoaiLeCongQuyen[]; // ngoại lệ liên kết yêu cầu
+  ds_fact_van_hanh: FactVanHanh[]; // fact vận hành hỗ trợ
+  ds_nguoi_duyet: NguoiDuyetCongQuyen[]; // reviewer local được ghi
+  che_do_bao_ve: number; // 1 = duyệt bắt buộc ghi reviewer — móc nối #16
+  nguon_chinh_sach_id: string; // nguồn văn bản chính sách chính thức
+  nguon_cong_quyen_id: string; // nguồn fact tự động chiếu từ field
   tao_luc: string;
   tao_boi: string;
   cap_nhat_luc: string;
@@ -256,6 +311,7 @@ export type Duyet = {
   tu_trang_thai: string;
   den_trang_thai: string;
   ghi_chu: string;
+  nguoi_duyet_id: string; // reviewer local ghi tại lần duyệt (#11); rỗng = không kèm
   tao_luc: string;
   tao_boi: string;
 };
@@ -374,6 +430,10 @@ type DongCampaign = Omit<
   | "ds_tac_dong"
   | "ds_trich_dan"
   | "ghi_chu_quyen"
+  | "ds_yeu_cau"
+  | "ds_ngoai_le"
+  | "ds_fact_van_hanh"
+  | "ds_nguoi_duyet"
 > & {
   ghi_de: string;
   tham_chieu: string;
@@ -384,6 +444,10 @@ type DongCampaign = Omit<
   ds_tac_dong: string;
   ds_trich_dan: string;
   ghi_chu_quyen: string;
+  ds_yeu_cau: string;
+  ds_ngoai_le: string;
+  ds_fact_van_hanh: string;
+  ds_nguoi_duyet: string;
 };
 type DongThongDiepRevision = Omit<ThongDiepRevision, "nguon_revision_ids"> & {
   nguon_revision_ids: string;
@@ -569,6 +633,91 @@ export function docGhiChuQuyen(v: string): GhiChuQuyen[] {
   }
 }
 
+// Parse JSON công quyền trên campaign (#11) — dung sai giống docDsFact.
+export function docDsYeuCau(v: string): YeuCauCongQuyen[] {
+  try {
+    const j = JSON.parse(v) as unknown;
+    if (!Array.isArray(j)) return [];
+    return j
+      .filter((x) => typeof x === "object" && x !== null)
+      .map((x, i) => {
+        const r = x as Record<string, unknown>;
+        return {
+          id: typeof r.id === "string" && r.id ? r.id : `yc${i + 1}`,
+          noi_dung: typeof r.noi_dung === "string" ? r.noi_dung : "",
+          loai: typeof r.loai === "string" ? r.loai : "",
+          doi_tuong_ap_dung:
+            typeof r.doi_tuong_ap_dung === "string" ? r.doi_tuong_ap_dung : "",
+          nguon_id: typeof r.nguon_id === "string" && r.nguon_id ? r.nguon_id : null,
+          muc_id: typeof r.muc_id === "string" && r.muc_id ? r.muc_id : null,
+        };
+      });
+  } catch {
+    return [];
+  }
+}
+
+export function docDsNgoaiLe(v: string): NgoaiLeCongQuyen[] {
+  try {
+    const j = JSON.parse(v) as unknown;
+    if (!Array.isArray(j)) return [];
+    return j
+      .filter((x) => typeof x === "object" && x !== null)
+      .map((x, i) => {
+        const r = x as Record<string, unknown>;
+        return {
+          id: typeof r.id === "string" && r.id ? r.id : `nl${i + 1}`,
+          noi_dung: typeof r.noi_dung === "string" ? r.noi_dung : "",
+          yeu_cau_id: typeof r.yeu_cau_id === "string" ? r.yeu_cau_id : "",
+          nguon_id: typeof r.nguon_id === "string" && r.nguon_id ? r.nguon_id : null,
+          muc_id: typeof r.muc_id === "string" && r.muc_id ? r.muc_id : null,
+        };
+      });
+  } catch {
+    return [];
+  }
+}
+
+export function docDsFactVanHanh(v: string): FactVanHanh[] {
+  try {
+    const j = JSON.parse(v) as unknown;
+    if (!Array.isArray(j)) return [];
+    return j
+      .filter((x) => typeof x === "object" && x !== null)
+      .map((x, i) => {
+        const r = x as Record<string, unknown>;
+        return {
+          id: typeof r.id === "string" && r.id ? r.id : `fv${i + 1}`,
+          tieu_de: typeof r.tieu_de === "string" ? r.tieu_de : "",
+          noi_dung: typeof r.noi_dung === "string" ? r.noi_dung : "",
+          nguon_id: typeof r.nguon_id === "string" && r.nguon_id ? r.nguon_id : null,
+          muc_id: typeof r.muc_id === "string" && r.muc_id ? r.muc_id : null,
+        };
+      });
+  } catch {
+    return [];
+  }
+}
+
+export function docDsNguoiDuyet(v: string): NguoiDuyetCongQuyen[] {
+  try {
+    const j = JSON.parse(v) as unknown;
+    if (!Array.isArray(j)) return [];
+    return j
+      .filter((x) => typeof x === "object" && x !== null)
+      .map((x, i) => {
+        const r = x as Record<string, unknown>;
+        return {
+          id: typeof r.id === "string" && r.id ? r.id : `nd${i + 1}`,
+          ten: typeof r.ten === "string" ? r.ten : "",
+          vai_tro: typeof r.vai_tro === "string" ? r.vai_tro : "",
+        };
+      });
+  } catch {
+    return [];
+  }
+}
+
 const docCampaign = (row: DongCampaign): Campaign => ({
   ...row,
   ghi_de: JSON.parse(row.ghi_de) as GhiDeCampaign,
@@ -580,6 +729,10 @@ const docCampaign = (row: DongCampaign): Campaign => ({
   ds_tac_dong: docDsTacDong(row.ds_tac_dong),
   ds_trich_dan: docDsTrichDan(row.ds_trich_dan),
   ghi_chu_quyen: docGhiChuQuyen(row.ghi_chu_quyen),
+  ds_yeu_cau: docDsYeuCau(row.ds_yeu_cau),
+  ds_ngoai_le: docDsNgoaiLe(row.ds_ngoai_le),
+  ds_fact_van_hanh: docDsFactVanHanh(row.ds_fact_van_hanh),
+  ds_nguoi_duyet: docDsNguoiDuyet(row.ds_nguoi_duyet),
 });
 const docThongDiepRevision = (row: DongThongDiepRevision): ThongDiepRevision => {
   let ids: string[] = [];
@@ -827,6 +980,16 @@ export type NhapCampaign = {
   ds_trich_dan?: TrichDanGayQuy[];
   ghi_chu_quyen?: GhiChuQuyen[];
   nguon_gay_quy_id?: string;
+  // Trường công quyền (#11) — tất cả tùy chọn.
+  pham_vi_quyen_han?: string;
+  ngay_hieu_luc?: string;
+  ds_yeu_cau?: YeuCauCongQuyen[];
+  ds_ngoai_le?: NgoaiLeCongQuyen[];
+  ds_fact_van_hanh?: FactVanHanh[];
+  ds_nguoi_duyet?: NguoiDuyetCongQuyen[];
+  che_do_bao_ve?: number;
+  nguon_chinh_sach_id?: string;
+  nguon_cong_quyen_id?: string;
 };
 
 const COT_SO_BAO =
@@ -834,6 +997,8 @@ const COT_SO_BAO =
 const COT_PHAT_HANH = "phien_ban, dinh_vi, gioi_han, cta, ds_fact";
 const COT_GAY_QUY =
   "muc_tieu, so_tien_muc_tieu, tien_te, thong_diep_loi, ngon_ngu_phu, ds_tac_dong, ds_trich_dan, ghi_chu_quyen";
+const COT_CONG_QUYEN =
+  "pham_vi_quyen_han, ngay_hieu_luc, ds_yeu_cau, ds_ngoai_le, ds_fact_van_hanh, ds_nguoi_duyet, che_do_bao_ve, nguon_chinh_sach_id";
 
 export function taoCampaign(
   db: Database,
@@ -845,8 +1010,8 @@ export function taoCampaign(
     const id = tuyChon.id ?? crypto.randomUUID();
     const ts = bayGio();
     db.query(
-      `INSERT INTO campaign (id, ten, mo_ta, ghi_de, loai, ${COT_SO_BAO}, ${COT_PHAT_HANH}, ${COT_GAY_QUY}, tao_luc, tao_boi, cap_nhat_luc, cap_nhat_boi)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO campaign (id, ten, mo_ta, ghi_de, loai, ${COT_SO_BAO}, ${COT_PHAT_HANH}, ${COT_GAY_QUY}, ${COT_CONG_QUYEN}, tao_luc, tao_boi, cap_nhat_luc, cap_nhat_boi)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,     
     ).run(
       id,
       input.ten,
@@ -875,6 +1040,14 @@ export function taoCampaign(
       JSON.stringify(input.ds_tac_dong ?? []),
       JSON.stringify(input.ds_trich_dan ?? []),
       JSON.stringify(input.ghi_chu_quyen ?? []),
+      input.pham_vi_quyen_han ?? "",
+      input.ngay_hieu_luc ?? "",
+      JSON.stringify(input.ds_yeu_cau ?? []),
+      JSON.stringify(input.ds_ngoai_le ?? []),
+      JSON.stringify(input.ds_fact_van_hanh ?? []),
+      JSON.stringify(input.ds_nguoi_duyet ?? []),
+      input.che_do_bao_ve ?? 0,
+      input.nguon_chinh_sach_id ?? "",
       ts,
       tacGia,
       ts,
@@ -902,6 +1075,8 @@ export function capNhatCampaign(
         .join(", ")}, ${COT_PHAT_HANH.split(", ")
         .map((c) => `${c} = ?`)
         .join(", ")}, ${COT_GAY_QUY.split(", ")
+        .map((c) => `${c} = ?`)
+        .join(", ")}, ${COT_CONG_QUYEN.split(", ")
         .map((c) => `${c} = ?`)
         .join(", ")}, cap_nhat_luc = ?, cap_nhat_boi = ? WHERE id = ?`,
     ).run(
@@ -931,6 +1106,14 @@ export function capNhatCampaign(
       JSON.stringify(input.ds_tac_dong ?? cu.ds_tac_dong),
       JSON.stringify(input.ds_trich_dan ?? cu.ds_trich_dan),
       JSON.stringify(input.ghi_chu_quyen ?? cu.ghi_chu_quyen),
+      input.pham_vi_quyen_han ?? cu.pham_vi_quyen_han,
+      input.ngay_hieu_luc ?? cu.ngay_hieu_luc,
+      JSON.stringify(input.ds_yeu_cau ?? cu.ds_yeu_cau),
+      JSON.stringify(input.ds_ngoai_le ?? cu.ds_ngoai_le),
+      JSON.stringify(input.ds_fact_van_hanh ?? cu.ds_fact_van_hanh),
+      JSON.stringify(input.ds_nguoi_duyet ?? cu.ds_nguoi_duyet),
+      input.che_do_bao_ve !== undefined ? input.che_do_bao_ve : cu.che_do_bao_ve,
+      input.nguon_chinh_sach_id ?? cu.nguon_chinh_sach_id,
       bayGio(),
       tacGia,
       id,
@@ -1238,6 +1421,9 @@ export function chuyenTrangThai(
   ghiChu: string,
   tacGia: string,
   mongDoiRevisionId?: string,
+  // #11: reviewer local được ghi vào record duyệt của campaign công
+  // quyền (cổng review thẩm quyền); luồng khác để trống.
+  nguoiDuyetId?: string,
 ): BanTheHien {
   return txn(db, () => {
     const bth = layBanTheHien(db, id);
@@ -1272,9 +1458,19 @@ export function chuyenTrangThai(
     const tu = bth.trang_thai;
     db.query("UPDATE ban_the_hien SET trang_thai = ? WHERE id = ?").run(den, id);
     db.query(
-      `INSERT INTO duyet (id, ban_the_hien_id, revision_id, tu_trang_thai, den_trang_thai, ghi_chu, tao_luc, tao_boi)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(crypto.randomUUID(), id, bth.head_revision_id, tu, den, ghiChu, bayGio(), tacGia);
+      `INSERT INTO duyet (id, ban_the_hien_id, revision_id, tu_trang_thai, den_trang_thai, ghi_chu, nguoi_duyet_id, tao_luc, tao_boi)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      crypto.randomUUID(),
+      id,
+      bth.head_revision_id,
+      tu,
+      den,
+      ghiChu,
+      nguoiDuyetId ?? "",
+      bayGio(),
+      tacGia,
+    );
     ghiSuKien(db, "ban_the_hien", id, "trang_thai", { tu, den }, tacGia);
     return layBanTheHien(db, id)!;
   });
