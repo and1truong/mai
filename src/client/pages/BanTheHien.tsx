@@ -410,6 +410,19 @@ export default function BanTheHienPage() {
     }
   }
 
+  // Lệnh trên task sửa (#14) — bắt lỗi API như các handler khác thay vì
+  // để unhandled rejection làm UI câm.
+  async function chayLenhTask(fn: () => Promise<unknown>) {
+    setDsLoi([]);
+    try {
+      await fn();
+      chiTiet.reload();
+    } catch (e) {
+      setDsLoi([e instanceof LoiApiClient ? `${e.ma}: ${e.message}` : String(e)]);
+      chiTiet.reload();
+    }
+  }
+
   // Đề xuất AI đang chờ: revision do 'job' tạo làm head hiện tại mà chưa
   // có record duyet ghim. Sau từ chối (revision mới của con người lên head)
   // đề xuất không còn là head → panel không hiện lại — từ chối bền.
@@ -519,14 +532,15 @@ export default function BanTheHienPage() {
                         {t.loai === "sinh_lai" && t.trang_thai === "mo" && (
                           <Button
                             size="1"
-                            onClick={async () => {
-                              await api(`/api/task-sua/${t.id}/de-xuat`, {
-                                method: "POST",
-                                headers: { "content-type": "application/json" },
-                                body: "{}",
-                              });
-                              chiTiet.reload();
-                            }}
+                            onClick={() =>
+                              chayLenhTask(() =>
+                                api(`/api/task-sua/${t.id}/de-xuat`, {
+                                  method: "POST",
+                                  headers: { "content-type": "application/json" },
+                                  body: "{}",
+                                }),
+                              )
+                            }
                           >
                             Đề xuất sinh lại
                           </Button>
@@ -536,14 +550,15 @@ export default function BanTheHienPage() {
                             size="1"
                             color="green"
                             variant="soft"
-                            onClick={async () => {
-                              await api(`/api/task-sua/${t.id}/trang-thai`, {
-                                method: "POST",
-                                headers: { "content-type": "application/json" },
-                                body: JSON.stringify({ trang_thai: "xong" }),
-                              });
-                              chiTiet.reload();
-                            }}
+                            onClick={() =>
+                              chayLenhTask(() =>
+                                api(`/api/task-sua/${t.id}/trang-thai`, {
+                                  method: "POST",
+                                  headers: { "content-type": "application/json" },
+                                  body: JSON.stringify({ trang_thai: "xong" }),
+                                }),
+                              )
+                            }
                           >
                             Đã sửa tay
                           </Button>
@@ -553,14 +568,15 @@ export default function BanTheHienPage() {
                             size="1"
                             variant="soft"
                             color="gray"
-                            onClick={async () => {
-                              await api(`/api/task-sua/${t.id}/trang-thai`, {
-                                method: "POST",
-                                headers: { "content-type": "application/json" },
-                                body: JSON.stringify({ trang_thai: "bo_qua" }),
-                              });
-                              chiTiet.reload();
-                            }}
+                            onClick={() =>
+                              chayLenhTask(() =>
+                                api(`/api/task-sua/${t.id}/trang-thai`, {
+                                  method: "POST",
+                                  headers: { "content-type": "application/json" },
+                                  body: JSON.stringify({ trang_thai: "bo_qua" }),
+                                }),
+                              )
+                            }
                           >
                             Bỏ qua
                           </Button>
