@@ -88,12 +88,14 @@ export type ContextSinh = {
 export type ContextThuongHieu = Omit<HoSoThuongHieu, "id" | "la_fixture" | "nguon_du_lieu"> & {
   ho_so_id: string;
   revision_id: string | null;
+  revision_so: number | null;
   thuat_ngu: { thuat_ngu: string; giu_nguyen: boolean; ban_dich: Record<string, string> }[];
 };
 
 export type ContextDoiTuong = Omit<HoSoDoiTuong, "id" | "la_fixture" | "nguon_du_lieu"> & {
   ho_so_id: string;
   revision_id: string | null;
+  revision_so: number | null;
 };
 
 export type GhiDeCampaign = {
@@ -525,13 +527,18 @@ function apGhiDe<T extends Record<string, unknown>>(
   return ketQua;
 }
 
-function revisionMoiNhat(db: Database, loai: string, hoSoId: string): string | null {
-  const row = db
-    .query(
-      "SELECT id FROM ho_so_revision WHERE loai = ? AND ho_so_id = ? ORDER BY so_thu_tu DESC LIMIT 1",
-    )
-    .get(loai, hoSoId) as { id: string } | null;
-  return row?.id ?? null;
+function revisionMoiNhat(
+  db: Database,
+  loai: string,
+  hoSoId: string,
+): { id: string; so_thu_tu: number } | null {
+  return (
+    (db
+      .query(
+        "SELECT id, so_thu_tu FROM ho_so_revision WHERE loai = ? AND ho_so_id = ? ORDER BY so_thu_tu DESC LIMIT 1",
+      )
+      .get(loai, hoSoId) as { id: string; so_thu_tu: number } | null) ?? null
+  );
 }
 
 export type NhapContextSinh = {
@@ -557,10 +564,12 @@ export function lapContextSinh(db: Database, input: NhapContextSinh): ContextSin
       ghiDe.thuong_hieu,
       TRUONG_GHI_DE_THUONG_HIEU,
     );
+    const revTh = revisionMoiNhat(db, "thuong_hieu", id);
     thuongHieu = {
-      ...(daGhiDe as Omit<ContextThuongHieu, "ho_so_id" | "revision_id" | "thuat_ngu">),
+      ...(daGhiDe as Omit<ContextThuongHieu, "ho_so_id" | "revision_id" | "revision_so" | "thuat_ngu">),
       ho_so_id: id,
-      revision_id: revisionMoiNhat(db, "thuong_hieu", id),
+      revision_id: revTh?.id ?? null,
+      revision_so: revTh?.so_thu_tu ?? null,
       thuat_ngu: danhSachThuatNgu(db, id).map((t) => ({
         thuat_ngu: t.thuat_ngu,
         giu_nguyen: t.giu_nguyen,
@@ -579,10 +588,12 @@ export function lapContextSinh(db: Database, input: NhapContextSinh): ContextSin
       ghiDe.doi_tuong,
       TRUONG_GHI_DE_DOI_TUONG,
     );
+    const revDt = revisionMoiNhat(db, "doi_tuong", id);
     doiTuong = {
-      ...(daGhiDe as Omit<ContextDoiTuong, "ho_so_id" | "revision_id">),
+      ...(daGhiDe as Omit<ContextDoiTuong, "ho_so_id" | "revision_id" | "revision_so">),
       ho_so_id: id,
-      revision_id: revisionMoiNhat(db, "doi_tuong", id),
+      revision_id: revDt?.id ?? null,
+      revision_so: revDt?.so_thu_tu ?? null,
     };
   }
 

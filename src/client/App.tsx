@@ -1,7 +1,7 @@
 import { Box, Flex, Heading, TabNav, Text } from "@radix-ui/themes";
 import { useHashRoute } from "./api.ts";
 import BanTheHienPage from "./pages/BanTheHien.tsx";
-import ContextPage from "./pages/Context.tsx";
+import { HoSoPage } from "./pages/HoSo.tsx";
 import JobPage from "./pages/Job.tsx";
 import NguonPage from "./pages/Nguon.tsx";
 import TongQuanPage from "./pages/TongQuan.tsx";
@@ -11,7 +11,7 @@ const NAV = [
   { path: "/nguon", nhan: "Nguồn" },
   { path: "/ban-the-hien", nhan: "Bản thể hiện" },
   { path: "/job", nhan: "Job" },
-  { path: "/context", nhan: "Context" },
+  { path: "/ho-so", nhan: "Hồ sơ" },
 ];
 
 export default function App() {
@@ -42,7 +42,7 @@ export default function App() {
         {path === "/nguon" && <NguonPage />}
         {path === "/ban-the-hien" && <BanTheHienPage />}
         {path === "/job" && <JobPage />}
-        {path === "/context" && <ContextPage />}
+        {path === "/ho-so" && <HoSoPage />}
         {!hopLe && (
           <Flex justify="center" py="8">
             <Text color="gray">Không tìm thấy trang.</Text>
