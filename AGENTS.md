@@ -6,6 +6,13 @@ Hướng dẫn bắt buộc cho mọi agent (Devin, Codex, Copilot, v.v.) làm v
 
 Repository này để **public** nhằm tận dụng free compute của GitHub (Actions, v.v.). Mọi nội dung đẩy lên đây đều có thể bị người ngoài đọc, index và crawl.
 
+## Phạm vi: POC
+
+Dự án này là **POC** (proof of concept). Vì vậy:
+
+- UI **không cần hỗ trợ mobile hay small screens** — chỉ cần hoạt động tốt trên desktop.
+- Không làm responsive design cho viewport nhỏ; không viết code, test hay review theo tiêu chí đó.
+
 ## Quy tắc ngôn ngữ: tiếng Việt
 
 Để giảm sự dòm ngó, **toàn bộ nội dung public trên GitHub phải viết bằng tiếng Việt**:
