@@ -146,3 +146,13 @@ Walkthrough chấp nhận ngắn (#20):
 2. `POST /api/job {loai:"sinh_ban_the_hien", payload:{thong_diep_id:"seed-td-1", dinh_dang:"bai-viet"}}` → job `xong` → revision head là canonical JSON hợp lệ `kiemTraNoiDung`; `GET /api/su-dung-sinh?job_id=` có đúng một dòng `ok`.
 3. `payload.fan_out:[{dinh_dang:"caption"}]` → `ds_job_fan_out` có một job phụ; `> toi_da_fan_out` → 400.
 4. Live: đặt `MAI_AI_PROVIDER=openai` + `MAI_AI_API_KEY` (+ tùy chọn `MAI_AI_BASE_URL`/`MAI_AI_MODEL`) → cùng contract; thiếu key → job `loi` vĩnh viễn với thông điệp rõ, không retry.
+
+## Luồng POC: kế hoạch (#5)
+
+- Entity `ke_hoach` (migration 0010): intake lưu bền (`intake`), gắn `thong_diep_id` (mỗi kế hoạch một thông điệp chuẩn), `nguon_id` tùy chọn, `cta`, `de_xuat_dau_ra`/`ds_chon` (JSON), `trang_thai` = `nhap` | `da_chon`. Route: `POST/GET /api/ke-hoach`, `GET/PUT /api/ke-hoach/:id`, `POST /api/ke-hoach/:id/chon`.
+- Intake chưa xong lưu bền: `PUT` ghi revision thông điệp mới (`dua_tren` = head hiện tại → trôi head vẫn 409 theo convention) và `intake` mới — tiếp tục sau không mất.
+- "Làm rõ tối thiểu": `cau_hoi` tính lại mỗi lần đọc từ `thieuChungCu` (#20) trên thông điệp + nguồn đã gắn — fact thiếu là câu hỏi, sửa intake xong câu hỏi tự biến mất; không bịa fact.
+- Đề xuất đầu ra **deterministic** (`deXuatDauRa`): luật từ khóa trên hồ sơ đối tượng (`moi_quan_tam`/`nhu_cau_giao_tiep`/`kien_thuc_nen`) → định dạng; nhóm "Chung" luôn `newsletter` + `caption`; lọc theo `kiemTraNgonNgu` của registry. Lưu snapshot lúc tạo/cập nhật trong `de_xuat_dau_ra`.
+- `POST /:id/chon {ds_chon:[{doi_tuong_id?, dinh_dang, ngon_ngu?}]}`: validate định dạng/ngôn ngữ/đối tượng → `timBanTheHien` find-or-create (không trùng) → `enqueueJob sinh_ban_the_hien` ghim `entity_id` bản đó. Sinh lại cùng lựa chọn = job mới → revision mới trên head, `nhap_soan` của actor không bị đụng (#21).
+- `GET /api/tong-quan` trả thêm `viec_gan_day` (kế hoạch + bản thể hiện mới), `bth_cho_duyet` (hàng chờ review của #21), `bth_cu` = bản thể hiện mà head revision ghim `thong_diep_revision_id` lệch head thông điệp — nguồn đổi sau khi sinh.
+- UI: form intake ở Tổng quan → `#/ke-hoach?id=<id>` (hash query, route so theo gốc path); `#/ban-the-hien?id=<id>` deep-link mở thẳng bản — refresh phục hồi đúng entity.
