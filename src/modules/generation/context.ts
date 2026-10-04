@@ -45,7 +45,7 @@ export function catGon(vanBan: string, toiDa: number): { text: string; daCat: bo
 // Chứng cứ giá: cụm từ giá/khuyến mãi có biên chữ (không khớp "giáo dục",
 // "đồng nghiệp") hoặc số tiền kèm đơn vị ("25.000đ", "100 USD").
 const RE_GIA =
-  /(?<![\p{L}\p{M}])(giá cả|giá bán|giá thành|miễn phí|khuyến mãi|cước phí|chi phí|phí|hoàn tiền)(?![\p{L}\p{M}])|\d[\d.,]*\s*(đ|₫|vnđ|đồng|usd|\$|eur)/iu;
+  /(?<![\p{L}\p{M}])(giá cả|giá bán|giá thành|miễn phí|khuyến mãi|cước phí|chi phí|phí|hoàn tiền)(?![\p{L}\p{M}])|\d[\d.,]*\s*(đ|₫|vnđ|đồng|usd|eur)|\$\s*\d[\d.,]*/iu;
 
 export function thieuChungCu(vanBanNguon: string): string[] {
   const ds: string[] = [];

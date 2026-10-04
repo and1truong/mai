@@ -36,9 +36,13 @@ function dongThieuChungCu(ctx: ContextTask): string[] {
 
 // Cắt có chủ đích: giữ đuôi "…" để output vẫn validate hợp lệ schema khi
 // input dài — fixture tự sinh vi phạm thì repair không bao giờ cứu được.
+// Ưu tiên cắt ở biên từ cuối thay vì chẻ giữa từ.
 function catChuoi(s: string, toiDa?: number): string {
   if (!toiDa || s.length <= toiDa) return s;
-  return `${s.slice(0, toiDa - 1)}…`;
+  const cat = s.slice(0, toiDa - 1);
+  const khoangTrang = cat.lastIndexOf(" ");
+  const bien = khoangTrang > toiDa / 2 ? cat.slice(0, khoangTrang) : cat;
+  return `${bien.trimEnd()}…`;
 }
 
 // Gán nội dung cho một trường theo kiểu — deterministic từ context.
