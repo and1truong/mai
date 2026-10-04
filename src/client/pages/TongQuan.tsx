@@ -1,4 +1,4 @@
-import { Callout, Card, Grid, Heading, Text } from "@radix-ui/themes";
+import { Badge, Callout, Card, Grid, Heading, Text } from "@radix-ui/themes";
 import { useApi } from "../api.ts";
 import { TrangThai } from "../components/TrangThai.tsx";
 
@@ -24,8 +24,15 @@ const O: { key: keyof TongQuan; nhan: string }[] = [
   { key: "ho_so_doi_tuong", nhan: "Hồ sơ đối tượng" },
 ];
 
+type Health = {
+  trang_thai: string;
+  provider: { ten: string; la_fixture: boolean; model?: string };
+};
+
 export default function TongQuanPage() {
   const { data, loading, error } = useApi<TongQuan>("/api/tong-quan");
+  const health = useApi<Health>("/api/health");
+  const provider = health.data?.provider;
   return (
     <>
       <Heading mb="3">Tổng quan</Heading>
@@ -40,10 +47,17 @@ export default function TongQuanPage() {
             </Card>
           ))}
         </Grid>
-        <Callout.Root mt="4" color="blue">
+        {/* Chế độ fixture hiển thị rõ để không nhầm đầu ra giả với provider live. */}
+        <Callout.Root mt="4" color={provider?.la_fixture === false ? "green" : "blue"}>
           <Callout.Text>
             MAI đang chạy chế độ demo: actor <Text weight="bold">demo</Text>, provider AI{" "}
-            <Text weight="bold">fixture</Text> (offline, deterministic).
+            <Text weight="bold">{provider?.ten ?? "…"}</Text>
+            {provider?.model ? ` (${provider.model})` : ""}{" "}
+            {provider?.la_fixture ? (
+              <Badge color="amber">fixture</Badge>
+            ) : provider ? (
+              <Badge color="green">live</Badge>
+            ) : null}
           </Callout.Text>
         </Callout.Root>
       </TrangThai>

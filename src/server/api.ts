@@ -107,13 +107,16 @@ import {
   thuLaiJob,
 } from "../modules/jobs/index.ts";
 import { LOAI_JOB_HO_TRO } from "../modules/jobs/handlers.ts";
+import { danhSachSuDungSinh } from "../modules/generation/index.ts";
+import type { CauHinhAi } from "../config.ts";
 import { docBody, kiemTraByteDaDoc, kiemTraGioiHanBody, loi, ok } from "./http.ts";
 
 export type ApiCtx = {
   db: Database;
   dataDir: string;
   actor: string;
-  provider: string;
+  provider: { ten: string; la_fixture: boolean; model?: string };
+  ai: CauHinhAi;
 };
 
 type Handler = (
@@ -401,6 +404,13 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
     route("GET", "/api/health", (_req, _p, c) =>
       ok({ trang_thai: "hoat_dong", provider: c.provider }),
     ),
+
+    // Usage sinh nội dung (#20): provider/model/task, token khi có,
+    // thời gian chạy và lỗi mỗi lần gọi.
+    route("GET", "/api/su-dung-sinh", (req, _p, c) => {
+      const jobId = new URL(req.url).searchParams.get("job_id") || undefined;
+      return ok(danhSachSuDungSinh(c.db, { job_id: jobId }));
+    }),
 
     route("GET", "/api/tong-quan", (_req, _p, c) =>
       ok({
@@ -995,6 +1005,24 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       const entityId = tuyChonChuoi(body.entity_id);
       let revisionId = tuyChonChuoi(body.revision_id) || null;
 
+      // Fan-out mỗi request giới hạn cấu hình (#20): một request sinh được
+      // thêm payload.fan_out biến thể (định dạng/đối tượng/đích khác) — mỗi
+      // biến thể một job riêng, tự ghim entity/revision của nó.
+      const fanOut = payload.fan_out;
+      const dsFanOut: Record<string, unknown>[] = [];
+      if (loai === "sinh_ban_the_hien" && fanOut !== undefined) {
+        if (!Array.isArray(fanOut) || fanOut.some((f) => typeof f !== "object" || f === null || Array.isArray(f))) {
+          dsLoi.push("payload.fan_out phải là mảng object biến thể.");
+        } else {
+          const toiDa = c.ai.toi_da_fan_out ?? 8;
+          if (fanOut.length > toiDa) {
+            dsLoi.push(`payload.fan_out có ${fanOut.length} biến thể, vượt giới hạn cấu hình ${toiDa}.`);
+          } else {
+            dsFanOut.push(...(fanOut as Record<string, unknown>[]));
+          }
+        }
+      }
+
       let thongDiepId = "";
       let dinhDang = "web";
       let ngonNgu = "vi";
@@ -1078,8 +1106,55 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
           soLanThuToiDa: soLanThuToiDa,
           timeoutMs: timeoutMs,
         });
+        // Fan-out: mỗi biến thể = bản thể hiện + job riêng trong cùng
+        // transaction request — không có fan-out lồng nhau.
+        const dsJobFanOut: unknown[] = [];
+        if (loai === "sinh_ban_the_hien") {
+          for (const bienThe of dsFanOut) {
+            const ddBt = tuyChonChuoi(bienThe.dinh_dang) || dinhDang;
+            const nnBt = tuyChonChuoi(bienThe.ngon_ngu) || ngonNgu;
+            const defBt = layDinhDang(ddBt);
+            const loiNgBt = defBt ? kiemTraNgonNgu(defBt, nnBt) : `payload.fan_out[].dinh_dang '${ddBt}' không hợp lệ.`;
+            if (loiNgBt) throw new LoiApi(400, "VALIDATION", loiNgBt);
+            const dtBtId = tuyChonChuoi(bienThe.doi_tuong_id) || tuyChonChuoi(payload.doi_tuong_id);
+            const tenDtBt =
+              (dtBtId ? layDoiTuong(c.db, dtBtId)?.ten : undefined) ??
+              tuyChonChuoi(bienThe.doi_tuong) ??
+              tuyChonChuoi(payload.doi_tuong);
+            const khoaBt = {
+              thong_diep_id: thongDiepId,
+              dinh_dang: ddBt,
+              ngon_ngu: nnBt,
+              doi_tuong: tenDtBt,
+              dich_den: tuyChonChuoi(bienThe.dich_den) || dichDen,
+            };
+            const bthBt = timBanTheHien(c.db, khoaBt) ?? taoBanTheHien(c.db, khoaBt, c.actor);
+            const { fan_out: _bo, ...payloadCha } = payload;
+            const payloadBt = {
+              ...payloadCha,
+              ...bienThe,
+              ban_the_hien_id: bthBt.id,
+              thong_diep_id: thongDiepId,
+              dinh_dang: ddBt,
+              ngon_ngu: nnBt,
+            };
+            const { job: jobBt, da_tao: taoBt } = enqueueJob(c.db, {
+              loai,
+              payload: payloadBt,
+              khoaIdem: `sinh_ban_the_hien:${bthBt.id}`,
+              entityLoai: "ban_the_hien",
+              entityId: bthBt.id,
+              revisionId: bthBt.head_revision_id ?? null,
+              chaySomNhat,
+              muiGio,
+              soLanThuToiDa,
+              timeoutMs,
+            });
+            dsJobFanOut.push({ ...jobBt, da_tao: taoBt, ban_the_hien_id: bthBt.id });
+          }
+        }
         c.db.exec("COMMIT");
-        return ok({ ...job, da_tao }, da_tao ? 201 : 200);
+        return ok({ ...job, da_tao, ds_job_fan_out: dsJobFanOut }, da_tao ? 201 : 200);
       } catch (e) {
         c.db.exec("ROLLBACK");
         throw e;

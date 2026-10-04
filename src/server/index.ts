@@ -43,13 +43,37 @@ export async function startServer(tuyChon: TuyChonServer = {}) {
   const db = moDb(dataDir);
   chayMigration(db);
 
-  const provider = layNhaCungCap(cauHinh.ai.provider);
-  const dungRunner = khoiDongRunner(db, taoHandlers(db, provider), {
-    chuKyMs: tuyChon.chuKyJobMs ?? cauHinh.jobs.chuKyMs,
-    concurrency: tuyChon.concurrencyJob ?? cauHinh.jobs.concurrency,
-  });
+  const provider = layNhaCungCap(cauHinh.ai);
+  const dungRunner = khoiDongRunner(
+    db,
+    taoHandlers(db, provider, {
+      gioi_han: {
+        toi_da_ky_tu_nguon: cauHinh.ai.toi_da_ky_tu_nguon,
+        toi_da_ky_tu_context: cauHinh.ai.toi_da_ky_tu_context,
+        toi_da_ky_tu_dau_ra: cauHinh.ai.toi_da_ky_tu_dau_ra,
+      },
+      // Ước tính tiền chỉ khi pricing được cấu hình tường minh.
+      gia:
+        cauHinh.ai.gia_moi_1k_token_vao !== undefined || cauHinh.ai.gia_moi_1k_token_ra !== undefined
+          ? {
+              vao_moi_1k: cauHinh.ai.gia_moi_1k_token_vao ?? 0,
+              ra_moi_1k: cauHinh.ai.gia_moi_1k_token_ra ?? 0,
+            }
+          : undefined,
+    }),
+    {
+      chuKyMs: tuyChon.chuKyJobMs ?? cauHinh.jobs.chuKyMs,
+      concurrency: tuyChon.concurrencyJob ?? cauHinh.jobs.concurrency,
+    },
+  );
 
-  const api = taoApi({ db, dataDir, actor: ACTOR_DEMO, provider: provider.ten });
+  const api = taoApi({
+    db,
+    dataDir,
+    actor: ACTOR_DEMO,
+    provider: { ten: provider.ten, la_fixture: provider.la_fixture, model: provider.model },
+    ai: cauHinh.ai,
+  });
   const distDir = resolve(import.meta.dir, "../../dist/client");
 
   const server = Bun.serve({
