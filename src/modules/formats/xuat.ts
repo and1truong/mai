@@ -68,6 +68,7 @@ export async function taoBundleXuatBan(
   // cùng record xuất bản → cùng byte bundle.
   const dsAsset: TepZip[] = [];
   const manifestAsset: Record<string, unknown>[] = [];
+  const tenDaDung = new Set<string>();
   for (const assetId of xb.asset_ids) {
     const asset = layAsset(db, assetId);
     if (!asset) {
@@ -75,7 +76,16 @@ export async function taoBundleXuatBan(
       continue;
     }
     const byte = await kho.doc(asset.duong_dan);
-    const tenAnToan = sachTenFile(asset.ten_file) || `${asset.id}.bin`;
+    let tenAnToan = sachTenFile(asset.ten_file) || `${asset.id}.bin`;
+    // Hai asset cùng tên hiển thị → trùng đường dẫn zip: gắn hậu tố id.
+    if (tenDaDung.has(tenAnToan)) {
+      const cham = tenAnToan.lastIndexOf(".");
+      tenAnToan =
+        cham > 0
+          ? `${tenAnToan.slice(0, cham)}-${asset.id.slice(0, 8)}${tenAnToan.slice(cham)}`
+          : `${tenAnToan}-${asset.id.slice(0, 8)}`;
+    }
+    tenDaDung.add(tenAnToan);
     manifestAsset.push({
       id: asset.id,
       ten_file: asset.ten_file,
