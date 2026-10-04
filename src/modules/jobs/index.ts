@@ -11,7 +11,9 @@ import { log } from "../../log.ts";
 // - Attempt ÍT-NHẤT-MỘT-LẦN: crash giữa attempt → job chạy lại khi lease hết hạn.
 //   Handler phải tự idempotent (kiểm lại entity/revision đích trước khi commit).
 //   Idempotency hiệu ứng từ xa (gửi mail, publish…) thuộc handler/provider.
-// - khoa_idem ổn định: enqueue lặp cùng khóa → đúng một job logic.
+// - khoa_idem ổn định: cùng khóa → đúng một job logic. Job còn sống
+//   ('cho'/'dang_chay') → dedupe, trả dòng cũ. Job đã kết thúc
+//   ('xong'/'loi'/'huy') → reset về 'cho' và chạy lại cùng dòng đó.
 // - Attempt chạy dưới timeout + lease; lỗi tạm retry với backoff có biên;
 //   lỗi vĩnh viễn (LoiVinhVien) hoặc hết lượt → 'loi', inspect/retry được.
 
@@ -123,7 +125,10 @@ function ghiNhatKy(db: Database, jobId: string, suKien: string, duLieu: unknown 
 }
 
 // Enqueue nguyên tử theo khoa_idem: INSERT OR IGNORE rồi đọc lại.
-// da_tao=false → job logic đã tồn tại (mọi trạng thái), trả nguyên dòng đó.
+// - Job cùng khóa đang 'cho'/'dang_chay' → dedupe: da_tao=false, trả dòng cũ.
+// - Job cùng khóa đã kết thúc ('xong'/'loi'/'huy') → reset về 'cho' với tham
+//   số mới và chạy lại đúng một job logic (khoa_idem unique → không tạo dòng
+//   thứ hai). Hủy/kết thúc một job KHÔNG khóa vĩnh viễn việc enqueue lại.
 // Hàm không mở transaction — caller bọc BEGIN/COMMIT khi cần ghi request state
 // cùng lúc (vd tạo bản thể hiện + enqueue trong một giao dịch).
 export function enqueueJob(db: Database, t: TuyChonEnqueue): { job: Job; da_tao: boolean } {
@@ -149,12 +154,43 @@ export function enqueueJob(db: Database, t: TuyChonEnqueue): { job: Job; da_tao:
     bayGio(),
   );
   const job = db.query("SELECT * FROM job WHERE khoa_idem = ?").get(khoa) as Job;
-  const daTao = job.id === id;
-  if (daTao) {
+  if (job.id === id) {
     ghiNhatKy(db, job.id, "enqueue", { khoa_idem: khoa, chay_som_nhat: job.chay_som_nhat });
     log.info("job.enqueue", { id: job.id, loai: job.loai, khoa_idem: khoa });
+    return { job, da_tao: true };
   }
-  return { job, da_tao: daTao };
+  if (job.trang_thai === "cho" || job.trang_thai === "dang_chay") {
+    return { job, da_tao: false };
+  }
+  // Job đã kết thúc: reset về 'cho' — cùng một job logic chạy lần mới.
+  const r = db
+    .query(
+      `UPDATE job SET trang_thai = 'cho', so_lan_thu = 0,
+         loi = NULL, loi_vinh_vien = 0, ket_qua = NULL, tien_do = '{}',
+         loai = ?, entity_loai = ?, entity_id = ?, revision_id = ?, payload = ?,
+         so_lan_thu_toi_da = ?, timeout_ms = ?, chay_som_nhat = ?, mui_gio = ?,
+         chay_luc = NULL, xong_luc = NULL, lease_token = NULL, lease_den = NULL
+       WHERE id = ? AND trang_thai IN ('xong', 'loi', 'huy')`,
+    )
+    .run(
+      t.loai,
+      t.entityLoai ?? "",
+      t.entityId ?? "",
+      t.revisionId ?? null,
+      JSON.stringify(t.payload ?? {}),
+      t.soLanThuToiDa ?? MAC_DINH_SO_LAN_THU,
+      t.timeoutMs ?? MAC_DINH_TIMEOUT_MS,
+      t.chaySomNhat ?? null,
+      t.muiGio ?? "",
+      job.id,
+    );
+  if (r.changes === 0) {
+    // Vừa bị claim/thay đổi giữa chừng → coi như dedupe.
+    return { job: layJob(db, job.id)!, da_tao: false };
+  }
+  ghiNhatKy(db, job.id, "enqueue_lai", { tu_trang_thai: job.trang_thai, khoa_idem: khoa });
+  log.info("job.enqueue_lai", { id: job.id, loai: t.loai, khoa_idem: khoa });
+  return { job: layJob(db, job.id)!, da_tao: true };
 }
 
 export function layJob(db: Database, id: string): Job | null {

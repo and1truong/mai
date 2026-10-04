@@ -82,6 +82,55 @@ describe("enqueue idempotent", () => {
     expect(danhSachJob(db).length).toBe(2);
     db.close();
   });
+
+  test("enqueue sau 'xong' → reset về 'cho', chạy lại đúng một job logic", async () => {
+    const { db } = moDbTam();
+    let goi = 0;
+    runner(db, {
+      gia: async () => {
+        goi++;
+        return { lan: goi };
+      },
+    });
+    const a = enqueueJob(db, { loai: "gia", khoaIdem: "k-ket-thuc" });
+    expect(await choTrangThai(db, a.job.id, ["xong"])).toBe("xong");
+    expect(goi).toBe(1);
+
+    const b = enqueueJob(db, { loai: "gia", khoaIdem: "k-ket-thuc" });
+    expect(b.da_tao).toBe(true);
+    expect(b.job.id).toBe(a.job.id); // cùng một job logic, không dòng mới
+    expect(danhSachJob(db).length).toBe(1);
+    expect(await choTrangThai(db, a.job.id, ["xong"])).toBe("xong");
+    expect(goi).toBe(2);
+    const suKien = nhatKyJob(db, a.job.id).map((d) => d.su_kien);
+    expect(suKien).toContain("enqueue_lai");
+    db.close();
+  });
+
+  test("hủy job 'cho' rồi enqueue lại cùng khóa → khôi phục và chạy", async () => {
+    const { db } = moDbTam();
+    let goi = 0;
+    runner(db, {
+      gia: async () => {
+        goi++;
+        return {};
+      },
+    });
+    const a = enqueueJob(db, {
+      loai: "gia",
+      khoaIdem: "k-huy-roi-lai",
+      chaySomNhat: new Date(Date.now() + 60_000).toISOString(),
+    });
+    expect(huyJob(db, a.job.id).trang_thai).toBe("huy");
+
+    const b = enqueueJob(db, { loai: "gia", khoaIdem: "k-huy-roi-lai" });
+    expect(b.da_tao).toBe(true);
+    expect(b.job.id).toBe(a.job.id);
+    expect(b.job.trang_thai).toBe("cho");
+    expect(await choTrangThai(db, a.job.id, ["xong"])).toBe("xong");
+    expect(goi).toBe(1);
+    db.close();
+  });
 });
 
 describe("retry + backoff + timeout", () => {
@@ -288,13 +337,15 @@ describe("API job", () => {
     });
   }
 
-  test("enqueue sinh_ban_the_hien: tạo bth+job nguyên tử, inspect có nhật ký", async () => {
+  test("enqueue sinh_ban_the_hien: nguyên tử, dedupe khi sống, reset sau hủy", async () => {
     const app = await taoServerTam();
     try {
       seed(app.db);
+      // Lên lịch xa để job ở 'cho' — tránh race với runner trong test.
       const res = await post(app, "/api/job", {
         loai: "sinh_ban_the_hien",
         payload: { nguon_id: "seed-nguon-1", dinh_dang: "mang-xa-hoi" },
+        chay_som_nhat: new Date(Date.now() + 60_000).toISOString(),
       });
       expect(res.status).toBe(201);
       const { du_lieu: job } = await res.json();
@@ -305,17 +356,32 @@ describe("API job", () => {
       const bth = await (await fetch(`${app.url}/api/ban-the-hien/${job.entity_id}`)).json();
       expect(bth.du_lieu.id).toBe(job.entity_id);
 
-      // Enqueue lặp cùng entity → cùng job logic.
+      // Enqueue lặp trong khi job còn sống → cùng job logic, không tạo thêm.
       const res2 = await post(app, "/api/job", {
         loai: "sinh_ban_the_hien",
         payload: { nguon_id: "seed-nguon-1", dinh_dang: "mang-xa-hoi" },
       });
       expect(res2.status).toBe(200);
-      expect((await res2.json()).du_lieu.id).toBe(job.id);
+      const job2 = (await res2.json()).du_lieu;
+      expect(job2.id).toBe(job.id);
+      expect(job2.da_tao).toBe(false);
+
+      // Hủy rồi enqueue lại → cùng job logic được reset, không bị khóa vĩnh viễn.
+      const huy = await post(app, `/api/job/${job.id}/huy`, {});
+      expect(huy.status).toBe(200);
+      const res3 = await post(app, "/api/job", {
+        loai: "sinh_ban_the_hien",
+        payload: { nguon_id: "seed-nguon-1", dinh_dang: "mang-xa-hoi" },
+      });
+      expect(res3.status).toBe(201);
+      const job3 = (await res3.json()).du_lieu;
+      expect(job3.id).toBe(job.id);
+      expect(job3.da_tao).toBe(true);
 
       const chiTiet = await (await fetch(`${app.url}/api/job/${job.id}`)).json();
       const suKien = (chiTiet.du_lieu.nhat_ky as { su_kien: string }[]).map((d) => d.su_kien);
       expect(suKien).toContain("enqueue");
+      expect(suKien).toContain("enqueue_lai");
     } finally {
       await app.dong();
     }
