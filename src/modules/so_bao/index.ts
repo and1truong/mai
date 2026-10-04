@@ -21,6 +21,7 @@ import {
   ghiSuKien,
   layCampaign,
   layNguon,
+  layThongDiepRevision,
   taoBanTheHien,
   taoThongDiep,
   timBanTheHien,
@@ -334,8 +335,12 @@ export function thongDiepChuDe(db: Database, cp: Campaign): ThongDiep | null {
 // Lấy hoặc tạo thông điệp chủ đề cho số báo. Khi tạo: gắn tất cả nguồn
 // tham chiếu đã có văn bản để bộ sinh đối chiếu trích dẫn với nguồn thật.
 // Khi đã có: bảo đảm nguồn tham chiếu mới được link vào thông điệp (không
-// gỡ link biên tập đã thêm tay). Nguồn phát hành tự động (#9) cũng là
-// link bắt buộc — mọi đầu ra release phải pin fact của bản phát hành.
+// gỡ link biên tập đã thêm tay) + refresh revision khi pin nguồn cũ —
+// nguồn vừa đổi revision thì head thông điệp phải ghim bản mới để lần
+// sinh sau đọc mục/nội dung mới, khớp cờ co_bang_chung của view (điều
+// kiện pinMoi giống damBaoThongDiepPhatHanh/GayQuy). Nguồn phát hành tự
+// động (#9) cũng là link bắt buộc — mọi đầu ra release phải pin fact của
+// bản phát hành.
 export function damBaoThongDiepChuDe(db: Database, cp: Campaign, tacGia: string): ThongDiep {
   return txn(db, () => {
     const nguonIds = [
@@ -374,23 +379,35 @@ export function damBaoThongDiepChuDe(db: Database, cp: Campaign, tacGia: string)
     }
     // Bảo đảm link nguồn: union link hiện có + nguồn tham chiếu đã nạp.
     const linkHienCo = danhSachNguonIdsCuaThongDiep(db, cu.id);
-    const thieu = nguonIds.filter((n) => !linkHienCo.includes(n));
-    if (thieu.length > 0) {
-      const moi = capNhatThongDiep(
-        db,
-        cu.id,
-        {
-          tieu_de: cu.tieu_de,
-          noi_dung: cu.noi_dung,
-          campaign_id: cp.id,
-          nguon_ids: [...linkHienCo, ...thieu],
-        },
-        cu.head_revision_id ?? "",
-        tacGia,
-      );
-      return moi;
+    const union = [...linkHienCo];
+    for (const id of nguonIds) {
+      if (!union.includes(id)) union.push(id);
     }
-    return cu;
+    // Refresh pin khi revision nguồn đã ghim lệch head hiện tại — không
+    // chỉ khi có link mới: POST /chon đi qua đây mà không qua POST/PUT
+    // campaign, nên sửa nguồn (vd xóa mục) xong chọn mục lục ngay vẫn
+    // phải sinh trên pin mới.
+    const pinned = cu.head_revision_id
+      ? (layThongDiepRevision(db, cu.head_revision_id)?.nguon_revision_ids ?? [])
+      : [];
+    const heads = union
+      .map((id) => layNguon(db, id)?.head_revision_id)
+      .filter((x): x is string => !!x);
+    const pinMoi = pinned.length === heads.length && pinned.every((p) => heads.includes(p));
+    const linkMoi = union.length !== linkHienCo.length;
+    if (!linkMoi && pinMoi) return cu;
+    return capNhatThongDiep(
+      db,
+      cu.id,
+      {
+        tieu_de: cu.tieu_de,
+        noi_dung: cu.noi_dung,
+        campaign_id: cp.id,
+        nguon_ids: union,
+      },
+      cu.head_revision_id ?? "",
+      tacGia,
+    );
   });
 }
 
