@@ -310,17 +310,29 @@ export function thongDiepChuDe(db: Database, cp: Campaign): ThongDiep | null {
 // Lấy hoặc tạo thông điệp chủ đề cho số báo. Khi tạo: gắn tất cả nguồn
 // tham chiếu đã có văn bản để bộ sinh đối chiếu trích dẫn với nguồn thật.
 // Khi đã có: bảo đảm nguồn tham chiếu mới được link vào thông điệp (không
-// gỡ link biên tập đã thêm tay).
+// gỡ link biên tập đã thêm tay). Nguồn phát hành tự động (#9) cũng là
+// link bắt buộc — mọi đầu ra release phải pin fact của bản phát hành.
 export function damBaoThongDiepChuDe(db: Database, cp: Campaign, tacGia: string): ThongDiep {
   return txn(db, () => {
-    const nguonIds = cp.tham_chieu
-      .map((t) => t.nguon_id)
-      .filter((x): x is string => !!x && !!layNguon(db, x));
+    const nguonIds = [
+      ...(cp.nguon_phat_hanh_id && layNguon(db, cp.nguon_phat_hanh_id)
+        ? [cp.nguon_phat_hanh_id]
+        : []),
+      ...cp.tham_chieu
+        .map((t) => t.nguon_id)
+        .filter(
+          (x): x is string => !!x && x !== cp.nguon_phat_hanh_id && !!layNguon(db, x),
+        ),
+    ];
     const cu = thongDiepChuDe(db, cp);
     if (!cu) {
       const tieuDe =
-        `Số ${cp.so_thu_tu ?? "?"}${cp.chu_de ? ` — ${cp.chu_de}` : ""}`.replace("Số ?", cp.ten) ||
-        cp.ten;
+        cp.loai === "phat_hanh"
+          ? `Phát hành ${cp.ten}`
+          : `Số ${cp.so_thu_tu ?? "?"}${cp.chu_de ? ` — ${cp.chu_de}` : ""}`.replace(
+                "Số ?",
+                cp.ten,
+              ) || cp.ten;
       const td = taoThongDiep(
         db,
         {

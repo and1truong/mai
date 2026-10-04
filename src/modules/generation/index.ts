@@ -1,6 +1,7 @@
 import type { CauHinhAi } from "../../config.ts";
 import { LoiApi } from "../../loi.ts";
 import type { ContextSinhSnapshot } from "../context/index.ts";
+import type { CtaLienKet, FactPhatHanh, GioiHanPhatHanh } from "../content/index.ts";
 import type { DinhNghiaDinhDang } from "../formats/index.ts";
 import { fixture } from "./fixture.ts";
 import { taoAdapterOpenAI } from "./live.ts";
@@ -29,6 +30,27 @@ export type NguonContext = {
   da_cat_gon: boolean;
 };
 
+// Fact release đưa vào context (#9): xac_nhan=false khi fact không trỏ
+// nguồn đã nạp hoặc nguồn đó không vào chuỗi provenance của lần sinh —
+// provider phải để [CÂU HỎI], không trình bày như sự thật.
+export type FactPhatHanhContext = FactPhatHanh & {
+  xac_nhan: boolean;
+  nguon_tieu_de?: string;
+};
+
+// Context bản phát hành (#9) — chỉ có khi thông điệp thuộc campaign loai
+// 'phat_hanh': định vị đã duyệt, giới hạn gói/vùng/khả dụng, link CTA và
+// fact tính năng kèm cờ xác nhận bằng chứng.
+export type PhatHanhContext = {
+  ten: string;
+  phien_ban: string;
+  ngay_phat_hanh: string;
+  dinh_vi: string;
+  gioi_han: GioiHanPhatHanh[];
+  cta: CtaLienKet[];
+  ds_fact: FactPhatHanhContext[];
+};
+
 // Context một lần sinh — provider nhận nguyên object này, không tự truy DB.
 export type ContextTask = {
   task: TaskDinhNghia;
@@ -41,6 +63,9 @@ export type ContextTask = {
   // Lập trường biên tập cấu hình trên campaign/số báo (#8) — provider áp
   // định hướng này, không ngầm áp một diễn giải riêng.
   lap_truong?: string | null;
+  // Bản phát hành (#9) — có khi campaign loai 'phat_hanh': provider lấy
+  // định vị/fact/giới hạn/CTA từ đây thay vì suy diễn từ văn bản.
+  phat_hanh?: PhatHanhContext;
   // Chứng cứ còn thiếu trong input (số liệu/mốc thời gian/văn bản tham
   // chiếu) — provider phải để câu hỏi/khoảng trống tường minh thay vì bịa.
   thieu_chung_cu: string[];

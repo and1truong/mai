@@ -52,5 +52,47 @@ export function kiemTraDauRa(ctx: ContextTask, kq: KetQuaTask): KetQuaKiemTra {
     }
   }
 
+  // Bản phát hành (#9): giới hạn phải hiển thị trên đầu ra bị ảnh hưởng;
+  // fact chưa xác nhận không được trình bày như sự thật; marker bằng chứng
+  // phải trỏ fact/giới hạn có trong context — không bịa nguồn.
+  const ph = ctx.phat_hanh;
+  if (ph) {
+    const dauRa = kq.noi_dung.toLowerCase();
+    for (const g of ph.gioi_han) {
+      if (!g.tinh_nang || !g.mo_ta) continue;
+      if (
+        dauRa.includes(g.tinh_nang.toLowerCase()) &&
+        !dauRa.includes(g.mo_ta.toLowerCase())
+      ) {
+        canhBao.push(
+          `Giới hạn '${g.mo_ta}' của '${g.tinh_nang}' chưa hiển thị trên đầu ra dù tính năng được nhắc.`,
+        );
+      }
+    }
+    for (const f of ph.ds_fact) {
+      if (f.xac_nhan || !f.tinh_nang) continue;
+      const dongNham = kq.noi_dung
+        .split(/\n/)
+        .some(
+          (dong) =>
+            dong.toLowerCase().includes(f.tinh_nang.toLowerCase()) &&
+            !/câu\s*hỏi/i.test(dong),
+        );
+      if (dongNham) {
+        canhBao.push(
+          `Fact '${f.tinh_nang}' chưa có bằng chứng nguồn — đầu ra đang nhắc nó ngoài câu hỏi, cần xác nhận trước khi công bố.`,
+        );
+      }
+    }
+    const idFact = new Set(ph.ds_fact.map((f) => f.id));
+    const idGh = new Set(ph.gioi_han.map((g) => g.id));
+    for (const m of kq.noi_dung.matchAll(/\[F:([a-z0-9_-]+)\]/gi)) {
+      if (!idFact.has(m[1]!)) canhBao.push(`Đầu ra tham chiếu fact '${m[1]}' không có trong bản phát hành.`);
+    }
+    for (const m of kq.noi_dung.matchAll(/\[GH:([a-z0-9_-]+)\]/gi)) {
+      if (!idGh.has(m[1]!)) canhBao.push(`Đầu ra tham chiếu giới hạn '${m[1]}' không có trong bản phát hành.`);
+    }
+  }
+
   return { hop_le: loiCung.length === 0, loi_cung: loiCung, canh_bao: canhBao };
 }

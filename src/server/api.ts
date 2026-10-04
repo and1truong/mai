@@ -11,6 +11,7 @@ import {
 } from "../loi.ts";
 import { log } from "../log.ts";
 import {
+  DANH_SACH_LOAI_CAMPAIGN,
   DANH_SACH_LOAI_MUC,
   capNhatCampaign,
   capNhatNguon,
@@ -124,6 +125,17 @@ import {
   thongDiepChuDe,
 } from "../modules/so_bao/index.ts";
 import { taoBundleSoBao } from "../modules/so_bao/xuat.ts";
+import {
+  damBaoThongDiepPhatHanh,
+  deXuatDauRaPhatHanh,
+  docFactView,
+  dongBoNguonPhatHanh,
+  goiYPhatHanh,
+  kiemTraCta,
+  kiemTraDsFact,
+  kiemTraGioiHan,
+  laPhatHanh,
+} from "../modules/phat_hanh/index.ts";
 import { LOAI_JOB_HO_TRO } from "../modules/jobs/handlers.ts";
 import {
   DANH_SACH_LOAI_THAY_DOI,
@@ -325,6 +337,42 @@ function docSoThuTu(v: unknown, dsLoi: string[]): number | null | undefined {
     return undefined;
   }
   return n;
+}
+
+// Đọc loai campaign (#9): absent → undefined (POST suy ra từ field,
+// PUT giữ loại đã lưu); chuỗi khác danh mục → lỗi.
+function docLoaiCampaign(v: unknown, dsLoi: string[]): string | undefined {
+  if (v === undefined) return undefined;
+  const s = tuyChonChuoi(v);
+  if (s && !(DANH_SACH_LOAI_CAMPAIGN as readonly string[]).includes(s)) {
+    dsLoi.push(
+      `loai không hợp lệ. Cho phép: ${DANH_SACH_LOAI_CAMPAIGN.join(", ")} hoặc để trống (campaign thường).`,
+    );
+  }
+  return s;
+}
+
+// Suy loại campaign khi POST không gửi loai: có field release →
+// 'phat_hanh'; có field số báo → 'so_bao'; còn lại campaign thường.
+function inferLoaiCampaign(body: Record<string, unknown>): string {
+  if (
+    body.phien_ban !== undefined ||
+    body.dinh_vi !== undefined ||
+    body.gioi_han !== undefined ||
+    body.cta !== undefined ||
+    body.ds_fact !== undefined
+  ) {
+    return "phat_hanh";
+  }
+  if (
+    body.so_thu_tu !== undefined ||
+    body.chu_de !== undefined ||
+    body.lap_truong !== undefined ||
+    body.chu_bien !== undefined
+  ) {
+    return "so_bao";
+  }
+  return "";
 }
 
 // Đọc ngay_phat_hanh: absent → undefined; chuỗi trống = chưa đặt; còn lại
@@ -759,80 +807,157 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       const ghiDe = body.ghi_de !== undefined ? docGhiDe(body.ghi_de, dsLoi) : undefined;
       const soThuTu = docSoThuTu(body.so_thu_tu, dsLoi) ?? null;
       const ngayPhatHanh = docNgayPhatHanh(body.ngay_phat_hanh, dsLoi) ?? "";
+      const loai = docLoaiCampaign(body.loai, dsLoi) ?? inferLoaiCampaign(body);
       kiemTraHoSoSoBao(c.db, body, dsLoi);
       const thamChieu = kiemTraThamChieu(c.db, body.tham_chieu, dsLoi) ?? [];
       const mucLuc = kiemTraMucLuc(c.db, body.muc_luc, dsLoi) ?? [];
+      // Field phát hành (#9): mảng object có cấu trúc — validate đầy đủ
+      // trước mọi mutation; con trỏ bằng chứng (nguon_id/muc_id) phải đúng.
+      const gioiHan = kiemTraGioiHan(body.gioi_han, dsLoi) ?? [];
+      const cta = kiemTraCta(body.cta, dsLoi) ?? [];
+      const dsFact = kiemTraDsFact(c.db, body.ds_fact, dsLoi) ?? [];
+      const phienBan = tuyChonChuoi(body.phien_ban);
+      if (phienBan.length > 100) dsLoi.push("phien_ban vượt 100 ký tự.");
+      const dinhVi = tuyChonChuoi(body.dinh_vi);
+      if (dinhVi.length > 2000) dsLoi.push("dinh_vi vượt 2000 ký tự.");
       nemLoiValidation(dsLoi);
-      return ok(
-        taoCampaign(
-          c.db,
-          {
-            ten,
-            mo_ta: tuyChonChuoi(body.mo_ta),
-            ghi_de: ghiDe,
-            so_thu_tu: soThuTu,
-            ngay_phat_hanh: ngayPhatHanh,
-            chu_de: tuyChonChuoi(body.chu_de),
-            lap_truong: tuyChonChuoi(body.lap_truong),
-            chu_bien: tuyChonChuoi(body.chu_bien),
-            thuong_hieu_id: tuyChonChuoi(body.thuong_hieu_id) || null,
-            doi_tuong_id: tuyChonChuoi(body.doi_tuong_id) || null,
-            tham_chieu: thamChieu,
-            muc_luc: mucLuc,
-          },
-          c.actor,
-        ),
-        201,
+      const cp = taoCampaign(
+        c.db,
+        {
+          ten,
+          mo_ta: tuyChonChuoi(body.mo_ta),
+          ghi_de: ghiDe,
+          loai,
+          so_thu_tu: soThuTu,
+          ngay_phat_hanh: ngayPhatHanh,
+          chu_de: tuyChonChuoi(body.chu_de),
+          lap_truong: tuyChonChuoi(body.lap_truong),
+          chu_bien: tuyChonChuoi(body.chu_bien),
+          thuong_hieu_id: tuyChonChuoi(body.thuong_hieu_id) || null,
+          doi_tuong_id: tuyChonChuoi(body.doi_tuong_id) || null,
+          tham_chieu: thamChieu,
+          muc_luc: mucLuc,
+          phien_ban: phienBan,
+          dinh_vi: dinhVi,
+          gioi_han: gioiHan,
+          cta: cta,
+          ds_fact: dsFact,
+        },
+        c.actor,
       );
+      // Bản phát hành (#9): chiếu field release thành nguồn fact tự động
+      // + tạo thông điệp chủ đề link nguồn đó ngay khi tạo.
+      if (laPhatHanh(cp)) {
+        dongBoNguonPhatHanh(c.db, cp, c.actor);
+        damBaoThongDiepPhatHanh(c.db, cp, c.actor);
+      }
+      return ok(layCampaign(c.db, cp.id)!, 201);
     }),
+    route("GET", "/api/phat-hanh", (_req, _p, c) =>
+      ok(danhSachCampaign(c.db).filter(laPhatHanh)),
+    ),
     route("GET", "/api/campaign/:id", (_req, p, c) => {
       const cp = layCampaign(c.db, p.id!);
       if (!cp) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy campaign.");
       const td = thongDiepChuDe(c.db, cp);
+      const ph = laPhatHanh(cp);
+      // View phái sinh theo loại campaign: bản phát hành có đề xuất đầu ra
+      // theo đối tượng + fact/giới hạn/CTA; số báo giữ view của #8.
+      const nguonPh = cp.nguon_phat_hanh_id ? layNguon(c.db, cp.nguon_phat_hanh_id) : null;
       return ok({
         ...cp,
         thong_diep: danhSachThongDiep(c.db, cp.id),
         thong_diep_chu_de: td ? { id: td.id, tieu_de: td.tieu_de } : null,
         tham_chieu_view: docThamChieuView(c.db, cp),
-        de_xuat_muc_luc: deXuatMucLuc(c.db, cp),
-        goi_y: goiYKhoangTrong(c.db, cp),
+        de_xuat_muc_luc: ph ? deXuatDauRaPhatHanh(c.db, cp) : deXuatMucLuc(c.db, cp),
+        goi_y: ph ? goiYPhatHanh(c.db, cp) : goiYKhoangTrong(c.db, cp),
         tien_do: tienDoSoBao(c.db, cp),
         hang_cho: danhSachBanTheHien(c.db, { campaignId: cp.id, trangThai: "cho_duyet" }),
+        phat_hanh: ph
+          ? {
+              nguon_phat_hanh: nguonPh
+                ? {
+                    id: nguonPh.id,
+                    tieu_de: nguonPh.tieu_de,
+                    head_revision_id: nguonPh.head_revision_id,
+                  }
+                : null,
+              ds_fact_view: docFactView(c.db, cp),
+            }
+          : null,
       });
     }),
     route("PUT", "/api/campaign/:id", async (req, p, c) => {
+      const cu = layCampaign(c.db, p.id!);
+      if (!cu) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy campaign.");
       const body = await docBody(req);
       const dsLoi: string[] = [];
       const ten = batBuocChuoi(body.ten, "ten", dsLoi);
       const ghiDe = body.ghi_de !== undefined ? docGhiDe(body.ghi_de, dsLoi) : undefined;
       const soThuTu = docSoThuTu(body.so_thu_tu, dsLoi);
       const ngayPhatHanh = docNgayPhatHanh(body.ngay_phat_hanh, dsLoi);
+      // loai đã đặt là immutable: số báo ↔ phát hành không đổi lẫn nhau
+      // (model dữ liệu và view phái sinh khác nhau); campaign thường được
+      // nâng cấp một lần.
+      const loaiCu = cu.loai || (cu.so_thu_tu != null ? "so_bao" : "");
+      const loaiMoi = docLoaiCampaign(body.loai, dsLoi);
+      if (loaiMoi !== undefined && loaiMoi !== loaiCu && loaiCu !== "") {
+        dsLoi.push(`loai đã là '${loaiCu}', không đổi sang '${loaiMoi}'.`);
+      }
       kiemTraHoSoSoBao(c.db, body, dsLoi);
       const thamChieu = kiemTraThamChieu(c.db, body.tham_chieu, dsLoi);
       const mucLuc = kiemTraMucLuc(c.db, body.muc_luc, dsLoi);
+      const gioiHan = kiemTraGioiHan(body.gioi_han, dsLoi);
+      const cta = kiemTraCta(body.cta, dsLoi);
+      const dsFact = kiemTraDsFact(c.db, body.ds_fact, dsLoi);
+      const phienBan =
+        body.phien_ban === undefined ? undefined : tuyChonChuoi(body.phien_ban);
+      if (phienBan !== undefined && phienBan.length > 100) {
+        dsLoi.push("phien_ban vượt 100 ký tự.");
+      }
+      const dinhVi = body.dinh_vi === undefined ? undefined : tuyChonChuoi(body.dinh_vi);
+      if (dinhVi !== undefined && dinhVi.length > 2000) {
+        dsLoi.push("dinh_vi vượt 2000 ký tự.");
+      }
       nemLoiValidation(dsLoi);
-      return ok(
-        capNhatCampaign(
-          c.db,
-          p.id!,
-          {
-            ten,
-            // Field vắng mặt → giữ giá trị đã lưu; field có mặt rỗng → xóa.
-            mo_ta: body.mo_ta === undefined ? undefined : tuyChonChuoi(body.mo_ta),
-            ghi_de: ghiDe,
-            so_thu_tu: soThuTu,
-            ngay_phat_hanh: ngayPhatHanh,
-            chu_de: body.chu_de === undefined ? undefined : tuyChonChuoi(body.chu_de),
-            lap_truong: body.lap_truong === undefined ? undefined : tuyChonChuoi(body.lap_truong),
-            chu_bien: body.chu_bien === undefined ? undefined : tuyChonChuoi(body.chu_bien),
-            thuong_hieu_id: body.thuong_hieu_id === undefined ? undefined : tuyChonChuoi(body.thuong_hieu_id) || null,
-            doi_tuong_id: body.doi_tuong_id === undefined ? undefined : tuyChonChuoi(body.doi_tuong_id) || null,
-            tham_chieu: thamChieu,
-            muc_luc: mucLuc,
-          },
-          c.actor,
-        ),
+      const cp = capNhatCampaign(
+        c.db,
+        p.id!,
+        {
+          ten,
+          // Field vắng mặt → giữ giá trị đã lưu; field có mặt rỗng → xóa.
+          mo_ta: body.mo_ta === undefined ? undefined : tuyChonChuoi(body.mo_ta),
+          ghi_de: ghiDe,
+          loai: loaiMoi,
+          so_thu_tu: soThuTu,
+          ngay_phat_hanh: ngayPhatHanh,
+          chu_de: body.chu_de === undefined ? undefined : tuyChonChuoi(body.chu_de),
+          lap_truong: body.lap_truong === undefined ? undefined : tuyChonChuoi(body.lap_truong),
+          chu_bien: body.chu_bien === undefined ? undefined : tuyChonChuoi(body.chu_bien),
+          thuong_hieu_id: body.thuong_hieu_id === undefined ? undefined : tuyChonChuoi(body.thuong_hieu_id) || null,
+          doi_tuong_id: body.doi_tuong_id === undefined ? undefined : tuyChonChuoi(body.doi_tuong_id) || null,
+          tham_chieu: thamChieu,
+          muc_luc: mucLuc,
+          phien_ban: phienBan,
+          dinh_vi: dinhVi,
+          gioi_han: gioiHan,
+          cta: cta,
+          ds_fact: dsFact,
+        },
+        c.actor,
       );
+      // Bản phát hành (#9): field release đổi → nguồn fact tự động có
+      // revision mới → phát hiện #14 đánh dấu đầu ra phụ thuộc + refresh
+      // pin nguồn trên thông điệp chủ đề để lần sinh sau đọc fact mới.
+      let phatHien = null;
+      if (laPhatHanh(cp)) {
+        const sync = dongBoNguonPhatHanh(c.db, cp, c.actor);
+        if (sync.da_doi) {
+          phatHien = phatHienThayDoiNguon(c.db, sync.nguon.id, c.actor);
+        }
+        damBaoThongDiepPhatHanh(c.db, cp, c.actor);
+      }
+      return ok({ ...layCampaign(c.db, cp.id)!, phat_hien: phatHien });
     }),
     route("PUT", "/api/campaign/:id/muc-luc", async (req, p, c) => {
       const body = await docBody(req);

@@ -146,6 +146,28 @@ export function lapContextNoiDung(
     }
   }
 
+  // Bản phát hành (#9): định vị + giới hạn + CTA + fact đi vào context.
+  // Fact được xác nhận chỉ khi nguồn bằng chứng của nó nằm trong chuỗi
+  // provenance của lần sinh này — fact chưa xác nhận là chứng cứ thiếu.
+  let phatHanh: ContextTask["phat_hanh"];
+  if (cp && cp.loai === "phat_hanh") {
+    const nguonTrongContext = new Map(ds_nguon.map((n) => [n.nguon_id, n.tieu_de]));
+    const dsFact = cp.ds_fact.map((f) => {
+      const tieuDe = f.nguon_id ? nguonTrongContext.get(f.nguon_id) : undefined;
+      return { ...f, xac_nhan: !!tieuDe, nguon_tieu_de: tieuDe };
+    });
+    if (dsFact.some((f) => !f.xac_nhan)) thieuCc.push("fact_chua_xac_nhan");
+    phatHanh = {
+      ten: cp.ten,
+      phien_ban: cp.phien_ban,
+      ngay_phat_hanh: cp.ngay_phat_hanh,
+      dinh_vi: cp.dinh_vi,
+      gioi_han: cp.gioi_han,
+      cta: cp.cta,
+      ds_fact: dsFact,
+    };
+  }
+
   return {
     task: input.task,
     thong_diep: {
@@ -159,6 +181,7 @@ export function lapContextNoiDung(
     ngon_ngu: bth.ngon_ngu,
     context_sinh: input.context_sinh,
     lap_truong: cp?.lap_truong || null,
+    phat_hanh: phatHanh,
     thieu_chung_cu: thieuCc,
     gioi_han_dau_ra: gioiHan.toi_da_ky_tu_dau_ra,
   };
