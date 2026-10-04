@@ -48,6 +48,19 @@ Quy tắc dependency:
 - Chỉ thêm dependency khi Bun không cung cấp sẵn và không có giải pháp đơn giản trong codebase.
 - Dùng `bun` cho mọi lệnh (`bun install`, `bun run`, `bun test`), không dùng `npm`/`yarn`/`pnpm`/`node` trực tiếp.
 
+## Kiến trúc MAI
+
+MAI là POC nền tảng nội dung độc lập, **deploy một gói**: `Bun.serve` phục vụ API + frontend tĩnh, job runner chạy trong cùng process. Đọc `docs/adr-0001-mot-goi-duy-nhat.md` và `docs/conventions.md` trước khi sửa code.
+
+Quy tắc thêm:
+
+- Mọi state nằm trong `MAI_DATA_DIR` (mặc định `./data`): `mai.sqlite` + `assets/`. Không ghi dữ liệu chỗ khác.
+- Không thêm dependency cho thứ Bun đã có: `bun:sqlite`, `Bun.serve`, `Bun.file`/`Bun.write`, `Bun.spawn`, `bun:test`, `fetch`. Không ORM, không framework server.
+- Ranh giới module nội bộ trong `src/modules/`: context, content (nguồn + bản thể hiện + revision), jobs, generation, review, formats. Module mới đi qua API trong `src/server/api.ts`, không gọi chéo DB.
+- Envelope API, mã lỗi, convention xung đột revision, log JSON, migration, seed: giữ đúng `docs/conventions.md`.
+- Không đưa abstraction tenant/workspace/billing vào route, entity hay luồng người dùng.
+- Provider AI thật là module nội bộ trong `modules/generation/`; key chỉ đọc từ env phía server, không commit key.
+
 ## Bảo mật
 
 Vì repo public:
