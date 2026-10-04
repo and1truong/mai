@@ -53,9 +53,12 @@ const RE_GIA =
 export const RE_NGAY_TUONG_DOI =
   /tuần\s+(sau|tới|này)|thứ\s+(hai|ba|tư|năm|sáu|bảy|nhật|cn)\b(?![^a-zA-Z0-9]*\d)|cuối\s+tuần|ngày\s+mai|sắp\s+tới|tháng\s+(sau|tới|này)|cuối\s+tháng|đầu\s+tháng|cuối\s+năm|đầu\s+năm/iu;
 
-// Ngày cụ thể: 11/10, 11-10-2026, 2026-10-10… — sự hiện diện của nó xóa
-// cảnh báo ngày tương đối.
-export const RE_NGAY_CU_THE = /\d{1,2}\s*[/\-.]\s*\d{1,2}(\s*[/\-.]\s*\d{2,4})?|\d{4}-\d{2}-\d{2}/;
+// Ngày cụ thể: 11/10, 11-10-2026, 1.2.2026, 2026-10-10… — sự hiện diện
+// của nó xóa cảnh báo ngày tương đối. Ranh giới chữ số/dấu tách hai đầu +
+// dấu "." chỉ hợp lệ trong mẫu đủ 3 phần có năm → giá "45.000đ" hay số
+// thập phân không bị nhầm là ngày (#7 review).
+export const RE_NGAY_CU_THE =
+  /(?<![\d/.\-])\d{1,2}\s*[/\-]\s*\d{1,2}(?:\s*[/\-.]\s*\d{2,4})?(?![\d/\-])|(?<![\d/.\-])\d{1,2}\s*\.\s*\d{1,2}\s*\.\s*\d{2,4}(?![\d/\-])|\d{4}-\d{2}-\d{2}/;
 
 export function thieuChungCu(vanBanNguon: string): string[] {
   const ds: string[] = [];

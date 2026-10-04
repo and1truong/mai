@@ -359,13 +359,13 @@ export function capNhatKeHoach(
     // fact truyền vào thay toàn bộ — client gửi đủ các ô nó có.
     const fact = input.fact !== undefined ? input.fact : docFact(kh.fact);
     // Sửa sản phẩm/ngày → revision thông điệp mới: sự thay đổi fact truy về
-    // được tới nguồn thông báo và cờ các bản đã sinh là đã cũ (#7).
+    // được tới nguồn thông báo và cờ các bản đã sinh là đã cũ (#7). So với
+    // nội dung mà input đã lưu trong ke_hoach ghép lại — không so head
+    // revision, vì head có thể bị sửa ngoài luồng (PUT thông điệp): một PUT
+    // kế hoạch y hệt phải là no-op, không revert sửa tay/cờ đã cũ giả.
     const noiDung = ghepNoiDungThongBao(vanBan, fact, cta);
-    const noiDungCu =
-      td.head_revision_id
-        ? (layThongDiepRevision(db, td.head_revision_id)?.noi_dung ?? td.noi_dung)
-        : td.noi_dung;
-    const noiDungDoi = noiDung !== noiDungCu || tieuDe !== td.tieu_de;
+    const noiDungDaLuu = ghepNoiDungThongBao(kh.intake, docFact(kh.fact), kh.cta);
+    const noiDungDoi = noiDung !== noiDungDaLuu || tieuDe !== td.tieu_de;
     if (noiDungDoi) {
       capNhatThongDiep(
         db,

@@ -73,19 +73,24 @@ export interface KhoByte {
   xoa(duongDan: string): void;
 }
 
+// Resolve đường dẫn file trong gốc kho byte: kiểm nằm trong gốc để chắc
+// chắn không đường dẫn nào thoát khỏi thư mục data. Dùng chung bởi
+// khoByteLocal và các caller ghi đồng bộ (seed fixture).
+export function duongDanTepAsset(goc: string, duongDan: string): string {
+  const gocDayDu = resolve(goc);
+  const p = resolve(join(gocDayDu, duongDan));
+  if (p !== gocDayDu && !p.startsWith(gocDayDu + sep)) {
+    throw new LoiApi(400, "VALIDATION", "Đường dẫn asset không hợp lệ.");
+  }
+  return p;
+}
+
 // Kho byte trên đĩa local, gốc = <dataDir>/assets. duong_dan là tên file
-// server tự đặt ('<uuid>.<ext>') — resolve + kiểm nằm trong gốc để chắc
-// chắn không đường dẫn nào thoát khỏi thư mục data.
+// server tự đặt ('<uuid>.<ext>').
 export function khoByteLocal(goc: string): KhoByte {
   const gocDayDu = resolve(goc);
   mkdirSync(gocDayDu, { recursive: true });
-  const tep = (duongDan: string): string => {
-    const p = resolve(join(gocDayDu, duongDan));
-    if (p !== gocDayDu && !p.startsWith(gocDayDu + sep)) {
-      throw new LoiApi(400, "VALIDATION", "Đường dẫn asset không hợp lệ.");
-    }
-    return p;
-  };
+  const tep = (duongDan: string): string => duongDanTepAsset(gocDayDu, duongDan);
   return {
     async ghi(duongDan, byte) {
       await Bun.write(tep(duongDan), byte);
