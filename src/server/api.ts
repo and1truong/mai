@@ -867,7 +867,9 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
     route("GET", "/api/ban-the-hien/:id/nhap", (_req, p, c) => {
       const bth = layBanTheHien(c.db, p.id!);
       if (!bth) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy bản thể hiện.");
-      return ok(layNhapSoan(c.db, bth.id, c.actor));
+      const nhap = layNhapSoan(c.db, bth.id, c.actor);
+      if (!nhap) loiRequest(404, "KHONG_TIM_THAY", "Chưa có nháp cho bản thể hiện này.");
+      return ok(nhap);
     }),
     route("PUT", "/api/ban-the-hien/:id/nhap", async (req, p, c) => {
       const body = await docBody(req);
