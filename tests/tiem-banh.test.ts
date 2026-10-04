@@ -140,11 +140,17 @@ describe("Story #7 — tiệm bánh: seed và bundle đề xuất", () => {
 
   test("thieuChungCu: ngày tương đối mơ hồ bị hỏi ngày cụ thể", () => {
     expect(thieuChungCu(INTAKE)).toContain("ngay_gio_cu_the");
+    // Giá kiểu Việt không bị nhầm là ngày cụ thể — vẫn hỏi ngày (review #7).
+    expect(
+      thieuChungCu("Tuần sau thứ Bảy tiệm ra mắt bánh croissant hạt dẻ giá 45.000đ."),
+    ).toContain("ngay_gio_cu_the");
+    expect(thieuChungCu("Cuối tuần này giảm giá 45.5đ.")).toContain("ngay_gio_cu_the");
     // Có ngày cụ thể thì hết hỏi.
     expect(thieuChungCu("Ra mắt bánh mới ngày 10/10/2026.")).not.toContain("ngay_gio_cu_the");
     expect(thieuChungCu("Thông báo bảo trì cuối tuần này ngày 05/10/2025.")).not.toContain(
       "ngay_gio_cu_the",
     );
+    expect(thieuChungCu("Ra mắt ngày 1.2.2026.")).not.toContain("ngay_gio_cu_the");
     // Không liên quan ngày → không hỏi.
     expect(thieuChungCu("Bài viết chia sẻ kinh nghiệm.")).not.toContain("ngay_gio_cu_the");
   });
@@ -206,6 +212,32 @@ describe("Story #7 — luồng API: hỏi ngày cụ thể, fact roundtrip, truy
       expect(tdJson.du_lieu.noi_dung.split("\n")[0]).toContain("2026-10-10T08:00");
       expect(tdJson.du_lieu.noi_dung.split("\n")[0]).toContain("45.000đ");
       expect(tdJson.du_lieu.ke_hoach.fact.ngay_gio).toBe("2026-10-10T08:00");
+
+      // PUT y hệt = no-op (review #7): cùng input không tạo revision mới,
+      // không cờ đã cũ giả.
+      const headTruoc = (
+        await getJson(app, `/api/thong-diep/${sau.ke_hoach.thong_diep_id}`)
+      ).json.du_lieu.head_revision_id;
+      const putLap = await post(
+        app,
+        `/api/ke-hoach/${khId}`,
+        {
+          fact: {
+            ngay_gio: "2026-10-10T08:00",
+            mui_gio: "Asia/Ho_Chi_Minh",
+            gia: "45.000đ",
+            tinh_trang: "còn hàng trong ngày",
+            link_dat_hang: "https://tiembanh.example.com/dat-hang",
+          },
+          cta: "Ghé tiệm hoặc đặt trước qua link đặt hàng.",
+        },
+        "PUT",
+      );
+      expect(putLap.status).toBe(200);
+      const headSau = (
+        await getJson(app, `/api/thong-diep/${sau.ke_hoach.thong_diep_id}`)
+      ).json.du_lieu.head_revision_id;
+      expect(headSau).toBe(headTruoc);
 
       // Chọn hai đầu ra → sinh → bản thể hiện gắn revision thông điệp hiện tại.
       const chon = [

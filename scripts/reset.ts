@@ -21,6 +21,8 @@ if (existsSync(dataDir)) {
 
 const db = moDb(dataDir);
 const apDung = chayMigration(db);
-const ketQua = seed(db);
+// Truyền dataDir để seed ghi luôn asset fixture (ảnh croissant tiệm bánh)
+// vào dataDir/assets/ — caption Instagram có ảnh thật sau reset (#7).
+const ketQua = seed(db, "demo", { dataDir });
 log.info("reset.xong", { migrations: apDung, ...ketQua });
 db.close();

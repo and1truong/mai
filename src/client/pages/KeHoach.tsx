@@ -149,11 +149,16 @@ function ChiTietKhView({ id }: { id: string }) {
       setCta(k.cta ?? "");
       setFact(chiTiet.data!.fact ?? {});
       if (k.trang_thai !== "da_chon" && (chiTiet.data!.ds_chon ?? []).length === 0) {
-        const m = new Map<string, DauRa>();
-        for (const dx of chiTiet.data!.de_xuat ?? []) {
-          if (dx.doi_tuong_id === null) m.set(khoaDauRa(dx), dx);
+        // Chỉ tick sẵn khi nhóm Chung là bundle sự kiện (đề xuất có kênh
+        // riêng như google-business) — intake thường giữ newsletter +
+        // caption chưa chọn như trước.
+        const chung = (chiTiet.data!.de_xuat ?? []).filter((dx) => dx.doi_tuong_id === null);
+        const laBundleSuKien = chung.some((dx) => dx.dinh_dang === "google-business");
+        if (laBundleSuKien) {
+          const m = new Map<string, DauRa>();
+          for (const dx of chung) m.set(khoaDauRa(dx), dx);
+          setDsChon(m);
         }
-        if (m.size > 0) setDsChon(m);
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

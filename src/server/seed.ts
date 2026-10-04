@@ -16,6 +16,7 @@ import {
 } from "../modules/content/index.ts";
 import {
   datAssetBanTheHien,
+  duongDanTepAsset,
   kiemTraByteAsset,
   layAsset,
   sachTenFile,
@@ -512,8 +513,9 @@ export function seed(
 }
 
 // Ghi file fixture ảnh của story #7 vào kho byte local + một dòng asset
-// (đường service luuAsset là async; seed chạy đồng bộ nên ghi file trực tiếp
-// — cùng bước validate/dedupe, chỉ khác lớp ghi). Thiếu file fixture → bỏ qua.
+// (đường service luuAsset là async; seed chạy đồng bộ nên ghi file đồng bộ
+// — cùng bước validate/dedupe và cùng layout qua duongDanTepAsset, chỉ khác
+// lớp ghi async). Thiếu file fixture → bỏ qua.
 function ghiAssetFixture(
   db: Database,
   dataDir: string,
@@ -535,7 +537,7 @@ function ghiAssetFixture(
   const duongDan = `${id}${extname(tenFile).toLowerCase()}`;
   const thuMuc = resolve(dataDir, "assets");
   mkdirSync(thuMuc, { recursive: true });
-  writeFileSync(join(thuMuc, duongDan), byte);
+  writeFileSync(duongDanTepAsset(thuMuc, duongDan), byte);
   const checksum = new Bun.CryptoHasher("sha256").update(byte).digest("hex");
   const ts = new Date().toISOString();
   db.query(
