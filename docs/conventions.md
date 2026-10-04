@@ -53,7 +53,7 @@ Chuyển sai → 409 `XUNG_DOT_TRANG_THAI`.
 ## Seed / fixture
 
 - Seed dùng id cố định + kiểm tra tồn tại → chạy lại được.
-- Provider `fixture` deterministic: cùng input → cùng output, không gọi mạng.
+- Provider `fixture` deterministic: cùng input → cùng output, không gọi mạng; mọi task trả `noi_dung` dạng canonical JSON và cắt theo giới hạn trường của schema (`do_dai_toi_da`/`so_muc_toi_da`) — input dài không làm output tự vi phạm.
 - Tên loại job, handler: snake_case (vd `sinh_ban_the_hien`).
 
 ## Job nền
