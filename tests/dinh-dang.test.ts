@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { taoServerTam } from "./helpers.ts";
+import { duyetBth, taoServerTam } from "./helpers.ts";
 import { chayMigration, moDb } from "../src/server/db.ts";
 import {
   DANH_SACH_DINH_DANG,
@@ -331,6 +331,8 @@ describe("API xem trước + export (#19)", () => {
       expect(anhKhac.status).toBe(201);
       await post(app, `/api/ban-the-hien/${bth.id}/assets`, { asset_ids: [anhId] }, "PUT");
 
+      // Chỉ bản đã duyệt được xuất bản (#21).
+      await duyetBth(app, bth.id);
       // Xuất bản kèm ghi chú nội bộ — không được lọt vào bundle.
       const xb = await post(app, `/api/ban-the-hien/${bth.id}/xuat-ban`, {
         dich_den: "web",

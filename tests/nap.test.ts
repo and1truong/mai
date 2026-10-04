@@ -8,7 +8,7 @@ import { chayMigration, moDb } from "../src/server/db.ts";
 import { startServer } from "../src/server/index.ts";
 import { seed } from "../src/server/seed.ts";
 import { chuanHoaCacMuc, taoKhoByteMem, luuAsset } from "../src/modules/nap/index.ts";
-import { taoServerTam } from "./helpers.ts";
+import { duyetBth, taoServerTam } from "./helpers.ts";
 
 // Test nạp nguồn + asset (#17): ingest text, upload file, idempotency,
 // đính kèm tường minh, snapshot xuất bản, xóa/lưu trữ an toàn.
@@ -315,6 +315,8 @@ describe("API nạp nguồn + asset", () => {
     const chiTiet = await (await fetch(`${app.url}/api/ban-the-hien/seed-bth-1`)).json();
     expect(chiTiet.du_lieu.assets.map((a: { id: string }) => a.id)).toEqual([asset.id]);
 
+    const { duyet } = await duyetBth(app, "seed-bth-1");
+    expect(duyet.status).toBe(200);
     const xb = await post(app, "/api/ban-the-hien/seed-bth-1/xuat-ban", {});
     expect(xb.status).toBe(201);
     expect((await xb.json()).du_lieu.asset_ids).toEqual([asset.id]);
@@ -338,6 +340,7 @@ describe("API nạp nguồn + asset", () => {
     const up = await upload(app, "ten=snap.png", new Uint8Array([6, 6]));
     const { du_lieu: asset } = await up.json();
     await put(app, "/api/ban-the-hien/seed-bth-1/assets", { asset_ids: [asset.id] });
+    await duyetBth(app, "seed-bth-1");
     const xb = await post(app, "/api/ban-the-hien/seed-bth-1/xuat-ban", {});
     expect((await xb.json()).du_lieu.asset_ids).toEqual([asset.id]);
 

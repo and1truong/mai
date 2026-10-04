@@ -688,23 +688,23 @@ export function layBanTheHien(db: Database, id: string): BanTheHien | null {
 // một bản thể hiện xuất hiện dưới mọi nguồn mà thông điệp của nó dùng.
 export function danhSachBanTheHien(
   db: Database,
-  loc: { thongDiepId?: string; nguonId?: string } = {},
+  loc: { thongDiepId?: string; nguonId?: string; trangThai?: string } = {},
 ): BanTheHien[] {
-  if (loc.nguonId) {
-    return db
-      .query(
-        `SELECT b.* FROM ban_the_hien b
-         JOIN thong_diep_nguon tn ON tn.thong_diep_id = b.thong_diep_id
-         WHERE tn.nguon_id = ? ORDER BY b.tao_luc DESC`,
-      )
-      .all(loc.nguonId) as BanTheHien[];
-  }
-  if (loc.thongDiepId) {
-    return db
-      .query("SELECT * FROM ban_the_hien WHERE thong_diep_id = ? ORDER BY tao_luc DESC")
-      .all(loc.thongDiepId) as BanTheHien[];
-  }
-  return db.query("SELECT * FROM ban_the_hien ORDER BY tao_luc DESC").all() as BanTheHien[];
+  const ds = loc.nguonId
+    ? (db
+        .query(
+          `SELECT b.* FROM ban_the_hien b
+           JOIN thong_diep_nguon tn ON tn.thong_diep_id = b.thong_diep_id
+           WHERE tn.nguon_id = ? ORDER BY b.tao_luc DESC`,
+        )
+        .all(loc.nguonId) as BanTheHien[])
+    : loc.thongDiepId
+      ? (db
+          .query("SELECT * FROM ban_the_hien WHERE thong_diep_id = ? ORDER BY tao_luc DESC")
+          .all(loc.thongDiepId) as BanTheHien[])
+      : (db.query("SELECT * FROM ban_the_hien ORDER BY tao_luc DESC").all() as BanTheHien[]);
+  // Lọc trạng thái cho hàng chờ review (#21) — nhỏ, lọc trong bộ nhớ đủ.
+  return loc.trangThai ? ds.filter((b) => b.trang_thai === loc.trangThai) : ds;
 }
 
 export type NhapBanTheHien = {
@@ -771,12 +771,16 @@ export function timBanTheHien(db: Database, khoa: NhapBanTheHien): BanTheHien | 
 
 // Chuyển trạng thái review: validate chuỗi chuyển, ghi record duyet ghim
 // revision nội dung tại thời điểm chấm + sự kiện.
+// `mong_doi_revision_id` (#21): client ghim revision mà nó đang chấm —
+// head đã đổi → 409 XUNG_DOT_REVISION thay vì duyệt nhầm revision mới.
+// Bắt buộc khi duyệt (den = 'da_duyet').
 export function chuyenTrangThai(
   db: Database,
   id: string,
   den: string,
   ghiChu: string,
   tacGia: string,
+  mongDoiRevisionId?: string,
 ): BanTheHien {
   return txn(db, () => {
     const bth = layBanTheHien(db, id);
@@ -791,6 +795,21 @@ export function chuyenTrangThai(
         409,
         "XUNG_DOT_TRANG_THAI",
         `Không thể chuyển từ '${bth.trang_thai}' sang '${den}'.`,
+      );
+    }
+    if (den === "da_duyet" && !mongDoiRevisionId) {
+      throw new LoiApi(
+        400,
+        "VALIDATION",
+        "Duyệt phải kèm mong_doi_revision_id — revision được duyệt phải tường minh.",
+      );
+    }
+    if (mongDoiRevisionId !== undefined && mongDoiRevisionId !== (bth.head_revision_id ?? "")) {
+      throw new LoiApi(
+        409,
+        "XUNG_DOT_REVISION",
+        "Revision đích đã đổi — request duyệt cũ không còn áp được. Tải lại rồi chấm lại.",
+        { head_revision_id: bth.head_revision_id },
       );
     }
     const tu = bth.trang_thai;
@@ -882,6 +901,25 @@ export function themRevisionTrongTxn(
     id,
     input.ban_the_hien_id,
   );
+  // Mất hiệu lực duyệt (#21): revision mới đè lên bản đã duyệt → 'thay_the'
+  // (duyệt vẫn ghim revision cũ, không duyệt bản mới); bản bị từ chối có
+  // nội dung mới → về 'nhap' để đi review lại. Không ghi record duyet —
+  // đây là hệ quả cơ học, không phải hành động chấm.
+  if (bth.trang_thai === "da_duyet" || bth.trang_thai === "tu_choi") {
+    const den = bth.trang_thai === "da_duyet" ? "thay_the" : "nhap";
+    db.query("UPDATE ban_the_hien SET trang_thai = ? WHERE id = ?").run(
+      den,
+      input.ban_the_hien_id,
+    );
+    ghiSuKien(
+      db,
+      "ban_the_hien",
+      input.ban_the_hien_id,
+      "trang_thai_tu_dong",
+      { tu: bth.trang_thai, den, ly_do: "revision_moi" },
+      tacGia,
+    );
+  }
   ghiSuKien(
     db,
     "ban_the_hien",
@@ -897,6 +935,61 @@ export function themRevisionTrongTxn(
 // Khác với head hiện tại → 409 XUNG_DOT_REVISION.
 export function themRevision(db: Database, input: NhapRevision, tacGia: string): Revision {
   return txn(db, () => themRevisionTrongTxn(db, input, tacGia));
+}
+
+// --- Nháp autosave (#21) ---
+
+export type NhapSoan = {
+  id: string;
+  ban_the_hien_id: string;
+  actor: string;
+  noi_dung: string;
+  dua_tren_revision_id: string | null;
+  cap_nhat_luc: string;
+};
+
+export function layNhapSoan(db: Database, banTheHienId: string, actor: string): NhapSoan | null {
+  return (
+    (db
+      .query("SELECT * FROM nhap_soan WHERE ban_the_hien_id = ? AND actor = ?")
+      .get(banTheHienId, actor) as NhapSoan | null) ?? null
+  );
+}
+
+// Upsert nháp của actor. `dua_tren_revision_id` lưu head mà nháp dựa trên —
+// client gửi head nó thấy lúc bắt đầu sửa; lần lưu sau không đổi trừ khi
+// client tường minh rebase (sau khi giải quyết xung đột).
+export function luuNhapSoan(
+  db: Database,
+  banTheHienId: string,
+  actor: string,
+  input: { noi_dung: string; dua_tren_revision_id?: string | null },
+): NhapSoan {
+  return txn(db, () => {
+    if (!layBanTheHien(db, banTheHienId)) {
+      loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy bản thể hiện.");
+    }
+    const cu = layNhapSoan(db, banTheHienId, actor);
+    const id = cu?.id ?? crypto.randomUUID();
+    const duaTren =
+      input.dua_tren_revision_id !== undefined
+        ? input.dua_tren_revision_id
+        : (cu?.dua_tren_revision_id ?? null);
+    db.query(
+      `INSERT INTO nhap_soan (id, ban_the_hien_id, actor, noi_dung, dua_tren_revision_id, cap_nhat_luc)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT (ban_the_hien_id, actor)
+       DO UPDATE SET noi_dung = excluded.noi_dung, dua_tren_revision_id = excluded.dua_tren_revision_id, cap_nhat_luc = excluded.cap_nhat_luc`,
+    ).run(id, banTheHienId, actor, input.noi_dung, duaTren, bayGio());
+    return layNhapSoan(db, banTheHienId, actor)!;
+  });
+}
+
+export function xoaNhapSoan(db: Database, banTheHienId: string, actor: string): void {
+  db.query("DELETE FROM nhap_soan WHERE ban_the_hien_id = ? AND actor = ?").run(
+    banTheHienId,
+    actor,
+  );
 }
 
 // --- Xuất bản ---
@@ -931,6 +1024,15 @@ export function xuatBanBanTheHien(
         409,
         "XUNG_DOT_TRANG_THAI",
         "Bản thể hiện chưa có nội dung để xuất bản.",
+      );
+    }
+    // Vòng đời ép phía server (#21): chỉ bản đã duyệt được phát hành record
+    // xuất bản — được sinh ≠ được đăng.
+    if (bth.trang_thai !== "da_duyet") {
+      throw new LoiApi(
+        409,
+        "XUNG_DOT_TRANG_THAI",
+        `Chỉ xuất bản khi đã duyệt — trạng thái hiện tại '${bth.trang_thai}'.`,
       );
     }
     const id = crypto.randomUUID();

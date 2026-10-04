@@ -202,6 +202,18 @@ describe("contract dữ liệu nội dung (#4)", () => {
       expect(dsDuyet.du_lieu[0].den_trang_thai).toBe("cho_duyet");
       expect(dsDuyet.du_lieu[0].ghi_chu).toBe("gửi duyệt");
 
+      // Chưa duyệt → chưa xuất bản được (#21): vòng đời ép phía server.
+      const chuaDuyet = await post(app, `/api/ban-the-hien/${bthId}/xuat-ban`, {});
+      expect(chuaDuyet.status).toBe(409);
+      expect((await chuaDuyet.json()).loi.ma).toBe("XUNG_DOT_TRANG_THAI");
+
+      // Duyệt ghim revision tường minh → mới xuất bản được.
+      const duyetOk = await post(app, `/api/ban-the-hien/${bthId}/trang-thai`, {
+        trang_thai: "da_duyet",
+        mong_doi_revision_id: head,
+      });
+      expect(duyetOk.status).toBe(200);
+
       // Xuất bản ghim revision head tại thời điểm đăng.
       const xb = await post(app, `/api/ban-the-hien/${bthId}/xuat-ban`, {
         dich_den: "https://example.test/bai",
