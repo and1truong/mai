@@ -463,7 +463,13 @@ export function capNhatVanBan(
   if (!nguon) throw new LoiApi(404, "KHONG_TIM_THAY", "Không tìm thấy nguồn.");
   if (input.khoa_idem) {
     const cu = timNguonRevisionTheoKhoaIdem(db, input.khoa_idem);
-    if (cu) return { nguon: layNguon(db, cu.nguon_id)!, revision: cu, da_tao: false };
+    if (cu) {
+      // Khóa đã dùng cho nguồn khác → không lẫn provenance, báo xung đột.
+      if (cu.nguon_id !== nguonId) {
+        throw new LoiApi(409, "XUNG_DOT_TRANG_THAI", "khoa_idem đã dùng cho nguồn khác.");
+      }
+      return { nguon, revision: cu, da_tao: false };
+    }
   }
   const head = nguon.head_revision_id ? layNguonRevision(db, nguon.head_revision_id) : null;
   if (head && head.noi_dung === input.noi_dung) {
@@ -480,7 +486,7 @@ export function capNhatVanBan(
       cac_muc: chuanHoaCacMuc(input.noi_dung),
       khoa_idem: input.khoa_idem,
     },
-    duaTren ?? "",
+    duaTren,
     tacGia,
   );
   return { nguon: moi, revision: layNguonRevision(db, moi.head_revision_id!)!, da_tao: true };
