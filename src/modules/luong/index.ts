@@ -80,6 +80,9 @@ export const CAU_HOI_THIEU: Record<string, string> = {
 // tượng (moi_quan_tam + nhu_cau_giao_tiep + kien_thuc_nen). Không gọi AI —
 // gợi ý phải lặp lại được và giải thích được.
 const LUAT_DE_XUAT: { re: RegExp; ds_dinh_dang: string[] }[] = [
+  // Lãnh đạo trước: hồ sơ "lãnh đạo kỹ thuật" cũng chứa "kỹ thuật" — khớp
+  // sai luật sẽ đề xuất bài chuyên sâu cho đối tượng cần bản tóm tắt (#6).
+  { re: /lãnh đạo|quản lý|giám đốc|sếp|leadership/i, ds_dinh_dang: ["caption", "thread"] },
   { re: /kỹ thuật|kỹ sư|developer|lập trình|chi tiết kỹ thuật/i, ds_dinh_dang: ["bai-viet", "thread"] },
   { re: /mạng xã hội|ngắn|lan truyền|trẻ|gen ?z/i, ds_dinh_dang: ["caption", "thread"] },
   { re: /email|bản tin|newsletter|cập nhật/i, ds_dinh_dang: ["newsletter"] },
