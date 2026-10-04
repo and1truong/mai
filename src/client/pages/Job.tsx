@@ -14,7 +14,7 @@ import {
 import { useEffect, useState } from "react";
 import { api, fmtLuc, LoiApiClient, useApi } from "../api.ts";
 import { TrangThai } from "../components/TrangThai.tsx";
-import type { Nguon } from "../../modules/content/index.ts";
+import type { ThongDiep } from "../../modules/content/index.ts";
 import type { HoSoDoiTuong, HoSoThuongHieu } from "../../modules/context/index.ts";
 import type { Job, JobLog } from "../../modules/jobs/index.ts";
 
@@ -59,11 +59,11 @@ function moTaLenLich(job: Job): string {
 
 export default function JobPage() {
   const jobs = useApi<Job[]>("/api/job");
-  const nguons = useApi<Nguon[]>("/api/nguon");
+  const thongDieps = useApi<ThongDiep[]>("/api/thong-diep");
   const dinhDangs = useApi<string[]>("/api/dinh-dang");
   const thuongHieu = useApi<HoSoThuongHieu[]>("/api/ho-so-thuong-hieu");
   const doiTuong = useApi<HoSoDoiTuong[]>("/api/ho-so-doi-tuong");
-  const [nguonId, setNguonId] = useState("");
+  const [thongDiepId, setThongDiepId] = useState("");
   const [dinhDang, setDinhDang] = useState("");
   const [thId, setThId] = useState("khong");
   const [dtId, setDtId] = useState("khong");
@@ -98,7 +98,7 @@ export default function JobPage() {
         body: JSON.stringify({
           loai: "sinh_ban_the_hien",
           payload: {
-            nguon_id: nguonId,
+            thong_diep_id: thongDiepId,
             dinh_dang: dinhDang,
             thuong_hieu_id: thId === "khong" ? undefined : thId,
             doi_tuong_id: dtId === "khong" ? undefined : dtId,
@@ -140,10 +140,10 @@ export default function JobPage() {
       <Heading mb="3">Job nền</Heading>
       <Card mb="4">
         <Flex gap="3" wrap="wrap" align="center">
-          <Select.Root value={nguonId} onValueChange={setNguonId}>
-            <Select.Trigger placeholder="Chọn nguồn" />
+          <Select.Root value={thongDiepId} onValueChange={setThongDiepId}>
+            <Select.Trigger placeholder="Chọn thông điệp" />
             <Select.Content>
-              {nguons.data?.map((n) => (
+              {thongDieps.data?.map((n) => (
                 <Select.Item key={n.id} value={n.id}>
                   {n.tieu_de}
                 </Select.Item>
@@ -188,7 +188,7 @@ export default function JobPage() {
             value={lenLich}
             onChange={(e) => setLenLich(e.target.value)}
           />
-          <Button onClick={taoJob} disabled={!nguonId || !dinhDang}>
+          <Button onClick={taoJob} disabled={!thongDiepId || !dinhDang}>
             Tạo job sinh bản thể hiện
           </Button>
         </Flex>

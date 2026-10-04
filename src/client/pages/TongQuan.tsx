@@ -4,6 +4,8 @@ import { TrangThai } from "../components/TrangThai.tsx";
 
 type TongQuan = {
   nguon: number;
+  campaign: number;
+  thong_diep: number;
   ban_the_hien: number;
   revision: number;
   job_cho: number;
@@ -13,6 +15,8 @@ type TongQuan = {
 
 const O: { key: keyof TongQuan; nhan: string }[] = [
   { key: "nguon", nhan: "Nguồn" },
+  { key: "campaign", nhan: "Campaign" },
+  { key: "thong_diep", nhan: "Thông điệp" },
   { key: "ban_the_hien", nhan: "Bản thể hiện" },
   { key: "revision", nhan: "Revision" },
   { key: "job_cho", nhan: "Job đang chờ" },

@@ -374,7 +374,7 @@ describe("API job", () => {
       // Lên lịch xa để job ở 'cho' — tránh race với runner trong test.
       const res = await post(app, "/api/job", {
         loai: "sinh_ban_the_hien",
-        payload: { nguon_id: "seed-nguon-1", dinh_dang: "mang-xa-hoi" },
+        payload: { thong_diep_id: "seed-td-1", dinh_dang: "mang-xa-hoi" },
         chay_som_nhat: new Date(Date.now() + 60_000).toISOString(),
       });
       expect(res.status).toBe(201);
@@ -389,7 +389,7 @@ describe("API job", () => {
       // Enqueue lặp trong khi job còn sống → cùng job logic, không tạo thêm.
       const res2 = await post(app, "/api/job", {
         loai: "sinh_ban_the_hien",
-        payload: { nguon_id: "seed-nguon-1", dinh_dang: "mang-xa-hoi" },
+        payload: { thong_diep_id: "seed-td-1", dinh_dang: "mang-xa-hoi" },
       });
       expect(res2.status).toBe(200);
       const job2 = (await res2.json()).du_lieu;
@@ -401,7 +401,7 @@ describe("API job", () => {
       expect(huy.status).toBe(200);
       const res3 = await post(app, "/api/job", {
         loai: "sinh_ban_the_hien",
-        payload: { nguon_id: "seed-nguon-1", dinh_dang: "mang-xa-hoi" },
+        payload: { thong_diep_id: "seed-td-1", dinh_dang: "mang-xa-hoi" },
       });
       expect(res3.status).toBe(201);
       const job3 = (await res3.json()).du_lieu;
@@ -422,21 +422,25 @@ describe("API job", () => {
     try {
       seed(app.db);
       // Enqueue có lên lịch ngắn → head còn thời gian trôi trước khi attempt chạy.
+      // doi_tuong "chung" khớp danh tính của seed-bth-1 → job ghim đúng bản đó.
       const res = await post(app, "/api/job", {
         loai: "sinh_ban_the_hien",
-        payload: { nguon_id: "seed-nguon-1", dinh_dang: "web" },
+        payload: { thong_diep_id: "seed-td-1", dinh_dang: "web", doi_tuong: "chung" },
         chay_som_nhat: new Date(Date.now() + 300).toISOString(),
         mui_gio: "Asia/Ho_Chi_Minh",
       });
       expect(res.status).toBe(201);
       const { du_lieu: job } = await res.json();
+      const head = (
+        await (await fetch(`${app.url}/api/ban-the-hien/seed-bth-1`)).json()
+      ).du_lieu.head_revision_id;
       expect(job.entity_id).toBe("seed-bth-1");
-      expect(job.revision_id).toBe("seed-rev-1");
+      expect(job.revision_id).toBe(head);
 
       // Head trôi trước khi job chạy.
       const rev = await post(app, "/api/ban-the-hien/seed-bth-1/revision", {
         noi_dung: "rev chen ngang",
-        dua_tren_revision_id: "seed-rev-1",
+        dua_tren_revision_id: head,
       });
       expect(rev.status).toBe(201);
 
@@ -473,7 +477,7 @@ describe("API job", () => {
       seed(app.db);
       const res = await post(app, "/api/job", {
         loai: "sinh_ban_the_hien",
-        payload: { nguon_id: "seed-nguon-1", dinh_dang: "web" },
+        payload: { thong_diep_id: "seed-td-1", dinh_dang: "web" },
       });
       const { du_lieu: job } = await res.json();
       // Chờ job xong.
@@ -489,7 +493,7 @@ describe("API job", () => {
       // Job 'cho' không retry được.
       const res2 = await post(app, "/api/job", {
         loai: "sinh_ban_the_hien",
-        payload: { nguon_id: "seed-nguon-1", dinh_dang: "newsletter" },
+        payload: { thong_diep_id: "seed-td-1", dinh_dang: "newsletter" },
         chay_som_nhat: new Date(Date.now() + 60_000).toISOString(),
       });
       const { du_lieu: job2 } = await res2.json();
@@ -511,7 +515,7 @@ describe("API job", () => {
       const gui = (extra: Record<string, unknown>) =>
         post(app, "/api/job", {
           loai: "sinh_ban_the_hien",
-          payload: { nguon_id: "seed-nguon-1", dinh_dang: "web" },
+          payload: { thong_diep_id: "seed-td-1", dinh_dang: "web" },
           ...extra,
         });
       expect((await gui({ chay_som_nhat: "khong-phai-ngay" })).status).toBe(400);
