@@ -512,12 +512,17 @@ export function capNhatNguon(
   return txn(db, () => {
     const nguon = layNguon(db, id);
     if (!nguon) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy nguồn.");
+    // PUT thiếu `loai` giữ loại của head hiện tại — không lặng reset về
+    // 'van_ban' (PUT partial không được đổi loại nguồn).
+    const headRev = nguon.head_revision_id
+      ? layNguonRevision(db, nguon.head_revision_id)
+      : null;
     ghiNguonRevisionTrongTxn(
       db,
       id,
       {
         tieu_de: input.tieu_de,
-        loai: input.loai ?? "van_ban",
+        loai: input.loai ?? headRev?.loai ?? "van_ban",
         noi_dung: input.noi_dung,
         cac_muc: input.cac_muc ?? [],
         khoa_idem: input.khoa_idem,
