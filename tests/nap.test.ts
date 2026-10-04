@@ -31,7 +31,7 @@ function put(app: App, path: string, body: unknown) {
   });
 }
 
-function upload(app: App, query: string, body: string | Uint8Array) {
+function upload(app: App, query: string, body: string | Uint8Array<ArrayBuffer>) {
   return fetch(`${app.url}/api/assets?${query}`, { method: "POST", body });
 }
 
@@ -43,9 +43,9 @@ describe("chuanHoaCacMuc", () => {
       ),
     );
     expect(ds.map((m) => m.id)).toEqual(["mo-dau", "s-boi-canh", "s-chi-tiet-ky-thuat"]);
-    expect(ds[0].noi_dung).toBe("Lời mở đầu.");
-    expect(ds[1].tieu_de).toBe("Bối cảnh");
-    expect(ds[1].noi_dung).toBe("Nội dung bối cảnh.");
+    expect(ds[0]!.noi_dung).toBe("Lời mở đầu.");
+    expect(ds[1]!.tieu_de).toBe("Bối cảnh");
+    expect(ds[1]!.noi_dung).toBe("Nội dung bối cảnh.");
     expect(ds.every((m) => m.loai === "section")).toBe(true);
   });
 

@@ -1,9 +1,10 @@
-import { Badge, Button, Callout, Card, Flex, Grid, Heading, Table, Text, TextArea } from "@radix-ui/themes";
-import { useState } from "react";
+import { Badge, Button, Callout, Card, Checkbox, Flex, Grid, Heading, Table, Text, TextArea } from "@radix-ui/themes";
+import { useEffect, useState } from "react";
 import { api, fmtLuc, LoiApiClient, useApi } from "../api.ts";
 import { TrangThai } from "../components/TrangThai.tsx";
 import type { BanTheHien, Revision } from "../../modules/content/index.ts";
 import type { ContextSinhSnapshot } from "../../modules/context/index.ts";
+import type { Asset } from "../../modules/nap/index.ts";
 
 // API trả context_sinh đã parse: ghi_de/snapshot là object, không phải chuỗi.
 type ContextSinhDaDoc = {
@@ -16,7 +17,7 @@ type ContextSinhDaDoc = {
 };
 
 type RevisionKemContext = Revision & { context_sinh: ContextSinhDaDoc | null };
-type ChiTiet = BanTheHien & { revisions: RevisionKemContext[] };
+type ChiTiet = BanTheHien & { revisions: RevisionKemContext[]; assets: Asset[] };
 
 function moTaContextSinh(cs: ContextSinhDaDoc): string {
   const th = cs.snapshot.thuong_hieu?.ten ?? "—";
@@ -38,6 +39,13 @@ export default function BanTheHienPage() {
   const [noiDung, setNoiDung] = useState("");
   const [dsLoi, setDsLoi] = useState<string[]>([]);
   const [dangGui, setDangGui] = useState(false);
+  const dsAsset = useApi<Asset[]>("/api/assets");
+  const [dsAssetChon, setDsAssetChon] = useState<string[]>([]);
+
+  // Đồng bộ checkbox với danh sách asset đang đính kèm mỗi khi đổi bản thể hiện.
+  useEffect(() => {
+    setDsAssetChon(chiTiet.data?.assets.map((a) => a.id) ?? []);
+  }, [chiTiet.data?.id]);
 
   async function themRev() {
     if (!chiTiet.data) return;
@@ -133,6 +141,62 @@ export default function BanTheHienPage() {
                       </pre>
                     </Card>
                   ))}
+                  <Text size="2" weight="bold">
+                    Asset đính kèm
+                  </Text>
+                  {(dsAsset.data ?? []).length === 0 && (
+                    <Text size="1" color="gray">
+                      Chưa có asset — tải lên ở trang Asset.
+                    </Text>
+                  )}
+                  {dsAsset.data?.map((a) => (
+                    <Flex key={a.id} align="center" gap="2">
+                      <Checkbox
+                        checked={dsAssetChon.includes(a.id)}
+                        onCheckedChange={(v) =>
+                          setDsAssetChon((ds) =>
+                            v === true ? [...ds, a.id] : ds.filter((id) => id !== a.id),
+                          )
+                        }
+                      />
+                      {a.loai === "hinh_anh" && (
+                        <img
+                          src={`/api/assets/${a.id}/noi-dung`}
+                          alt={a.ten_file}
+                          style={{ width: 32, height: 32, objectFit: "cover", borderRadius: 4 }}
+                        />
+                      )}
+                      <Text size="2">
+                        {a.ten_file} ({a.loai === "hinh_anh" ? "ảnh" : "văn bản"})
+                      </Text>
+                    </Flex>
+                  ))}
+                  <Flex justify="end">
+                    <Button
+                      variant="soft"
+                      size="1"
+                      onClick={async () => {
+                        if (!chiTiet.data) return;
+                        setDsLoi([]);
+                        try {
+                          await api(`/api/ban-the-hien/${chiTiet.data.id}/assets`, {
+                            method: "PUT",
+                            headers: { "content-type": "application/json" },
+                            body: JSON.stringify({ asset_ids: dsAssetChon }),
+                          });
+                          chiTiet.reload();
+                        } catch (e) {
+                          if (e instanceof LoiApiClient) {
+                            setDsLoi([e.message]);
+                          } else {
+                            setDsLoi([String(e)]);
+                          }
+                        }
+                      }}
+                    >
+                      Lưu đính kèm
+                    </Button>
+                  </Flex>
                   <Text size="2" weight="bold">
                     Thêm revision
                   </Text>
