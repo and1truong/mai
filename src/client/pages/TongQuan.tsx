@@ -7,6 +7,8 @@ type TongQuan = {
   ban_the_hien: number;
   revision: number;
   job_cho: number;
+  ho_so_thuong_hieu: number;
+  ho_so_doi_tuong: number;
 };
 
 const O: { key: keyof TongQuan; nhan: string }[] = [
@@ -14,6 +16,8 @@ const O: { key: keyof TongQuan; nhan: string }[] = [
   { key: "ban_the_hien", nhan: "Bản thể hiện" },
   { key: "revision", nhan: "Revision" },
   { key: "job_cho", nhan: "Job đang chờ" },
+  { key: "ho_so_thuong_hieu", nhan: "Hồ sơ thương hiệu" },
+  { key: "ho_so_doi_tuong", nhan: "Hồ sơ đối tượng" },
 ];
 
 export default function TongQuanPage() {

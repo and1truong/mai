@@ -16,7 +16,11 @@ test("migration chạy được và idempotent", () => {
     name: string;
   }[]).map((r) => r.name);
   for (const t of [
-    "context",
+    "ho_so_thuong_hieu",
+    "ho_so_doi_tuong",
+    "thuat_ngu",
+    "ho_so_revision",
+    "context_sinh",
     "nguon",
     "ban_the_hien",
     "revision",

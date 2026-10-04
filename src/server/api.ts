@@ -1,7 +1,15 @@
 import type { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
 import { basename, extname, join } from "node:path";
-import { LoiApi, batBuocChuoi, loiRequest, nemLoiValidation, tuyChonChuoi } from "../loi.ts";
+import {
+  LoiApi,
+  batBuocChuoi,
+  loiRequest,
+  nemLoiValidation,
+  tuyChonChuoi,
+  tuyChonMangChuoi,
+  tuyChonObject,
+} from "../loi.ts";
 import { log } from "../log.ts";
 import {
   danhSachBanTheHien,
@@ -15,7 +23,31 @@ import {
   themRevision,
   type BanTheHien,
 } from "../modules/content/index.ts";
-import { capNhatContext, layContext } from "../modules/context/index.ts";
+import {
+  DANH_SACH_DO_SAU,
+  DANH_SACH_NGUON_DU_LIEU,
+  capNhatDoiTuong,
+  capNhatThuongHieu,
+  danhSachDoiTuong,
+  danhSachHoSoRevision,
+  danhSachThuatNgu,
+  danhSachThuongHieu,
+  lapContextSinh,
+  layContextSinh,
+  layDoiTuong,
+  layThuongHieu,
+  taoDoiTuong,
+  taoThuongHieu,
+  thayThuatNgu,
+  xoaDoiTuong,
+  xoaThuongHieu,
+  TRUONG_GHI_DE_DOI_TUONG,
+  TRUONG_GHI_DE_THUONG_HIEU,
+  type ContextSinh,
+  type GhiDeCampaign,
+  type NguonDuLieu,
+  type NhapThuatNgu,
+} from "../modules/context/index.ts";
 import { DANH_SACH_DINH_DANG, laDinhDang } from "../modules/formats/index.ts";
 import { DANH_SACH_TRANG_THAI, laTrangThai, chuyenHopLe } from "../modules/review/index.ts";
 import {
@@ -60,6 +92,133 @@ function route(method: string, duongDan: string, handler: Handler): Route {
 
 const EXT_ASSET_CHO_PHEP = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".txt", ".md", ".pdf"]);
 
+// --- Helper đọc input hồ sơ ---
+
+function docNguonDuLieu(body: Record<string, unknown>, dsLoi: string[]): NguonDuLieu {
+  const v = tuyChonChuoi(body.nguon_du_lieu);
+  if (!v) return "nguoi_dung";
+  if (!(DANH_SACH_NGUON_DU_LIEU as readonly string[]).includes(v)) {
+    dsLoi.push(`nguon_du_lieu không hợp lệ. Cho phép: ${DANH_SACH_NGUON_DU_LIEU.join(", ")}.`);
+    return "nguoi_dung";
+  }
+  return v as NguonDuLieu;
+}
+
+function docDoSau(body: Record<string, unknown>, dsLoi: string[]): string {
+  const v = tuyChonChuoi(body.do_sau);
+  if (v && !(DANH_SACH_DO_SAU as readonly string[]).includes(v)) {
+    dsLoi.push(`do_sau không hợp lệ. Cho phép: ${DANH_SACH_DO_SAU.join(", ")} hoặc để trống (chưa biết).`);
+    return "";
+  }
+  return v;
+}
+
+function docNhapThuongHieu(body: Record<string, unknown>, ten: string) {
+  return {
+    ten,
+    nhan_dien: tuyChonChuoi(body.nhan_dien),
+    ngon_ngu_uu_tien: tuyChonMangChuoi(body.ngon_ngu_uu_tien),
+    vi_du_giong_van: tuyChonChuoi(body.vi_du_giong_van),
+    nguyen_tac: tuyChonChuoi(body.nguyen_tac),
+    claim_duyet: tuyChonMangChuoi(body.claim_duyet),
+    claim_cam: tuyChonMangChuoi(body.claim_cam),
+    assets: tuyChonMangChuoi(body.assets),
+  };
+}
+
+function docNhapDoiTuong(body: Record<string, unknown>, ten: string, doSau: string) {
+  return {
+    ten,
+    ngon_ngu: tuyChonChuoi(body.ngon_ngu),
+    dia_diem: tuyChonChuoi(body.dia_diem),
+    kien_thuc_nen: tuyChonChuoi(body.kien_thuc_nen),
+    moi_quan_tam: tuyChonChuoi(body.moi_quan_tam),
+    do_sau: doSau,
+    tu_vung: tuyChonChuoi(body.tu_vung),
+    quan_he_to_chuc: tuyChonChuoi(body.quan_he_to_chuc),
+    nhu_cau_giao_tiep: tuyChonChuoi(body.nhu_cau_giao_tiep),
+    nhan_khau_hoc: tuyChonChuoi(body.nhan_khau_hoc),
+  };
+}
+
+function docDanhSachThuatNgu(v: unknown, dsLoi: string[]): NhapThuatNgu[] {
+  if (!Array.isArray(v)) {
+    dsLoi.push("thuat_ngu phải là một mảng.");
+    return [];
+  }
+  const ds: NhapThuatNgu[] = [];
+  const daCo = new Set<string>();
+  for (const [i, dong] of v.entries()) {
+    if (typeof dong !== "object" || dong === null) {
+      dsLoi.push(`thuat_ngu[${i}] phải là object.`);
+      continue;
+    }
+    const t = dong as Record<string, unknown>;
+    const thuatNgu = typeof t.thuat_ngu === "string" ? t.thuat_ngu.trim() : "";
+    if (!thuatNgu) dsLoi.push(`thuat_ngu[${i}].thuat_ngu là bắt buộc.`);
+    // Trùng trong cùng payload → UNIQUE violation ở DB; chặn từ đây thành 400.
+    if (thuatNgu && daCo.has(thuatNgu)) {
+      dsLoi.push(`thuat_ngu[${i}].thuat_ngu "${thuatNgu}" trùng với một dòng khác.`);
+    }
+    daCo.add(thuatNgu);
+    // giu_nguyen chỉ nhận boolean hoặc 0/1; kiểu khác (vd "false" chuỗi) → lỗi.
+    let giuNguyen = true;
+    if (t.giu_nguyen !== undefined && t.giu_nguyen !== null) {
+      if (typeof t.giu_nguyen === "boolean") giuNguyen = t.giu_nguyen;
+      else if (t.giu_nguyen === 0 || t.giu_nguyen === 1) giuNguyen = t.giu_nguyen === 1;
+      else dsLoi.push(`thuat_ngu[${i}].giu_nguyen phải là boolean hoặc 0/1.`);
+    }
+    const banDich = tuyChonObject(t.ban_dich);
+    for (const [k, x] of Object.entries(banDich)) {
+      if (!k.trim() || typeof x !== "string") {
+        dsLoi.push(`thuat_ngu[${i}].ban_dich phải là map {ma_ngon_ngu: chuỗi}.`);
+        break;
+      }
+    }
+    ds.push({
+      thuat_ngu: thuatNgu,
+      giu_nguyen: giuNguyen,
+      ban_dich: Object.fromEntries(
+        Object.entries(banDich).map(([k, x]) => [k.trim(), String(x)]),
+      ),
+    });
+  }
+  return ds;
+}
+
+// Đọc ghi đè campaign: key lạ → bỏ qua (ghi_de là phần mở, campaign sau này
+// có thể thêm phần); sai kiểu → lỗi validation thay vì bị apGhiDe bỏ âm thầm
+// mà snapshot vẫn ghi "đã áp".
+function docGhiDe(v: unknown, dsLoi: string[]): GhiDeCampaign {
+  const ghiDe = tuyChonObject(v);
+  const ketQua: Record<string, Record<string, unknown>> = {};
+  for (const [k, sub] of Object.entries(ghiDe)) {
+    if (k !== "thuong_hieu" && k !== "doi_tuong") {
+      dsLoi.push(`ghi_de.${k} không hỗ trợ. Cho phép: thuong_hieu, doi_tuong.`);
+      continue;
+    }
+    const choPhep = k === "thuong_hieu" ? TRUONG_GHI_DE_THUONG_HIEU : TRUONG_GHI_DE_DOI_TUONG;
+    if (typeof sub !== "object" || sub === null || Array.isArray(sub)) {
+      dsLoi.push(`ghi_de.${k} phải là object {truong: gia_tri}.`);
+      continue;
+    }
+    const sach: Record<string, unknown> = {};
+    for (const [truong, gt] of Object.entries(sub as Record<string, unknown>)) {
+      if (!choPhep.has(truong)) continue; // trường không nằm trong whitelist → bỏ
+      const hopLe =
+        typeof gt === "string" ||
+        (Array.isArray(gt) && gt.every((x) => typeof x === "string"));
+      if (!hopLe) {
+        dsLoi.push(`ghi_de.${k}.${truong} phải là chuỗi hoặc mảng chuỗi.`);
+        continue;
+      }
+      sach[truong] = gt;
+    }
+    ketQua[k] = sach;
+  }
+  return ketQua as GhiDeCampaign;
+}
+
 // Chuẩn hóa một thời điểm nhận từ client (ISO hoặc datetime-local) về ISO UTC.
 // Trả null khi field vắng; push lỗi vào dsLoi khi không parse được.
 function chuanHoaThoiDiem(v: unknown, ten: string, dsLoi: string[]): string | null {
@@ -100,6 +259,16 @@ function tuyChonSo(
   return n;
 }
 
+// Serialize một row context_sinh ra API: ghi_de + snapshot parse sẵn JSON —
+// mọi endpoint trả cùng một shape.
+function docContextSinh(cs: ContextSinh) {
+  return {
+    ...cs,
+    ghi_de: JSON.parse(cs.ghi_de) as unknown,
+    snapshot: JSON.parse(cs.snapshot) as unknown,
+  };
+}
+
 export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
   const routes: Route[] = [
     route("GET", "/api/health", (_req, _p, c) =>
@@ -111,6 +280,8 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
         nguon: (c.db.query("SELECT COUNT(*) AS c FROM nguon").get() as { c: number }).c,
         ban_the_hien: (c.db.query("SELECT COUNT(*) AS c FROM ban_the_hien").get() as { c: number }).c,
         revision: (c.db.query("SELECT COUNT(*) AS c FROM revision").get() as { c: number }).c,
+        ho_so_thuong_hieu: (c.db.query("SELECT COUNT(*) AS c FROM ho_so_thuong_hieu").get() as { c: number }).c,
+        ho_so_doi_tuong: (c.db.query("SELECT COUNT(*) AS c FROM ho_so_doi_tuong").get() as { c: number }).c,
         job_cho: (
           c.db.query("SELECT COUNT(*) AS c FROM job WHERE trang_thai = 'cho'").get() as {
             c: number;
@@ -119,25 +290,97 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       }),
     ),
 
-    // --- Context ---
-    route("GET", "/api/context", (_req, _p, c) => ok(layContext(c.db))),
-    route("PUT", "/api/context", async (req, _p, c) => {
+    // --- Hồ sơ thương hiệu ---
+    route("GET", "/api/ho-so-thuong-hieu", (_req, _p, c) => ok(danhSachThuongHieu(c.db))),
+    route("POST", "/api/ho-so-thuong-hieu", async (req, _p, c) => {
       const body = await docBody(req);
       const dsLoi: string[] = [];
       const ten = batBuocChuoi(body.ten, "ten", dsLoi);
+      const nguonDuLieu = docNguonDuLieu(body, dsLoi);
+      nemLoiValidation(dsLoi);
+      return ok(taoThuongHieu(c.db, docNhapThuongHieu(body, ten), c.actor, { nguonDuLieu }), 201);
+    }),
+    route("GET", "/api/ho-so-thuong-hieu/:id", (_req, p, c) => {
+      const hoSo = layThuongHieu(c.db, p.id!);
+      if (!hoSo) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy hồ sơ thương hiệu.");
+      return ok({ ...hoSo, thuat_ngu: danhSachThuatNgu(c.db, hoSo.id) });
+    }),
+    route("PUT", "/api/ho-so-thuong-hieu/:id", async (req, p, c) => {
+      const body = await docBody(req);
+      const dsLoi: string[] = [];
+      const ten = batBuocChuoi(body.ten, "ten", dsLoi);
+      const nguonDuLieu = docNguonDuLieu(body, dsLoi);
+      nemLoiValidation(dsLoi);
+      return ok(capNhatThuongHieu(c.db, p.id!, docNhapThuongHieu(body, ten), c.actor, nguonDuLieu));
+    }),
+    route("DELETE", "/api/ho-so-thuong-hieu/:id", (_req, p, c) => {
+      xoaThuongHieu(c.db, p.id!);
+      return ok({ da_xoa: true });
+    }),
+    route("GET", "/api/ho-so-thuong-hieu/:id/revision", (_req, p, c) =>
+      ok(danhSachHoSoRevision(c.db, "thuong_hieu", p.id!)),
+    ),
+    // Thay toàn bộ bảng thuật ngữ; mỗi thay đổi ghi một revision hồ sơ.
+    route("PUT", "/api/ho-so-thuong-hieu/:id/thuat-ngu", async (req, p, c) => {
+      const body = await docBody(req);
+      const dsLoi: string[] = [];
+      const ds = docDanhSachThuatNgu(body.thuat_ngu, dsLoi);
+      const nguonDuLieu = docNguonDuLieu(body, dsLoi);
+      nemLoiValidation(dsLoi);
+      return ok(thayThuatNgu(c.db, p.id!, ds, c.actor, nguonDuLieu));
+    }),
+
+    // --- Hồ sơ đối tượng ---
+    route("GET", "/api/ho-so-doi-tuong", (_req, _p, c) => ok(danhSachDoiTuong(c.db))),
+    route("POST", "/api/ho-so-doi-tuong", async (req, _p, c) => {
+      const body = await docBody(req);
+      const dsLoi: string[] = [];
+      const ten = batBuocChuoi(body.ten, "ten", dsLoi);
+      const doSau = docDoSau(body, dsLoi);
+      const nguonDuLieu = docNguonDuLieu(body, dsLoi);
+      nemLoiValidation(dsLoi);
+      return ok(taoDoiTuong(c.db, docNhapDoiTuong(body, ten, doSau), c.actor, { nguonDuLieu }), 201);
+    }),
+    route("GET", "/api/ho-so-doi-tuong/:id", (_req, p, c) => {
+      const hoSo = layDoiTuong(c.db, p.id!);
+      if (!hoSo) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy hồ sơ đối tượng.");
+      return ok(hoSo);
+    }),
+    route("PUT", "/api/ho-so-doi-tuong/:id", async (req, p, c) => {
+      const body = await docBody(req);
+      const dsLoi: string[] = [];
+      const ten = batBuocChuoi(body.ten, "ten", dsLoi);
+      const doSau = docDoSau(body, dsLoi);
+      const nguonDuLieu = docNguonDuLieu(body, dsLoi);
+      nemLoiValidation(dsLoi);
+      return ok(capNhatDoiTuong(c.db, p.id!, docNhapDoiTuong(body, ten, doSau), c.actor, nguonDuLieu));
+    }),
+    route("DELETE", "/api/ho-so-doi-tuong/:id", (_req, p, c) => {
+      xoaDoiTuong(c.db, p.id!);
+      return ok({ da_xoa: true });
+    }),
+    route("GET", "/api/ho-so-doi-tuong/:id/revision", (_req, p, c) =>
+      ok(danhSachHoSoRevision(c.db, "doi_tuong", p.id!)),
+    ),
+
+    // --- Context sinh: xem trước không ghi DB; tham chiếu một snapshot đã lưu ---
+    route("POST", "/api/context-sinh/xem-truoc", async (req, _p, c) => {
+      const body = await docBody(req);
+      const dsLoi: string[] = [];
+      const ghiDe = docGhiDe(body.ghi_de, dsLoi);
       nemLoiValidation(dsLoi);
       return ok(
-        capNhatContext(
-          c.db,
-          {
-            ten,
-            doi_tuong: tuyChonChuoi(body.doi_tuong),
-            giong_noi: tuyChonChuoi(body.giong_noi),
-            gia_tri: tuyChonChuoi(body.gia_tri),
-          },
-          c.actor,
-        ),
+        lapContextSinh(c.db, {
+          thuong_hieu_id: tuyChonChuoi(body.thuong_hieu_id) || null,
+          doi_tuong_id: tuyChonChuoi(body.doi_tuong_id) || null,
+          ghi_de: ghiDe,
+        }),
       );
+    }),
+    route("GET", "/api/context-sinh/:id", (_req, p, c) => {
+      const cs = layContextSinh(c.db, p.id!);
+      if (!cs) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy context sinh.");
+      return ok(docContextSinh(cs));
     }),
 
     // --- Nguồn ---
@@ -161,7 +404,12 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
     route("GET", "/api/ban-the-hien/:id", (_req, p, c) => {
       const bth = layBanTheHien(c.db, p.id!);
       if (!bth) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy bản thể hiện.");
-      return ok({ ...bth, revisions: danhSachRevision(c.db, bth.id) });
+      // Mỗi revision kèm context sinh đã dùng (null = nhập tay).
+      const revisions = danhSachRevision(c.db, bth.id).map((r) => {
+        const cs = r.context_sinh_id ? layContextSinh(c.db, r.context_sinh_id) : null;
+        return { ...r, context_sinh: cs ? docContextSinh(cs) : null };
+      });
+      return ok({ ...bth, revisions });
     }),
     route("POST", "/api/ban-the-hien/:id/revision", async (req, p, c) => {
       const body = await docBody(req);
@@ -231,6 +479,22 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
         if (nguonId && !layNguon(c.db, nguonId)) {
           dsLoi.push("payload.nguon_id không tồn tại.");
         }
+        const thuongHieuId = tuyChonChuoi(payload.thuong_hieu_id);
+        if (thuongHieuId && !layThuongHieu(c.db, thuongHieuId)) {
+          dsLoi.push("payload.thuong_hieu_id không tồn tại.");
+        }
+        const doiTuongId = tuyChonChuoi(payload.doi_tuong_id);
+        if (doiTuongId && !layDoiTuong(c.db, doiTuongId)) {
+          dsLoi.push("payload.doi_tuong_id không tồn tại.");
+        }
+        if (payload.ghi_de !== undefined) {
+          if (typeof payload.ghi_de !== "object" || payload.ghi_de === null || Array.isArray(payload.ghi_de)) {
+            dsLoi.push("payload.ghi_de phải là object { thuong_hieu?, doi_tuong? }.");
+          } else {
+            // Validate + làm sạch: job chỉ lưu phần ghi đè thật sự áp được.
+            payload.ghi_de = docGhiDe(payload.ghi_de, dsLoi);
+          }
+        }
       }
       nemLoiValidation(dsLoi);
 
@@ -245,9 +509,15 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
             .query("SELECT * FROM ban_the_hien WHERE nguon_id = ? AND dinh_dang = ? LIMIT 1")
             .get(nguonId, dinhDang) as BanTheHien | null;
           if (!bth) {
+            // Tên hiển thị của đối tượng: hồ sơ được chọn thì lấy tên hồ sơ,
+            // không thì giữ chuỗi doi_tuong tự nhập như cũ.
+            const dtId = tuyChonChuoi(payload.doi_tuong_id);
+            const tenHienThi =
+              (dtId ? layDoiTuong(c.db, dtId)?.ten : undefined) ??
+              tuyChonChuoi(payload.doi_tuong);
             bth = taoBanTheHien(
               c.db,
-              { nguon_id: nguonId, dinh_dang: dinhDang, doi_tuong: tuyChonChuoi(payload.doi_tuong) },
+              { nguon_id: nguonId, dinh_dang: dinhDang, doi_tuong: tenHienThi },
               c.actor,
             );
           }

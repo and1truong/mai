@@ -1,6 +1,8 @@
 import type { Database } from "bun:sqlite";
 import { LoiApi } from "../../loi.ts";
-import { layBanTheHien, layNguon, themRevision } from "../content/index.ts";
+import { layBanTheHien, layNguon, themRevisionTrongTxn } from "../content/index.ts";
+import type { GhiDeCampaign } from "../context/index.ts";
+import { lapContextSinh, luuContextSinhTuSnapshot } from "../context/index.ts";
 import type { NhaCungCap } from "../generation/index.ts";
 import { LoiVinhVien, type JobHandler } from "./index.ts";
 
@@ -29,12 +31,28 @@ export function taoHandlers(db: Database, provider: NhaCungCap): Record<string, 
         throw new LoiVinhVien("Revision đích đã đổi trong lúc job xếp hàng. Thử lại để ghim head mới.");
       }
 
+      ctx.baoTienDo({ buoc: "lap_context_sinh" });
+      // Lắp context trong bộ nhớ: hồ sơ thiếu/sai → lỗi vĩnh viễn, không retry.
+      // Chưa ghi DB — context_sinh chỉ tồn tại khi revision thật sự được ghi.
+      let snapshot;
+      try {
+        snapshot = lapContextSinh(ctx.db, {
+          thuong_hieu_id: payload.thuong_hieu_id ? String(payload.thuong_hieu_id) : null,
+          doi_tuong_id: payload.doi_tuong_id ? String(payload.doi_tuong_id) : null,
+          ghi_de: (payload.ghi_de ?? {}) as GhiDeCampaign,
+        });
+      } catch (e) {
+        if (e instanceof LoiApi) throw new LoiVinhVien(e.message);
+        throw e;
+      }
+
       ctx.baoTienDo({ buoc: "goi_provider" });
       ctx.assertConHan(); // attempt đã timeout/hủy → không gọi provider nữa
       const { noiDung } = await provider.sinhBanTheHien({
         nguon,
         dinhDang: bth.dinh_dang,
         doiTuong: String(payload.doi_tuong ?? bth.doi_tuong),
+        contextSinh: snapshot,
       });
 
       ctx.baoTienDo({ buoc: "ghi_revision" });
@@ -44,14 +62,30 @@ export function taoHandlers(db: Database, provider: NhaCungCap): Record<string, 
         throw new LoiVinhVien("Revision đích đã đổi trong lúc sinh.");
       }
       ctx.assertConHan(); // chặn zombie commit revision sau khi job 'loi'
+      // context_sinh + revision cùng một transaction: snapshot chỉ tồn tại khi
+      // revision được ghi — không row mồ côi khi job fail hay retry attempt.
+      ctx.db.exec("BEGIN IMMEDIATE");
       try {
-        const rev = themRevision(
+        const cs = luuContextSinhTuSnapshot(ctx.db, snapshot);
+        const rev = themRevisionTrongTxn(
           ctx.db,
-          { ban_the_hien_id: bthId, noi_dung: noiDung, dua_tren_revision_id: mongDoi },
+          {
+            ban_the_hien_id: bthId,
+            noi_dung: noiDung,
+            dua_tren_revision_id: mongDoi,
+            context_sinh_id: cs.id,
+          },
           "job",
         );
-        return { ban_the_hien_id: bthId, revision_id: rev.id, provider: provider.ten };
+        ctx.db.exec("COMMIT");
+        return {
+          ban_the_hien_id: bthId,
+          revision_id: rev.id,
+          context_sinh_id: cs.id,
+          provider: provider.ten,
+        };
       } catch (e) {
+        ctx.db.exec("ROLLBACK");
         // XUNG_DOT_REVISION và 404 entity = lỗi vĩnh viễn, không retry vô ích.
         if (e instanceof LoiApi && e.status === 409) throw new LoiVinhVien(e.message);
         throw e;
