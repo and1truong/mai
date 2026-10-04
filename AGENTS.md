@@ -36,6 +36,18 @@ Nội dung giao tiếp (issue, PR, comment, tài liệu) nên viết theo tinh t
 
 Mục tiêu: người đọc (kể cả agent và công cụ dịch tự động) hiểu đúng ngay, không phải suy đoán.
 
+## Stack
+
+- Runtime và package manager: **Bun**.
+- Ngôn ngữ: **TypeScript**.
+- UI: **Radix Themes**.
+
+Quy tắc dependency:
+
+- Thứ nào **Bun runtime đã có sẵn thì không cài dependency** — ví dụ `bun:test`, `Bun.serve`, `bun:sqlite`, `Bun.file`/`Bun.write`, `fetch`, `Bun.spawn`, `Bun.env`.
+- Chỉ thêm dependency khi Bun không cung cấp sẵn và không có giải pháp đơn giản trong codebase.
+- Dùng `bun` cho mọi lệnh (`bun install`, `bun run`, `bun test`), không dùng `npm`/`yarn`/`pnpm`/`node` trực tiếp.
+
 ## Bảo mật
 
 Vì repo public:
