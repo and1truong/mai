@@ -31,6 +31,7 @@ export type TaiKhoan = {
   vai_tro: VaiTro;
   trang_thai: TrangThaiTaiKhoan;
   tao_luc: string;
+  tao_boi: string;
   cap_nhat_luc: string;
 };
 
@@ -61,7 +62,7 @@ function docTaiKhoan(row: DongTaiKhoan): TaiKhoan {
 }
 
 const SELECT_TK =
-  "SELECT id, ten_dang_nhap, ten_hien_thi, vai_tro, hash_mat_khau, trang_thai, tao_luc, cap_nhat_luc FROM tai_khoan";
+  "SELECT id, ten_dang_nhap, ten_hien_thi, vai_tro, hash_mat_khau, trang_thai, tao_luc, tao_boi, cap_nhat_luc FROM tai_khoan";
 
 export function layTaiKhoan(db: Database, id: string): TaiKhoan | null {
   const row = db.query(`${SELECT_TK} WHERE id = ?`).get(id) as DongTaiKhoan | null;

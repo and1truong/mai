@@ -746,6 +746,7 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       const kq = await dangNhap(c.db, tenDangNhap, matKhau, {
         ttlPhut: c.bao_mat.phien_ttl_phut,
         userAgent: req.headers.get("user-agent") ?? "",
+        ip: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "",
       });
       return new Response(JSON.stringify({ ok: true, du_lieu: { tai_khoan: kq.tai_khoan } }), {
         status: 200,
