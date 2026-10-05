@@ -17,6 +17,9 @@ Mã lỗi hiện có:
 | `XUNG_DOT_TRANG_THAI` | 409 | Xung đột trạng thái: chuyển trạng thái review không hợp lệ, xóa asset đang được tham chiếu. |
 | `PAYLOAD_QUA_LON` | 413 | Body request vượt 50 MB. |
 | `XUNG_DOT_JOB` | 409 | Chuyển trạng thái job không hợp lệ (hủy/retry sai trạng thái). |
+| `CHUA_DANG_NHAP` | 401 | Chế độ bảo vệ bật mà request không có phiên hợp lệ. |
+| `SAI_THONG_TIN_DANG_NHAP` | 401 | Sai tên đăng nhập/mật khẩu, hoặc `mat_khau_cu` không đúng. |
+| `KHONG_CO_QUYEN` | 403 | Đã đăng nhập nhưng vai trò không đủ (route chỉ quản trị). |
 | `LOI_CAU_HINH` | 500 | Config/provider sai. |
 | `LOI_NOI_BO` | 500 | Lỗi không lường trước. |
 

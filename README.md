@@ -69,14 +69,15 @@ Backup/restore: xem `docs/van-hanh.md`.
 
 ## Chế độ demo
 
-- Actor cố định: `demo` (ghi trong `tao_boi`). Access control instance là ticket #16 (P1).
+- Mặc định chế độ `tin_cay`: actor cố định `demo` (ghi trong `tao_boi`), không đăng nhập.
+- Bật `bao_mat.che_do = "bao_ve"` để bảo vệ instance khi expose ra ngoài máy tin cậy — xem `docs/bao-mat-instance.md`.
 - Provider AI: `fixture` — deterministic, chạy offline, không credential.
 - Adapter AI thật sẽ là module nội bộ cùng interface (`src/modules/generation/`). Key provider chỉ đọc từ env phía server.
 
 ## Ranh giới POC
 
 - Một instance = một thư viện nội dung. Không đưa tenant/workspace vào route, entity hay luồng người dùng.
-- Chạy local tin cậy. Không yêu cầu deploy public hay hardening production.
+- Chạy local tin cậy; chế độ `bao_ve` là access control tối thiểu khi chủ instance tự expose — không phải hardening SaaS.
 
 ## Cấu trúc
 
