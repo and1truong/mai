@@ -295,6 +295,8 @@ function chenKhach(db: Database, nhap: NhapKhach, actor: string): Khach {
     row.tao_boi,
   );
   ghiSuKien(db, "khach", row.id, "tao", { ten: row.ten, email: row.email }, actor);
+  // Điền giai_thich_doi ngay từ lúc tạo — person mới không được để '{}'.
+  capNhatDoiKhach(db, row.id, luc);
   return row;
 }
 
@@ -359,7 +361,7 @@ export function resolveKhach(
     }
     const khach = chenKhach(db, nhap, actor);
     const tao = dsDd.map((d) => chenDinhDanh(db, khach.id, d));
-    return { khach, dinh_danh: tao, da_tao: true };
+    return { khach: layKhach(db, khach.id)!, dinh_danh: tao, da_tao: true };
   });
 }
 
@@ -466,40 +468,44 @@ export function ghiTuongTac(
   }
   nemLoiValidation(dsLoi);
   if (!xayRaLuc) xayRaLuc = bayGio();
-  const id = crypto.randomUUID();
-  const kq = db
-    .query(
-      `INSERT OR IGNORE INTO tuong_tac
-       (id, khach_id, loai, nguon, xay_ra_luc, ban_the_hien_id, campaign_id,
-        link_dich_id, giao_hang_id, don_hang_ngoai_id, khoa_idem, chi_tiet, tao_luc)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
-      id,
-      nhap.khach_id,
-      nhap.loai,
-      nguon,
-      xayRaLuc,
-      tuyChonChuoi(nhap.ban_the_hien_id),
-      tuyChonChuoi(nhap.campaign_id),
-      tuyChonChuoi(nhap.link_dich_id),
-      tuyChonChuoi(nhap.giao_hang_id),
-      tuyChonChuoi(nhap.don_hang_ngoai_id),
-      khoaIdem,
-      JSON.stringify(nhap.chi_tiet ?? {}),
-      bayGio(),
-    );
-  if (kq.changes === 0) {
-    const cu = db
-      .query("SELECT * FROM tuong_tac WHERE khoa_idem = ?")
-      .get(khoaIdem) as TuongTac;
-    return { su_kien: cu, da_tao: false };
-  }
-  const moi = db.query("SELECT * FROM tuong_tac WHERE id = ?").get(id) as TuongTac;
-  chamDauTien(db, moi);
-  chamKhach(db, nhap.khach_id, xayRaLuc);
-  capNhatDoiKhach(db, nhap.khach_id);
-  return { su_kien: moi, da_tao: true };
+  // Bọc trong txn: event + điểm chạm + lifecycle đi cùng nguyên tử — không
+  // thể có event đã ghi mà state đời chưa cập nhật (atomicity #65).
+  return txn(db, () => {
+    const id = crypto.randomUUID();
+    const kq = db
+      .query(
+        `INSERT OR IGNORE INTO tuong_tac
+         (id, khach_id, loai, nguon, xay_ra_luc, ban_the_hien_id, campaign_id,
+          link_dich_id, giao_hang_id, don_hang_ngoai_id, khoa_idem, chi_tiet, tao_luc)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        nhap.khach_id,
+        nhap.loai,
+        nguon,
+        xayRaLuc,
+        tuyChonChuoi(nhap.ban_the_hien_id),
+        tuyChonChuoi(nhap.campaign_id),
+        tuyChonChuoi(nhap.link_dich_id),
+        tuyChonChuoi(nhap.giao_hang_id),
+        tuyChonChuoi(nhap.don_hang_ngoai_id),
+        khoaIdem,
+        JSON.stringify(nhap.chi_tiet ?? {}),
+        bayGio(),
+      );
+    if (kq.changes === 0) {
+      const cu = db
+        .query("SELECT * FROM tuong_tac WHERE khoa_idem = ?")
+        .get(khoaIdem) as TuongTac;
+      return { su_kien: cu, da_tao: false };
+    }
+    const moi = db.query("SELECT * FROM tuong_tac WHERE id = ?").get(id) as TuongTac;
+    chamDauTien(db, moi);
+    chamKhach(db, nhap.khach_id, xayRaLuc);
+    capNhatDoiKhach(db, nhap.khach_id);
+    return { su_kien: moi, da_tao: true };
+  });
 }
 
 // Timeline theo person: sắp xếp thời gian tăng dần (rowid làm tie-break
@@ -1261,11 +1267,20 @@ export function tinhDoiKhach(
   khachId: string,
   luc = bayGio(),
 ): { trang_thai: TrangThaiDoi; giai_thich: GiaiThichDoi } {
+  // Hoạt động cuối = mốc mới nhất trên CẢ tuong_tac VÀ chuyen_doi — một
+  // conversion 'mua' vừa ghi cũng đánh thức ngủ đông (rules derive từ cả
+  // ba nguồn tuong_tac/dong_y/chuyen_doi theo ticket #65).
   const cuoi = db
     .query(
-      "SELECT xay_ra_luc FROM tuong_tac WHERE khach_id = ? ORDER BY xay_ra_luc DESC, rowid DESC LIMIT 1",
+      `SELECT MAX(xay_ra_luc) AS xay_ra_luc FROM (
+         SELECT xay_ra_luc FROM tuong_tac WHERE khach_id = ?
+         UNION ALL
+         SELECT xay_ra_luc FROM chuyen_doi WHERE khach_id = ?
+         UNION ALL
+         SELECT cap_nhat_luc AS xay_ra_luc FROM dong_y WHERE khach_id = ?
+       )`,
     )
-    .get(khachId) as { xay_ra_luc: string } | null;
+    .get(khachId, khachId, khachId) as { xay_ra_luc: string | null };
   const soDonMua = (
     db
       .query("SELECT COUNT(*) AS c FROM chuyen_doi WHERE khach_id = ? AND loai = 'mua'")
@@ -1274,18 +1289,26 @@ export function tinhDoiKhach(
   const coDongYCho = !!db
     .query("SELECT 1 FROM dong_y WHERE khach_id = ? AND trang_thai = 'cho' LIMIT 1")
     .get(khachId);
+  // Đang đăng ký = có consent 'cho', hoặc bản ghi mới nhất trong
+  // {dang_ky, huy_dang_ky} là 'dang_ky'. So event mới nhất theo
+  // (xay_ra_luc, rowid) — cùng timestamp thì insert sau thắng.
+  const suKienGanNhat = db
+    .query(
+      `SELECT loai, xay_ra_luc FROM tuong_tac
+       WHERE khach_id = ? AND loai IN ('dang_ky', 'huy_dang_ky')
+       ORDER BY xay_ra_luc DESC, rowid DESC LIMIT 1`,
+    )
+    .get(khachId) as { loai: string; xay_ra_luc: string } | null;
+  const chuyenDoiDangKy = db
+    .query(
+      "SELECT xay_ra_luc FROM chuyen_doi WHERE khach_id = ? AND loai = 'dang_ky' ORDER BY xay_ra_luc DESC, rowid DESC LIMIT 1",
+    )
+    .get(khachId) as { xay_ra_luc: string } | null;
   const coDangKy =
     coDongYCho ||
-    !!db
-      .query(
-        "SELECT 1 FROM tuong_tac WHERE khach_id = ? AND loai = 'dang_ky' LIMIT 1",
-      )
-      .get(khachId) ||
-    !!db
-      .query(
-        "SELECT 1 FROM chuyen_doi WHERE khach_id = ? AND loai = 'dang_ky' LIMIT 1",
-      )
-      .get(khachId);
+    suKienGanNhat?.loai === "dang_ky" ||
+    (!!chuyenDoiDangKy &&
+      (!suKienGanNhat || chuyenDoiDangKy.xay_ra_luc > suKienGanNhat.xay_ra_luc));
 
   const giaiThich: GiaiThichDoi = {
     ly_do: "",
@@ -1298,10 +1321,10 @@ export function tinhDoiKhach(
 
   // Ngủ đông override các state trên: khách quen cũng ngủ khi mất tích
   // đủ lâu — event mới sẽ đánh thức vì recompute xếp cuoi mới hơn.
-  if (cuoi) {
+  if (cuoi.xay_ra_luc) {
     const troiNgay = (Date.parse(luc) - Date.parse(cuoi.xay_ra_luc)) / 86400000;
     if (troiNgay >= NGUONG_NGU_DONG_NGAY) {
-      giaiThich.ly_do = `Không tương tác ${Math.floor(troiNgay)} ngày (>= ${NGUONG_NGU_DONG_NGAY}).`;
+      giaiThich.ly_do = `Không hoạt động ${Math.floor(troiNgay)} ngày (>= ${NGUONG_NGU_DONG_NGAY}).`;
       return { trang_thai: "ngu_dong", giai_thich: giaiThich };
     }
   }
@@ -1316,7 +1339,7 @@ export function tinhDoiKhach(
   if (coDangKy) {
     giaiThich.ly_do = coDongYCho
       ? "Có consent 'cho' trên ít nhất một kênh."
-      : "Có sự kiện/conversion loai 'dang_ky'.";
+      : "Có sự kiện/conversion loai 'dang_ky' sau 'huy_dang_ky' gần nhất.";
     return { trang_thai: "dang_ky", giai_thich: giaiThich };
   }
   giaiThich.ly_do = "Chưa đăng ký, chưa mua.";

@@ -64,7 +64,7 @@ describe("lifecycle (#65)", () => {
     ).json();
     k = await (await fetch(`${app.url}/api/khach/${khachId}`)).json();
     expect(k.du_lieu.trang_thai_doi).toBe("dang_ky");
-    expect(JSON.parse(k.du_lieu.giai_thich_doi).co_dong_y_cho).toBe(true);
+    expect(k.du_lieu.giai_thich_doi.co_dong_y_cho).toBe(true);
 
     // Mua 1 → khach_mua; mua 2 → khach_quen.
     await ghiMua(app.url, "lc@x.com", "lc-1");
@@ -92,7 +92,7 @@ describe("lifecycle (#65)", () => {
     });
     let k = await (await fetch(`${app.url}/api/khach/${khachId}`)).json();
     expect(k.du_lieu.trang_thai_doi).toBe("ngu_dong");
-    expect(JSON.parse(k.du_lieu.giai_thich_doi).ly_do).toContain("Không tương tác");
+    expect(k.du_lieu.giai_thich_doi.ly_do).toContain("Không hoạt động");
 
     // Event mới → recompute, hết dormant (vẫn chưa mua → khach_vang_lai).
     await post(app.url, "/api/khach/su-kien", {
@@ -108,20 +108,81 @@ describe("lifecycle (#65)", () => {
     const app = await taoServerTam();
     const khachId = await taoKhachMoi(app.url, "rpt@x.com");
     const cu = new Date(Date.now() - 120 * 86400000).toISOString();
+    // Hoạt động cuối tính cả conversion: 2 đơn 120 ngày trước, không
+    // event nào mới → dormant (khach_quen không thắng được tuổi tác).
     await ghiMua(app.url, "rpt@x.com", "r-1", "USD", 5, cu);
     await ghiMua(app.url, "rpt@x.com", "r-2", "USD", 7, cu);
-    // Mua xong state khach_quen... nhưng event gần nhất? conversion ghi
-    // lan_cuoi_thay nhưng lifecycle dựa trên tuong_tac cuối — không event
-    // nào ≥90 ngày → không dormant vì KHÔNG có tuong_tac. Kiểm derive.
     const k = await (await fetch(`${app.url}/api/khach/${khachId}`)).json();
-    expect(k.du_lieu.trang_thai_doi).toBe("khach_quen");
-    // Thêm event cũ → dormant thắng khach_quen.
+    expect(k.du_lieu.trang_thai_doi).toBe("ngu_dong");
+    // Event mới đánh thức → quay về khach_quen (2 đơn vẫn còn).
     await post(app.url, "/api/khach/su-kien", {
       dinh_danh: { loai: "email", gia_tri: "rpt@x.com" },
-      loai: "mua", nguon: "pos", khoa_idem: "r-sk", xay_ra_luc: cu,
+      loai: "mua", nguon: "pos", khoa_idem: "r-sk",
     });
     const k2 = await (await fetch(`${app.url}/api/khach/${khachId}`)).json();
-    expect(k2.du_lieu.trang_thai_doi).toBe("ngu_dong");
+    expect(k2.du_lieu.trang_thai_doi).toBe("khach_quen");
+    await app.dong();
+  });
+
+  test("conversion mới nhất đánh thức dormant; hủy đăng ký hạ state", async () => {
+    const app = await taoServerTam();
+    const cu = new Date(Date.now() - 100 * 86400000).toISOString();
+    const khachId = await taoKhachMoi(app.url, "w@x.com");
+    await post(app.url, "/api/khach/su-kien", {
+      dinh_danh: { loai: "email", gia_tri: "w@x.com" },
+      loai: "xem", nguon: "web", khoa_idem: "w-1", xay_ra_luc: cu,
+    });
+    // Conversion mua hiện tại → khách vừa mua không dormant.
+    await post(app.url, "/api/khach/chuyen-doi", {
+      dinh_danh: { loai: "email", gia_tri: "w@x.com" },
+      loai: "mua", gia_tri: 10, tien_te: "USD", nguon: "test", khoa_idem: "w-m",
+    });
+    let k = await (await fetch(`${app.url}/api/khach/${khachId}/gia-tri`)).json();
+    expect(k.du_lieu.trang_thai_doi).toBe("khach_mua");
+
+    // Đăng ký → dang_ky; hủy đăng ký sau đó → hạ về theo data còn lại.
+    await post(app.url, "/api/khach/su-kien", {
+      dinh_danh: { loai: "email", gia_tri: "w@x.com" },
+      loai: "dang_ky", nguon: "web", khoa_idem: "w-dk",
+    });
+    k = await (await fetch(`${app.url}/api/khach/${khachId}/gia-tri`)).json();
+    expect(k.du_lieu.trang_thai_doi).toBe("khach_mua"); // mua vẫn thắng dang_ky
+    await post(app.url, "/api/khach/su-kien", {
+      dinh_danh: { loai: "email", gia_tri: "unsub@x.com" },
+      loai: "dang_ky", nguon: "web", khoa_idem: "u-dk", xay_ra_luc: cu,
+    });
+    const unsubId = await taoKhachMoi(app.url, "unsub@x.com");
+    k = await (await fetch(`${app.url}/api/khach/${unsubId}/gia-tri`)).json();
+    expect(k.du_lieu.trang_thai_doi).toBe("ngu_dong"); // event cũ → dormant
+    await post(app.url, "/api/khach/su-kien", {
+      dinh_danh: { loai: "email", gia_tri: "unsub@x.com" },
+      loai: "huy_dang_ky", nguon: "web", khoa_idem: "u-h",
+    });
+    k = await (await fetch(`${app.url}/api/khach/${unsubId}/gia-tri`)).json();
+    // huy_dang_ky mới hơn dang_ky → không còn dang_ky; event mới → hết dormant.
+    expect(k.du_lieu.trang_thai_doi).toBe("khach_vang_lai");
+    await app.dong();
+  });
+
+  test("dang_ky/huy_dang_ky cùng timestamp: insert sau thắng (rowid)", async () => {
+    const app = await taoServerTam();
+    const khachId = await taoKhachMoi(app.url, "tie@x.com");
+    const ts = new Date().toISOString();
+    for (const [i, loai] of ["dang_ky", "huy_dang_ky", "dang_ky"].entries()) {
+      await post(app.url, "/api/khach/su-kien", {
+        dinh_danh: { loai: "email", gia_tri: "tie@x.com" },
+        loai, nguon: "web", khoa_idem: `tie-${i}`, xay_ra_luc: ts,
+      });
+    }
+    const k = await (await fetch(`${app.url}/api/khach/${khachId}/gia-tri`)).json();
+    expect(k.du_lieu.trang_thai_doi).toBe("dang_ky");
+    // Thêm một huy_dang_ky cùng timestamp → lại là mới nhất → hạ state.
+    await post(app.url, "/api/khach/su-kien", {
+      dinh_danh: { loai: "email", gia_tri: "tie@x.com" },
+      loai: "huy_dang_ky", nguon: "web", khoa_idem: "tie-3", xay_ra_luc: ts,
+    });
+    const k2 = await (await fetch(`${app.url}/api/khach/${khachId}/gia-tri`)).json();
+    expect(k2.du_lieu.trang_thai_doi).toBe("khach_vang_lai");
     await app.dong();
   });
 });

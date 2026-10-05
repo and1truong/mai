@@ -286,6 +286,7 @@ import {
   ghiTuongTac,
   layKhach,
   giaTriKhach,
+  tinhDoiKhach,
   napDonHang,
   quyVeCuaKhach,
   resolveKhach,
@@ -2704,10 +2705,22 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       const khach = layKhach(c.db, p.id!);
       if (!khach) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy khách hàng.");
       // Person đã gộp (#67): trả redirect da_gop_vao — client follow tới
-      // đích. Person hoạt động field này rỗng.
+      // đích; không derive lifecycle cho hồ sơ đã gộp.
+      if (khach.trang_thai === "da_gop") {
+        return ok({
+          ...khach,
+          da_gop_vao: khach.gop_vao_id,
+          dinh_danh: danhSachDinhDanh(c.db, khach.id),
+        });
+      }
+      // trang_thai_doi/giai_thich_doi derive live (dormant phụ thuộc
+      // thời gian) — khớp /gia-tri; cột lưu chỉ phục vụ liệt kê/segment.
+      const { trang_thai, giai_thich } = tinhDoiKhach(c.db, khach.id);
       return ok({
         ...khach,
-        da_gop_vao: khach.trang_thai === "da_gop" ? khach.gop_vao_id : "",
+        trang_thai_doi: trang_thai,
+        giai_thich_doi: giai_thich,
+        da_gop_vao: "",
         dinh_danh: danhSachDinhDanh(c.db, khach.id),
       });
     }),
@@ -2720,7 +2733,7 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
         c.db,
         p.id!,
         dichId,
-        { xemTruoc, duaTren: tuyChonChuoi(body.dua_tren) || undefined },
+        { xem_truoc, duaTren: tuyChonChuoi(body.dua_tren) || undefined },
         c.actor,
       );
       return ok(
@@ -3024,9 +3037,13 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       if (!khach) {
         loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy khách hàng.");
       }
+      // Derive live thay vì đọc cột lưu: rule ngu_dong phụ thuộc thời
+      // gian nên state theo thời điểm đọc mới đúng (#65); cột lưu vẫn
+      // cập nhật eager để liệt kê/segment dùng.
+      const { trang_thai, giai_thich } = tinhDoiKhach(c.db, khach.id);
       return ok({
-        trang_thai_doi: khach.trang_thai_doi,
-        giai_thich: JSON.parse(khach.giai_thich_doi) as unknown,
+        trang_thai_doi: trang_thai,
+        giai_thich,
         gia_tri: giaTriKhach(c.db, khach.id),
       });
     }),
