@@ -120,6 +120,8 @@ Chuyển sai → 409 `XUNG_DOT_TRANG_THAI`.
 - `consentChoGui(db, khachId, kenh, muc_dich)` là điểm kiểm duy nhất trước khi gửi — consent mới nhất có hiệu lực ngay với campaign tương lai.
 - Bridge `nguoi_nhan` (#13): subscribe mới → person (identity email) + consent `email/marketing=cho` + event `dang_ky`; hủy (link hoặc tay) → `tu_choi` + event `huy_dang_ky`. Chỉ khi transition `nguoi_nhan` thật (da_tao/da_huy); khoa_idem `nb:<huong>:<email>`. Suppression `nguoi_nhan` vẫn là chặn cứng ở delivery boundary — consent là lớp audit phía person, không thay nó.
 
+- Identity `external`/`social`: khóa `<nguon>:<id_ngoai>` — `nguon` lowercase, phần id **giữ nguyên case** (opaque của hệ thống nguồn; fold case sẽ merge ngầm). `POST /api/khach` trả shape phẳng giống `GET /api/khach/:id` (`{...khach, dinh_danh, da_tao}`). Resolve gắn identity mới vào person có sẵn cũng `ghi_su_kien 'gan_dinh_danh'`. Ghi chú cho #67: person `trang_thai='da_gop'` chưa tồn tại đường nào set — khi làm merge phải xử lý resolve/liệt kê redirect sang person đích.
+
 ### Conversion & attribution (#63)
 
 - `chuyen_doi`: `khach_id` **nullable** — conversion không resolve được person vẫn INSERT, giữ nguyên để backfill; `nguon` + `khoa_idem` bắt buộc (idempotency); `tien_te` (ISO 3 ký tự) bắt buộc khi có `gia_tri`, không trộn tiền tệ (không FX).

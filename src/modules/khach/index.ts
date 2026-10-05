@@ -89,7 +89,10 @@ export function chuanHoaGiaTri(
       return v;
     case "external":
     case "social":
-      return `${nguon.trim().toLowerCase()}:${(externalId.trim() || v).toLowerCase()}`;
+      // Giữ nguyên case phần id — id ngoài là opaque của hệ thống nguồn,
+      // không phải địa chỉ; lowercase nó sẽ merge ngầm hai id khác case
+      // (trái "không auto-merge theo heuristic yếu").
+      return `${nguon.trim().toLowerCase()}:${externalId.trim() || v}`;
   }
 }
 
@@ -305,14 +308,22 @@ export function resolveKhach(
       .map((d) => timDinhDanh(db, d.loai, d.gia_tri_chuan))
       .filter((d): d is DinhDanh => d !== null);
     if (daCo.length > 0) {
-      const khachId = daCo[0]!.khach_id;
-      const trungKhac = daCo.find((d) => d.khach_id !== khachId);
-      // Hai identity thuộc hai person khác nhau → xung đột tường minh.
-      if (trungKhac) xungDotNhieuKhach([khachId, trungKhac.khach_id]);
+      // Gom toàn bộ chủ sở hữu — identity rải trên ≥2 person → xung đột
+      // kèm khach_ids đủ để client quyết merge.
+      const ids = [...new Set(daCo.map((d) => d.khach_id))];
+      if (ids.length > 1) xungDotNhieuKhach(ids);
+      const khachId = ids[0]!;
       const moi = dsDd.filter(
         (d) => !timDinhDanh(db, d.loai, d.gia_tri_chuan),
       );
-      for (const d of moi) chenDinhDanh(db, khachId, d);
+      for (const d of moi) {
+        chenDinhDanh(db, khachId, d);
+        ghiSuKien(db, "khach", khachId, "gan_dinh_danh", {
+          loai: d.loai,
+          gia_tri_chuan: d.gia_tri_chuan,
+          qua: "resolve",
+        }, actor);
+      }
       chamKhach(db, khachId);
       const khach = layKhach(db, khachId)!;
       return { khach, dinh_danh: danhSachDinhDanh(db, khachId), da_tao: false };

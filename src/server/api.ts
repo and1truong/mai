@@ -2664,10 +2664,15 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       };
       const dsDd = (dsDdRaw ?? []) as NhapDinhDanh[];
       if (dsDd.length === 0) {
-        return ok({ ...taoKhach(c.db, nhap, c.actor), da_tao: true }, 201);
+        const r = taoKhach(c.db, nhap, c.actor);
+        return ok({ ...r.khach, dinh_danh: r.dinh_danh, da_tao: true }, 201);
       }
+      // Trả phẳng như GET /api/khach/:id — một shape cho cùng một person.
       const kq = resolveKhach(c.db, dsDd, nhap, c.actor);
-      return ok(kq, kq.da_tao ? 201 : 200);
+      return ok(
+        { ...kq.khach, dinh_danh: kq.dinh_danh, da_tao: kq.da_tao },
+        kq.da_tao ? 201 : 200,
+      );
     }),
     route("GET", "/api/khach/:id", (_req, p, c) => {
       const khach = layKhach(c.db, p.id!);

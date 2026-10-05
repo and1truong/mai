@@ -20,7 +20,7 @@ async function taoKhach(url: string, email: string): Promise<string> {
   const res = await post(url, "/api/khach", {
     dinh_danh: [{ loai: "email", gia_tri: email, nguon: "test" }],
   });
-  return res.body.du_lieu.khach.id;
+  return res.body.du_lieu.id;
 }
 
 test("#63 ghi conversion: validation + idempotent + quy_ve hai model", async () => {
