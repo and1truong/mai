@@ -462,7 +462,12 @@ export function kiemTraDauRa(ctx: ContextTask, kq: KetQuaTask): KetQuaKiemTra {
     // Claim chưa xác nhận không được trình bày ngoài dòng câu hỏi — khớp
     // 40 ký tự đầu đủ phân biệt, giống khối công quyền.
     const dongNhamNgoaiHoiTh = (doan: string): boolean => {
-      const mau = doan.slice(0, 40).toLowerCase();
+      // Cắt 40 ký tự đầu rồi bỏ dấu câu/khoảng trắng cuối — claim hay
+      // được trích giữa câu, dấu '.' cuối claim không có trong đầu ra.
+      const mau = doan
+        .slice(0, 40)
+        .toLowerCase()
+        .replace(/[\s.,;:!?"'“”‘’…]+$/u, "");
       if (mau.length < 12) return false;
       return dsDongTh.some(
         (d) => d.toLowerCase().includes(mau) && !/câu\s*hỏi/i.test(d),
