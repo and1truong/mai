@@ -408,6 +408,149 @@ describe("kết quả — số liệu + báo cáo + gợi ý", () => {
         delete Bun.env[k];
     }
   });
+
+  test("gợi ý kênh email xuất hiện khi email cấu hình đủ — route truyền c.kenh", async () => {
+    // Trước fix: GET /api/goi-y-ket-qua không truyền cauHinhKenh →
+    // layDsKenh(undefined) → email san_sang=false → thi_nghiem:kenh:*:email
+    // không bao giờ được đề xuất.
+    Bun.env.MAI_EMAIL_BASE_URL = "http://localhost:9"; // không gọi thật — chỉ cần san_sang
+    Bun.env.MAI_EMAIL_API_KEY_ENV = "MAI_TEST_EMAIL_KEY";
+    Bun.env.MAI_TEST_EMAIL_KEY = "gia-lap-key-123";
+    Bun.env.MAI_EMAIL_FROM = "Mai <bao@example.com>";
+    try {
+      const app = await taoServerTam();
+      seed(app.db);
+      try {
+        const kenh = await getJson(app, "/api/kenh");
+        const emailAdapter = kenh.json.du_lieu.ds_kenh.find(
+          (k: { id: string }) => k.id === "email",
+        );
+        expect(emailAdapter.san_sang).toBe(true);
+
+        const tdId = await taoThongDiepMoi(app, "goi-y-kenh-email");
+        const bthId = await taoBthDuyet(app, tdId);
+        const giao = await post(app, `/api/ban-the-hien/${bthId}/giao`, {
+          kenh: "trang_noi_bo",
+        });
+        const giaoId = (await giao.json()).du_lieu.giao.id;
+        expect(await choGiaoKetThuc(app, giaoId)).toBe("da_giao");
+
+        const { json } = await getJson(app, `/api/goi-y-ket-qua?thong_diep_id=${tdId}`);
+        const goiYEmail = json.du_lieu.ds_goi_y.find(
+          (g: { khoa: string }) => g.khoa === `thi_nghiem:kenh:${tdId}:${bthId}:email`,
+        );
+        expect(goiYEmail).toBeTruthy();
+        expect(goiYEmail.hanh_dong.dich_den).toBe("email");
+        expect(goiYEmail.hanh_dong.dinh_dang).toBe("newsletter");
+      } finally {
+        await app.dong();
+      }
+    } finally {
+      for (const k of ["MAI_EMAIL_BASE_URL", "MAI_EMAIL_API_KEY_ENV", "MAI_EMAIL_FROM", "MAI_TEST_EMAIL_KEY"])
+        delete Bun.env[k];
+    }
+  });
+
+  test("gợi ý 'het_han' hồi sinh 'moi' khi ứng viên quay lại", async () => {
+    // Trước fix: upsert chỉ chạy trên trang_thai='moi' và INSERT bị skip
+    // khi row đã tồn tại → row het_han không bao giờ hồi sinh.
+    const app = await taoServerTam();
+    seed(app.db);
+    try {
+      const tdId = await taoThongDiepMoi(app, "hoi-sinh-goi-y");
+      const bthId = await taoBthDuyet(app, tdId);
+      const giao = await post(app, `/api/ban-the-hien/${bthId}/giao`, {
+        kenh: "trang_noi_bo",
+      });
+      const giaoId = (await giao.json()).du_lieu.giao.id;
+      expect(await choGiaoKetThuc(app, giaoId)).toBe("da_giao");
+      await fetch(`${app.url}/p/${bthId}`, { headers: { "user-agent": "UA-H" } });
+
+      const lay = () => getJson(app, `/api/goi-y-ket-qua?thong_diep_id=${tdId}`);
+      const timNhapTiep = (ds: { id: string; khoa: string; trang_thai: string }[]) => {
+        const g = ds.find((x) => x.khoa.startsWith("nhap_tiep:"));
+        if (!g) throw new Error("không có gợi ý nhap_tiep");
+        return g;
+      };
+
+      const g1 = timNhapTiep((await lay()).json.du_lieu.ds_goi_y);
+      expect(g1).toBeTruthy();
+      expect(g1.trang_thai).toBe("moi");
+
+      // Mở một nháp mới → ứng viên nhap_tiep biến mất → dòng xuống het_han.
+      const bth2 = await post(app, "/api/ban-the-hien", {
+        thong_diep_id: tdId,
+        dinh_dang: "caption",
+        ngon_ngu: "vi",
+        doi_tuong: "Độc giả",
+        dich_den: "",
+      });
+      const bth2Id = (await bth2.json()).du_lieu.id as string;
+      const g2 = timNhapTiep((await lay()).json.du_lieu.ds_goi_y);
+      expect(g2.id).toBe(g1.id);
+      expect(g2.trang_thai).toBe("het_han");
+
+      // Nháp được duyệt → không còn nháp mở → ứng viên quay lại → hồi sinh.
+      await post(app, `/api/ban-the-hien/${bth2Id}/revision`, {
+        noi_dung: JSON.stringify({ tieu_de: "Caption", noi_dung: "Nội dung caption." }),
+      });
+      const r = await duyetBth(app, bth2Id);
+      expect(r.duyet.status).toBe(200);
+      const g3 = timNhapTiep((await lay()).json.du_lieu.ds_goi_y);
+      expect(g3.id).toBe(g1.id);
+      expect(g3.trang_thai).toBe("moi");
+
+      // Hồi sinh xong phải chấp nhận được (trước fix vẫn het_han → 409).
+      const cn = await post(app, `/api/goi-y-ket-qua/${g3.id}/chap-nhan`);
+      expect(cn.status).toBe(200);
+    } finally {
+      await app.dong();
+    }
+  });
+
+  test("gợi ý 'moi' làm tươi hanh_dong khi thuộc tính nguồn đổi", async () => {
+    // Trước fix: upsert chỉ refresh mo_ta/quan_sat/bat_dinh — hanh_dong
+    // giữ thuộc tính cũ → chấp nhận tạo đầu ra/job theo giá trị lỗi thời.
+    const app = await taoServerTam();
+    seed(app.db);
+    try {
+      const tdId = await taoThongDiepMoi(app, "lam-tuoi-hanh-dong");
+      const bthId = await taoBthDuyet(app, tdId);
+      const giao = await post(app, `/api/ban-the-hien/${bthId}/giao`, {
+        kenh: "trang_noi_bo",
+      });
+      const giaoId = (await giao.json()).du_lieu.giao.id;
+      expect(await choGiaoKetThuc(app, giaoId)).toBe("da_giao");
+      await fetch(`${app.url}/p/${bthId}`, { headers: { "user-agent": "UA-F" } });
+
+      const lay = () => getJson(app, `/api/goi-y-ket-qua?thong_diep_id=${tdId}`);
+      const g1 = (await lay()).json.du_lieu.ds_goi_y.find(
+        (g: { loai: string }) => g.loai === "nhap_tiep",
+      );
+      expect(g1).toBeTruthy();
+      expect(g1.hanh_dong.doi_tuong).toBe("Khách quen");
+
+      // Đổi doi_tuong của đầu ra nguồn trong lúc gợi ý còn 'moi' → đọc
+      // lại phải phản ánh giá trị mới trong hanh_dong.
+      app.db.query("UPDATE ban_the_hien SET doi_tuong = ? WHERE id = ?").run("Độc giả mới", bthId);
+      const g2 = (await lay()).json.du_lieu.ds_goi_y.find(
+        (g: { id: string }) => g.id === g1.id,
+      );
+      expect(g2.trang_thai).toBe("moi");
+      expect(g2.hanh_dong.doi_tuong).toBe("Độc giả mới");
+
+      // Chấp nhận dùng hanh_dong MỚI → find-or-create trúng đầu ra đã sửa,
+      // không tạo bản mới theo doi_tuong cũ.
+      const cn = await post(app, `/api/goi-y-ket-qua/${g2.id}/chap-nhan`);
+      expect(cn.status).toBe(200);
+      const ketQua = (await cn.json()).du_lieu.ket_qua;
+      expect(ketQua.ban_the_hien_id).toBe(bthId);
+      const job = await getJson(app, `/api/job/${ketQua.job_id}`);
+      expect(JSON.parse(job.json.du_lieu.payload).doi_tuong).toBe("Độc giả mới");
+    } finally {
+      await app.dong();
+    }
+  });
 });
 
 // Provider giả kiểu Resend: chỉ cần GET /emails/<id> cho metric.
