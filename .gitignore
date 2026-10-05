@@ -1,0 +1,11 @@
+node_modules/
+dist/
+data/
+backups/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+mai.config.json
+.DS_Store
+.screenshots-pr6/
+.screenshots-*/

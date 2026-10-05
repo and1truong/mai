@@ -1,0 +1,34 @@
+{
+  "port": 3000,
+  "dataDir": "./data",
+  "ai": {
+    "provider": "fixture",
+    "base_url": "https://api.openai.com/v1",
+    "model": "gpt-4o-mini",
+    "api_key_env": "MAI_AI_API_KEY",
+    "timeout_ms": 60000,
+    "toi_da_ky_tu_nguon": 4000,
+    "toi_da_ky_tu_context": 16000,
+    "toi_da_ky_tu_dau_ra": 12000,
+    "toi_da_fan_out": 8
+  },
+  "jobs": {
+    "concurrency": 2,
+    "chuKyMs": 500
+  },
+  "bao_mat": {
+    "che_do": "tin_cay",
+    "phien_ttl_phut": 10080,
+    "cookie_secure": false
+  },
+  "kenh": {
+    "url_goc": "http://localhost:3000",
+    "email": {
+      "base_url": "https://api.resend.com",
+      "api_key_env": "MAI_EMAIL_API_KEY",
+      "from": "Mai <bao@example.com>",
+      "nguoi_nhan_test": "chu@example.com",
+      "timeout_ms": 30000
+    }
+  }
+}
