@@ -32,7 +32,9 @@ export type Khach = {
   sdt: string;
   trang_thai: TrangThaiKhach;
   trang_thai_doi: TrangThaiDoi;
-  giai_thich_doi: string;
+  // Cột lưu TEXT JSON; đọc qua layKhach/danhSachKhach trả OBJECT parse sẵn
+  // để mọi endpoint trả cùng một kiểu (khớp derive live ở GET :id).
+  giai_thich_doi: Record<string, unknown>;
   // #67: person đã gộp → id đích (chuỗi redirect); '' = chưa gộp.
   gop_vao_id: string;
   lan_dau_thay: string;
@@ -166,8 +168,20 @@ function dedupeDinhDanh(ds: (DinhDanh | null)[]): DinhDanh[] {
 
 // --- Truy vấn ---
 
+function docGiaiThichJson(s: string): Record<string, unknown> {
+  try {
+    const p = JSON.parse(s || "{}");
+    if (p && typeof p === "object" && !Array.isArray(p)) return p;
+  } catch { /* fallback '{}' */ }
+  return {};
+}
+
 export function layKhach(db: Database, id: string): Khach | null {
-  return db.query("SELECT * FROM khach WHERE id = ?").get(id) as Khach | null;
+  const row = db.query("SELECT * FROM khach WHERE id = ?").get(id) as
+    | (Omit<Khach, "giai_thich_doi"> & { giai_thich_doi: string })
+    | null;
+  if (!row) return null;
+  return { ...row, giai_thich_doi: docGiaiThichJson(row.giai_thich_doi) };
 }
 
 // Theo chuỗi gop_vao_id (#67) tới person cuối còn hoat_dong — mọi điểm
@@ -186,11 +200,15 @@ export function diTroKhachGop(db: Database, khachId: string): string {
 export function danhSachKhach(db: Database, gioiHan = 200): Khach[] {
   // Person da_gop (#67) không liệt kê — bản ghi giữ lại để audit/redirect,
   // không phải person đang hoạt động.
-  return db
+  const ds = db
     .query(
       "SELECT * FROM khach WHERE trang_thai = 'hoat_dong' ORDER BY lan_cuoi_thay DESC LIMIT ?",
     )
-    .all(gioiHan) as Khach[];
+    .all(gioiHan) as (Omit<Khach, "giai_thich_doi"> & { giai_thich_doi: string })[];
+  return ds.map((row) => ({
+    ...row,
+    giai_thich_doi: docGiaiThichJson(row.giai_thich_doi),
+  }));
 }
 
 export function danhSachDinhDanh(db: Database, khachId: string): DinhDanh[] {
@@ -270,7 +288,7 @@ function chenKhach(db: Database, nhap: NhapKhach, actor: string): Khach {
     sdt: tuyChonChuoi(nhap.sdt),
     trang_thai: "hoat_dong",
     trang_thai_doi: "khach_vang_lai",
-    giai_thich_doi: "{}",
+    giai_thich_doi: {},
     gop_vao_id: "",
     lan_dau_thay: luc,
     lan_cuoi_thay: luc,
@@ -287,7 +305,7 @@ function chenKhach(db: Database, nhap: NhapKhach, actor: string): Khach {
     row.sdt,
     row.trang_thai,
     row.trang_thai_doi,
-    row.giai_thich_doi,
+    JSON.stringify(row.giai_thich_doi),
     row.gop_vao_id,
     row.lan_dau_thay,
     row.lan_cuoi_thay,
@@ -297,7 +315,8 @@ function chenKhach(db: Database, nhap: NhapKhach, actor: string): Khach {
   ghiSuKien(db, "khach", row.id, "tao", { ten: row.ten, email: row.email }, actor);
   // Điền giai_thich_doi ngay từ lúc tạo — person mới không được để '{}'.
   capNhatDoiKhach(db, row.id, luc);
-  return row;
+  // Trả bản ghi đã persist (giai_thich thật, object) — khớp layKhach.
+  return layKhach(db, row.id)!;
 }
 
 // Tạo person mới kèm các identity đầu tiên. Đụng unique của person khác

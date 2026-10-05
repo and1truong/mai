@@ -41,6 +41,15 @@ async function gop(url: string, nguon: string, dich: string, preview = false) {
   );
 }
 
+async function datDongY(url: string, khachId: string, trangThai: string) {
+  const r = await fetch(`${url}/api/khach/${khachId}/dong-y`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ kenh: "email", muc_dich: "marketing", trang_thai: trangThai, nguon: "test" }),
+  });
+  return r.status;
+}
+
 describe("merge person (#67)", () => {
   test("merge chuyển đủ identity/event/consent/tag/conversion; nguồn da_gop + redirect", async () => {
     const app = await taoServerTam();
@@ -49,10 +58,7 @@ describe("merge person (#67)", () => {
     // Identity phụ chỉ ở nguồn → chuyển; consent ở nguồn → chuyển;
     // tag + event + conversion ở nguồn → về đích.
     await post(app.url, `/api/khach/${a}/dinh-danh`, { loai: "sdt", gia_tri: "+84901234567" });
-    await post(app.url, "/api/khach/dong-y", {
-      dinh_danh: { loai: "email", gia_tri: "a@x.com" },
-      kenh: "email", muc_dich: "marketing", trang_thai: "cho", nguon: "test",
-    });
+    await datDongY(app.url, a, "cho");
     await (await fetch(`${app.url}/api/khach/${a}/tags`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
@@ -83,7 +89,7 @@ describe("merge person (#67)", () => {
     const tags = await get(app.url, `/api/khach/${b}/tags`);
     expect(tags.body.du_lieu.ds_tag.map((t: { tag: string }) => t.tag)).toEqual(["vip"]);
     const dy = await get(app.url, `/api/khach/${b}/dong-y`);
-    expect(dy.body.du_lieu.length).toBe(1);
+    expect(dy.body.du_lieu.hien_tai.length).toBe(1);
 
     // Nguồn: da_gop, da_gop_vao=b, không còn identity (đã chuyển/xóa).
     const ka = await get(app.url, `/api/khach/${a}`);
@@ -116,16 +122,12 @@ describe("merge person (#67)", () => {
     // identity thực chỉ khi hai person chia sẻ (loai,gia_tri_chuan) —
     // UNIQUE toàn cục ngăn tồn tại; conflict phát sinh sau merge chuỗi.
     // Ở đây chỉ test consent + profile conflict:
+    // Consent nguồn 'cho' CŨ hơn đích 'tu_choi' — ép cap_nhat_luc trực
+    // tiếp qua db (API không nhận timestamp backdate).
     const cu = new Date(Date.now() - 86400000).toISOString();
-    await post(app.url, "/api/khach/dong-y", {
-      dinh_danh: { loai: "email", gia_tri: "c1@x.com" },
-      kenh: "email", muc_dich: "marketing", trang_thai: "cho", nguon: "t1",
-      luc: cu,
-    });
-    await post(app.url, "/api/khach/dong-y", {
-      dinh_danh: { loai: "email", gia_tri: "c2@x.com" },
-      kenh: "email", muc_dich: "marketing", trang_thai: "tu_choi", nguon: "t2",
-    });
+    await datDongY(app.url, a, "cho");
+    await datDongY(app.url, b, "tu_choi");
+    app.db.query("UPDATE dong_y SET cap_nhat_luc = ? WHERE khach_id = ?").run(cu, a);
 
     // Dry-run: conflict consent (nguồn 'cho' cũ vs đích 'tu_choi' mới → giữ đích).
     const pre = await gop(app.url, a, b, true);
@@ -143,43 +145,37 @@ describe("merge person (#67)", () => {
     const r = await gop(app.url, a, b);
     expect(r.status).toBe(201);
     const dyB = await get(app.url, `/api/khach/${b}/dong-y`);
-    expect(dyB.body.du_lieu[0].trang_thai).toBe("tu_choi");
+    expect(dyB.body.du_lieu.hien_tai[0].trang_thai).toBe("tu_choi");
     // Log consent cả hai giữ lại (re-point sang đích).
-    const logB = await get(app.url, `/api/khach/${b}/dong-y/log`);
-    expect(logB.body.du_lieu.length).toBeGreaterThanOrEqual(2);
+    expect(dyB.body.du_lieu.lich_su.length).toBeGreaterThanOrEqual(2);
     await app.dong();
   });
 
-  test("first_touch đích giữ mốc sớm hơn; merge all-or-nothing rollback", async () => {
+  test("first_touch đích giữ mốc sớm hơn; edge 400; chuỗi redirect", async () => {
     const app = await taoServerTam();
     const a = await taoKhach(app.url, "ft1@x.com");
     const b = await taoKhach(app.url, "ft2@x.com");
     const som = "2020-01-01T00:00:00.000Z";
     const muon = "2025-01-01T00:00:00.000Z";
+    // su-kien validate ref tồn tại — tạo campaign thật để event mang touch.
+    const cp = await post(app.url, "/api/campaign", { loai: "cong_quyen", ten: "CP gộp" });
+    const cpId = cp.body.du_lieu.id as string;
     // first_touch nguồn SỚM hơn đích → đích nhận mốc nguồn.
-    await ghiSuKien(app.url, "ft1@x.com", "click", "ft-a", som);
-    await ghiSuKien(app.url, "ft2@x.com", "click", "ft-b", muon);
-    // Cả hai event đều có ref → cả hai đều có dau_cham_dau? chỉ khi event
-    // mang ref — ghi event kèm campaign_id giả không tồn tại? tuong_tac
-    // không validate ref → ok gán 'cp-x'.
-    // Ghi lại với campaign:
     await post(app.url, "/api/khach/su-kien", {
       dinh_danh: { loai: "email", gia_tri: "ft1@x.com" },
-      loai: "click", nguon: "web", khoa_idem: "ft-a2",
-      xay_ra_luc: som, campaign_id: "cp-x",
+      loai: "click", nguon: "web", khoa_idem: "ft-a",
+      xay_ra_luc: som, campaign_id: cpId,
     });
     await post(app.url, "/api/khach/su-kien", {
       dinh_danh: { loai: "email", gia_tri: "ft2@x.com" },
-      loai: "click", nguon: "web", khoa_idem: "ft-b2",
-      xay_ra_luc: muon, campaign_id: "cp-y",
+      loai: "click", nguon: "web", khoa_idem: "ft-b",
+      xay_ra_luc: muon, campaign_id: cpId,
     });
 
     const r = await gop(app.url, a, b);
     expect(r.status).toBe(201);
-    const ft = await get(app.url, `/api/khach/${b}`);
-    // dau_cham_dau của đích giờ là mốc 2020 (của nguồn).
-    // Endpoint khách không trả first_touch — đọc DB qua quyVe/timeline:
-    // kiểm qua bảng trong test trực tiếp.
+    // dau_cham_dau của đích giờ là mốc 2020 (của nguồn). Endpoint khách
+    // không trả first_touch — kiểm qua bảng trực tiếp.
     const row = app.db
       .query("SELECT xay_ra_luc FROM dau_cham_dau WHERE khach_id = ?")
       .get(b) as { xay_ra_luc: string };
@@ -201,7 +197,45 @@ describe("merge person (#67)", () => {
       dinh_danh: { loai: "email", gia_tri: "ft1@x.com" },
       loai: "xem", nguon: "web", khoa_idem: "chain-1",
     });
-    expect(rs.body.du_lieu.khach_id).toBe(c);
+    expect(rs.body.du_lieu.khach.id).toBe(c);
+    await app.dong();
+  });
+
+  test("merge all-or-nothing: lỗi giữa txn → rollback nguyên trạng", async () => {
+    const app = await taoServerTam();
+    const a = await taoKhach(app.url, "rb1@x.com");
+    const b = await taoKhach(app.url, "rb2@x.com");
+    await post(app.url, `/api/khach/${a}/dinh-danh`, { loai: "sdt", gia_tri: "+84900001111" });
+    await datDongY(app.url, a, "cho");
+    await ghiSuKien(app.url, "rb1@x.com", "click", "rb-1");
+    // Ép lỗi: giấu bảng audit khach_gop → INSERT cuối txn hỏng → rollback.
+    app.db.run("ALTER TABLE khach_gop RENAME TO khach_gop_x");
+    let loi = "";
+    try {
+      const r = await gop(app.url, a, b);
+      loi = `status ${r.status}`;
+    } catch (e) {
+      loi = String(e);
+    } finally {
+      app.db.run("ALTER TABLE khach_gop_x RENAME TO khach_gop");
+    }
+    expect(loi).not.toBe("status 201");
+    // Nguồn nguyên trạng: hoat_dong, identity còn, event còn, consent còn.
+    const ka = await get(app.url, `/api/khach/${a}`);
+    expect(ka.body.du_lieu.trang_thai).toBe("hoat_dong");
+    expect(ka.body.du_lieu.da_gop_vao).toBe("");
+    expect(ka.body.du_lieu.dinh_danh.length).toBe(2);
+    const dyA = await get(app.url, `/api/khach/${a}/dong-y`);
+    expect(dyA.body.du_lieu.hien_tai.length).toBe(1);
+    const soTt = app.db
+      .query("SELECT COUNT(*) AS c FROM tuong_tac WHERE khach_id = ?")
+      .get(a) as { c: number };
+    expect(soTt.c).toBeGreaterThanOrEqual(1);
+    // Đích không nhận gì: không identity lạ, không audit.
+    const kb = await get(app.url, `/api/khach/${b}`);
+    expect(kb.body.du_lieu.dinh_danh.length).toBe(1);
+    const g = await get(app.url, `/api/khach/${b}/gop`);
+    expect(g.body.du_lieu.length).toBe(0);
     await app.dong();
   });
 });

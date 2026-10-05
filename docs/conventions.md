@@ -157,6 +157,16 @@ Chuyển sai → 409 `XUNG_DOT_TRANG_THAI`.
 - `khach_tag` (khach_id+tag PK): tag chuẩn hóa trim+lowercase, `nguon` ∈ `tay|automation|import` ghi lúc thêm — audit nguồn tag. `PUT /api/khach/:id/tags {them[], bo[], nguon?}` idempotent (INSERT OR IGNORE + DELETE), `GET` cùng path đọc. Lọc `?tag=` là phần #70.
 - Giới hạn POC: không rule-builder UI (JSON tay), không nested segment, không streaming real-time.
 
+### Gộp person trùng (#67)
+
+- `POST /api/khach/:id/gop {vao_khach_id, dua_tren?}` — gộp NGƯỒN vào ĐÍCH trong một transaction: chuyển `dinh_danh` (xóa bản trùng (loai, gia_tri_chuan) ở đích trước), `tuong_tac`, `chuyen_doi`, `quy_ve`, `dong_y` + `dong_y_log` (log giữ nguyên, chỉ re-point), `khach_tag` (INSERT OR IGNORE, nguồn đích thắng khi tag trùng), `dau_cham_dau` (giữ mốc `xay_ra_luc` sớm hơn), field profile chỉ lấp chỗ trống, `lan_dau_thay`/`lan_cuoi_thay` = min/max.
+- `?xem_truoc=1` → 200 `{xem_truoc: true, xung_dot[]}` không ghi; merge thật → 201. `xung_dot[].loai` ∈ `dinh_danh|dong_y|dau_cham_dau|truong_ho_so` — mọi dữ liệu đích bị ghi đè đều xuất hiện ở đây, không vứt lặng lẽ.
+- Consent trùng (kenh, muc_dich): `cap_nhat_luc` mới hơn thắng (nguồn mới hơn → UPDATE row đích, xóa row nguồn; ngược lại xóa row nguồn) — cả hai chiều đều vào `dong_y_log` của đích.
+- `khach_gop` audit: `{khach_nguon_id, khach_dich_id, xung_dot, luc, boi}`; `GET /api/khach/:id/gop` đọc cả hai chiều.
+- Person nguồn → `trang_thai='da_gop'` + `gop_vao_id=đích` (bản ghi giữ lại, không DELETE). `GET /api/khach/:id` → `da_gop_vao`; `danhSachKhach` và segment loại `da_gop`. `diTroKhachGop` đi theo chuỗi redirect (≤20 bước) — resolve su-kien/dinh-danh theo identity của nguồn rơi về đích cuối.
+- Edge: nguồn/đích thiếu → 404/400, tự gộp → 400, nguồn đã gộp → 400 (gộp vào person cuối), đích đã gộp → 400. `giai_thich_doi` đọc qua `layKhach`/`danhSachKhach` trả OBJECT (cùng kiểu với derive live) — một kiểu dữ liệu cho mọi endpoint khách.
+- Giới hạn POC: không unmerge (ghi rõ), không bulk auto-merge — merge là hành động tường minh qua API.
+
 ## Nạp nguồn & asset (#17)
 
 - Nguồn vào: dán text (`POST /api/nguon/nhap`, `POST /api/nguon/:id/nhap`) hoặc upload file (`POST /api/assets?ten=...`).

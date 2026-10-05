@@ -2733,7 +2733,7 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
         c.db,
         p.id!,
         dichId,
-        { xem_truoc, duaTren: tuyChonChuoi(body.dua_tren) || undefined },
+        { xemTruoc, duaTren: tuyChonChuoi(body.dua_tren) || undefined },
         c.actor,
       );
       return ok(
