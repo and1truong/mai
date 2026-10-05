@@ -58,9 +58,12 @@ async function layView() {
   const j = await getJ(`/api/campaign/${CP}`);
   return j.du_lieu;
 }
-async function layTt(ma: string) {
+// Lấy thị trường theo mã; throw khi thiếu để typecheck không báo undefined.
+async function layTt(ma: string): Promise<{ ma: string; id: string }> {
   const j = await getJ(`/api/campaign/${CP}/thi-truong`);
-  return (j.du_lieu as { ma: string; id: string }[]).find((t) => t.ma === ma);
+  const tt = (j.du_lieu as { ma: string; id: string }[]).find((t) => t.ma === ma);
+  if (!tt) throw new Error(`thiếu thị trường '${ma}' trong campaign seed.`);
+  return tt;
 }
 
 describe("campaign thuong_hieu: seed + view", () => {
@@ -290,6 +293,36 @@ describe("duyệt hàng loạt: reviewer local + revision ghim", () => {
     const j = await res.json();
     expect(j.du_lieu.ds_ket_qua[0].ok).toBe(false);
     expect(j.du_lieu.ds_ket_qua[0].loi).toContain("XUNG_DOT");
+  });
+
+  test("biến thể la_cu (nguồn đã đổi) không được duyệt hàng loạt", async () => {
+    // Sinh một biến thể mới cho US (không bắt buộc reviewer).
+    const us = await layTt("us");
+    const j1 = await (
+      await post(`/api/campaign/${CP}/to-hop`, {
+        ds_chon: [{ thi_truong_id: us.id, dinh_dang: "newsletter", dich_den: "email-us" }],
+      })
+    ).json();
+    const bthId = j1.du_lieu.ds_ket_qua[0].ban_the_hien_id;
+    await choJob(j1.du_lieu.ds_ket_qua[0].job_id);
+
+    // Sửa claim chung → biến thể mới bị đánh dấu cũ (la_cu).
+    const cp = await layView();
+    const dsClaim = cp.ds_claim.map((c: { id: string }) =>
+      c.id === "cl-trong-luong" ? { ...c, noi_dung: "Trọng lượng 218 g (size 42)." } : c,
+    );
+    const resPut = await put(`/api/campaign/${CP}`, { ten: cp.ten, ds_claim: dsClaim });
+    expect(resPut.status).toBe(200);
+
+    const res = await post(`/api/campaign/${CP}/duyet`, {
+      ds: [{ ban_the_hien_id: bthId }],
+    });
+    expect(res.status).toBe(200);
+    const j = await res.json();
+    expect(j.du_lieu.ds_ket_qua[0].ok).toBe(false);
+    expect(j.du_lieu.ds_ket_qua[0].loi).toContain("XUNG_DOT_REVISION");
+    const bth = layBanTheHien(app.db, bthId)!;
+    expect(bth.trang_thai).toBe("nhap");
   });
 });
 

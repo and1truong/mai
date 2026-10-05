@@ -1352,6 +1352,9 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
     route("GET", "/api/campaign/:id/thi-truong", (_req, p, c) => {
       const cp = layCampaign(c.db, p.id!);
       if (!cp) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy campaign.");
+      if (!laThuongHieu(cp)) {
+        loiRequest(400, "VALIDATION", "Chỉ campaign loai 'thuong_hieu' mới có thị trường.");
+      }
       return ok(danhSachThiTruong(c.db, cp.id));
     }),
     // Xem trước quy mô + chi phí ước tính của một lô tổ hợp: tổng số,

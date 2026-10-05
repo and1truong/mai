@@ -263,6 +263,11 @@ export function kiemTraNhapThiTruong(
     if (!ma) dsLoi.push("ma là bắt buộc.");
     else if (!RE_MA_THI_TRUONG.test(ma)) {
       dsLoi.push(`ma '${ma}' không hợp lệ (a-z0-9-, tối đa 16).`);
+    } else if (ttCu && ma !== ttCu.ma) {
+      // ma là khóa bất biến sau khi tạo: mục nguồn 'tt-<ma>-*' và
+      // định danh biến thể phụ thuộc mã — PUT đổi mã phải bị chặn
+      // thay vì lặng lẽ giữ giá trị cũ.
+      dsLoi.push(`ma là bất biến sau khi tạo (đang là '${ttCu.ma}').`);
     } else {
       const trung = layThiTruongTheoMa(db, cp.id, ma);
       if (trung && trung.id !== ttCu?.id) {
@@ -1245,6 +1250,9 @@ export function duyetNhieu(
   for (const muc of dsChuan) {
     const tt = layThiTruongTheoThongDiep(db, muc.bth.thong_diep_id);
     try {
+      // Cùng cổng duyệt lẻ: đầu ra đang ghim nguồn cũ (la_cu) không
+      // được duyệt — lỗi thành kết quả ok:false của chính mục đó.
+      kiemTraCongDuyetThiTruong(db, muc.bth, muc.nguoiDuyetId);
       const sau = chuyenTrangThai(
         db,
         muc.bth.id,
