@@ -1021,3 +1021,170 @@ export function danhSachChuyenDoi(
     .query(`SELECT * FROM chuyen_doi ${where} ORDER BY xay_ra_luc, rowid LIMIT ?`)
     .all(loc.gioi_han ?? 200) as ChuyenDoi[];
 }
+
+// --- Nạp đơn hàng từ hệ thống commerce (ticket #64) ---
+// Contract idempotent: một lần nạp tạo person (qua external identity
+// <he_thong>:<khach_ngoai_id>) + event `mua` + conversion `mua` trong một
+// transaction. Identity matching có kiểm soát: chỉ qua external id và
+// email/dinh_danh payload khai báo — không fuzzy. Đụng identity của
+// person khác → resolveKhach quăng 409 kèm khach_ids.
+// Idempotency: khoa_idem, dự phòng `<he_thong>:<don_hang_ngoai_id>` —
+// replay trả bản ghi cũ, không nhân đơn/event/conversion.
+// Giới hạn POC (document trong conventions): không refund/cancel, không
+// sync hai chiều, không adapter Shopify/Woo thật — chỉ contract + fixture.
+
+export type ItemDonHang = {
+  ma?: string;
+  ten: string;
+  so_luong: number;
+  gia: number;
+};
+
+export type NhapDonHang = {
+  he_thong: string;
+  khach_ngoai_id: string;
+  don_hang_ngoai_id: string;
+  dinh_danh?: NhapDinhDanh[];
+  email?: string;
+  ten?: string;
+  items?: ItemDonHang[];
+  gia_tri: number;
+  tien_te: string;
+  mua_luc?: string;
+  khoa_idem?: string;
+  chi_tiet?: Record<string, unknown>;
+};
+
+export function napDonHang(
+  db: Database,
+  nhap: NhapDonHang,
+  actor: string,
+): {
+  khach: Khach | null;
+  su_kien: TuongTac | null;
+  chuyen_doi: ChuyenDoi;
+  quy_ve: QuyVe[];
+  da_tao: boolean;
+} {
+  const dsLoi: string[] = [];
+  const heThong = tuyChonChuoi(nhap.he_thong).toLowerCase();
+  if (!heThong) dsLoi.push("he_thong là bắt buộc (hệ thống nguồn của đơn).");
+  const khachNgoaiId = tuyChonChuoi(nhap.khach_ngoai_id);
+  if (!khachNgoaiId) dsLoi.push("khach_ngoai_id là bắt buộc (id khách trong hệ thống nguồn).");
+  const donHangId = tuyChonChuoi(nhap.don_hang_ngoai_id);
+  if (!donHangId) dsLoi.push("don_hang_ngoai_id là bắt buộc (id đơn trong hệ thống nguồn).");
+  if (typeof nhap.gia_tri !== "number" || !Number.isFinite(nhap.gia_tri) || nhap.gia_tri < 0) {
+    dsLoi.push("gia_tri phải là số ≥ 0.");
+  }
+  const tienTe = tuyChonChuoi(nhap.tien_te).toUpperCase();
+  if (!tienTe) {
+    dsLoi.push("tien_te là bắt buộc (đơn hàng luôn có giá trị tiền).");
+  } else if (!/^[A-Z]{3}$/.test(tienTe)) {
+    dsLoi.push("tien_te phải là mã 3 ký tự (vd VND, USD).");
+  }
+  const items = nhap.items ?? [];
+  if (!Array.isArray(items)) {
+    dsLoi.push("items phải là mảng {ma?, ten, so_luong, gia}.");
+  } else {
+    for (const it of items) {
+      if (typeof it !== "object" || it === null) {
+        dsLoi.push("items[] phải là object {ma?, ten, so_luong, gia}.");
+        continue;
+      }
+      if (!tuyChonChuoi(it.ten)) dsLoi.push("items[].ten là bắt buộc.");
+      if (typeof it.so_luong !== "number" || it.so_luong <= 0) {
+        dsLoi.push("items[].so_luong phải là số > 0.");
+      }
+      if (typeof it.gia !== "number" || !Number.isFinite(it.gia) || it.gia < 0) {
+        dsLoi.push("items[].gia phải là số ≥ 0.");
+      }
+    }
+  }
+  const muaLuc = tuyChonChuoi(nhap.mua_luc);
+  if (muaLuc && !Number.isFinite(Date.parse(muaLuc))) {
+    dsLoi.push("mua_luc không phải thời điểm hợp lệ (ISO 8601).");
+  }
+  if (nhap.dinh_danh !== undefined && !Array.isArray(nhap.dinh_danh)) {
+    dsLoi.push("dinh_danh phải là mảng {loai, gia_tri, nguon?, external_id?}.");
+  }
+  nemLoiValidation(dsLoi);
+
+  // Khóa idempotency: khoa_idem khai báo, dự phòng he_thong:don_hang.
+  const khoa = tuyChonChuoi(nhap.khoa_idem) || `${heThong}:${donHangId}`;
+  // Replay: đơn đã nạp (conversion là record chốt của contract) → trả cũ.
+  const daCo = db
+    .query("SELECT * FROM chuyen_doi WHERE khoa_idem = ?")
+    .get(`nd:${khoa}`) as ChuyenDoi | null;
+  if (daCo) {
+    // Replay trả đủ bản ghi cũ — event 'mua' cũng lấy lại theo khóa nd-sk.
+    const skCu = db
+      .query("SELECT * FROM tuong_tac WHERE khoa_idem = ?")
+      .get(`nd-sk:${khoa}`) as TuongTac | null;
+    return {
+      khach: daCo.khach_id ? layKhach(db, daCo.khach_id) : null,
+      su_kien: skCu,
+      chuyen_doi: daCo,
+      quy_ve: db
+        .query("SELECT * FROM quy_ve WHERE chuyen_doi_id = ? ORDER BY mo_hinh")
+        .all(daCo.id) as QuyVe[],
+      da_tao: false,
+    };
+  }
+
+  return txn(db, () => {
+    // Identity có kiểm soát: external '<he_thong>:<khach_ngoai_id>' luôn
+    // gắn; email + dinh_danh[] chỉ khi payload khai báo — không fuzzy.
+    const dsDd: NhapDinhDanh[] = [
+      {
+        loai: "external",
+        nguon: heThong,
+        gia_tri: khachNgoaiId,
+        external_id: khachNgoaiId,
+      },
+      ...(nhap.dinh_danh ?? []),
+    ];
+    const email = tuyChonChuoi(nhap.email);
+    if (email) dsDd.push({ loai: "email", gia_tri: email, nguon: heThong });
+    const kq = resolveKhach(db, dsDd, { ten: tuyChonChuoi(nhap.ten) }, actor);
+    const khach = kq.khach;
+
+    const chiTiet = {
+      items,
+      don_hang_ngoai_id: donHangId,
+      khach_ngoai_id: khachNgoaiId,
+      ...(nhap.chi_tiet ?? {}),
+    };
+    const sk = ghiTuongTac(db, {
+      khach_id: khach.id,
+      loai: "mua",
+      nguon: heThong,
+      xay_ra_luc: muaLuc || undefined,
+      khoa_idem: `nd-sk:${khoa}`,
+      don_hang_ngoai_id: donHangId,
+      chi_tiet: chiTiet,
+    });
+    const cd = ghiChuyenDoi(db, {
+      khach_id: khach.id,
+      loai: "mua",
+      gia_tri: nhap.gia_tri,
+      tien_te: tienTe,
+      nguon: heThong,
+      xay_ra_luc: muaLuc || undefined,
+      khoa_idem: `nd:${khoa}`,
+      don_hang_ngoai_id: donHangId,
+      chi_tiet: chiTiet,
+    });
+    ghiSuKien(db, "khach", khach.id, "nap_don_hang", {
+      he_thong: heThong,
+      don_hang_ngoai_id: donHangId,
+      da_tao_khach: kq.da_tao,
+    }, actor);
+    return {
+      khach,
+      su_kien: sk.su_kien,
+      chuyen_doi: cd.chuyen_doi,
+      quy_ve: cd.quy_ve,
+      da_tao: true,
+    };
+  });
+}

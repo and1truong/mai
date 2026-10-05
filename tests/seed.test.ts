@@ -55,7 +55,7 @@ test("seed idempotent: chạy 2 lần vẫn đúng 1 bộ dữ liệu demo", () 
   // + FAQ + checklist công quyền.
   expect(dem("xuat_ban")).toBe(10);
   expect(dem("campaign")).toBe(6); // số 001 + số 002 + phát hành 4.0 + gây quỹ + công quyền + thương hiệu
-  expect(dem("su_kien")).toBe(197); // 54 cũ + 23 story #8 + 21 story #9 + 34 story #10 + 25 story #11 + 27 story #12 + 8 story #13 + 5 story #15
+  expect(dem("su_kien")).toBe(205); // 54 cũ + 23 story #8 + 21 story #9 + 34 story #10 + 25 story #11 + 27 story #12 + 8 story #13 + 5 story #15 + 8 story #64
   // Story #15: mục tiêu + 2 link đích + snapshot provider + kết quả nhập tay
   // + 3 lần giao fixture + sự kiện first-party.
   expect(dem("muc_tieu_ket_qua")).toBe(1);

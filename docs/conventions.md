@@ -130,6 +130,14 @@ Chuyển sai → 409 `XUNG_DOT_TRANG_THAI`.
 - `POST /api/khach/chuyen-doi` (khach_id | dinh_danh | trống → unattributed; dinh_danh malformed → 400, không nuốt thành unattributed; gia_tri non-number → 400). Idempotency kiểm `khoa_idem` TRƯỚC resolve — replay không tạo person/identity mồ côi. `GET /api/khach/:id/quy-ve`; `GET /api/chuyen-doi?chua_gan=1&gioi_han=` (cap 500, mặc định 200).
 - Report chỉ nói "quy về theo model X" — không biến correlation thành causation.
 
+### Nạp đơn hàng commerce (#64)
+
+- `POST /api/khach/nap-don-hang`: `{he_thong, khach_ngoai_id, don_hang_ngoai_id, dinh_danh?, email?, ten?, items[], gia_tri, tien_te, mua_luc?, khoa_idem?, chi_tiet?}` — một txn tạo person + event `mua` + conversion `mua`.
+- Identity matching có kiểm soát: luôn gắn `external` khóa `<he_thong>:<khach_ngoai_id>`; email/`dinh_danh[]` chỉ khi payload khai báo — không fuzzy. Đụng identity của person khác → 409 `XUNG_DOT_DINH_DANH` kèm `khach_ids`.
+- Idempotent: `khoa_idem`, dự phòng `he_thong:don_hang_ngoai_id` (key `nd:<khoa>` trên `chuyen_doi`) — replay trả bản ghi cũ, không nhân person/event/conversion.
+- Adapter fixture: `modules/khach/nap_fixture.ts` đọc `server/seed-assets/don-hang-mau.json` → cùng contract; seed `story_khach_hang`.
+- Giới hạn POC: không refund/cancel, không sync hai chiều, không adapter Shopify/Woo thật.
+
 ## Nạp nguồn & asset (#17)
 
 - Nguồn vào: dán text (`POST /api/nguon/nhap`, `POST /api/nguon/:id/nhap`) hoặc upload file (`POST /api/assets?ten=...`).

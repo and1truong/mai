@@ -1,0 +1,41 @@
+[
+  {
+    "he_thong": "pos-tiem-banh",
+    "khach_ngoai_id": "KH-1042",
+    "don_hang_ngoai_id": "DH-5001",
+    "email": "lan.nguyen@example.com",
+    "ten": "Nguyễn Lan",
+    "items": [
+      { "ma": "CROISSANT-HD", "ten": "Croissant hạt dẻ", "so_luong": 4, "gia": 45000 },
+      { "ma": "BANH-MI", "ten": "Bánh mì que", "so_luong": 2, "gia": 12000 }
+    ],
+    "gia_tri": 204000,
+    "tien_te": "VND",
+    "mua_luc": "2026-10-10T09:30:00+07:00"
+  },
+  {
+    "he_thong": "pos-tiem-banh",
+    "khach_ngoai_id": "KH-1042",
+    "don_hang_ngoai_id": "DH-5017",
+    "email": "lan.nguyen@example.com",
+    "items": [
+      { "ma": "CROISSANT-HD", "ten": "Croissant hạt dẻ", "so_luong": 10, "gia": 45000 }
+    ],
+    "gia_tri": 450000,
+    "tien_te": "VND",
+    "mua_luc": "2026-10-12T08:15:00+07:00"
+  },
+  {
+    "he_thong": "pos-tiem-banh",
+    "khach_ngoai_id": "KH-2088",
+    "don_hang_ngoai_id": "DH-5020",
+    "email": "minh.tran@example.com",
+    "ten": "Trần Minh",
+    "items": [
+      { "ma": "BANH-SU", "ten": "Bánh su kem", "so_luong": 6, "gia": 18000 }
+    ],
+    "gia_tri": 108000,
+    "tien_te": "VND",
+    "mua_luc": "2026-10-12T17:45:00+07:00"
+  }
+]
