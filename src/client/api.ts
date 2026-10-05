@@ -21,14 +21,37 @@ export async function api<T = unknown>(path: string, init?: RequestInit): Promis
     loi?: { ma: string; thong_diep: string; chi_tiet?: unknown };
   };
   if (!j.ok) {
+    const ma = j.loi?.ma ?? "LOI_KHONG_XAC_DINH";
+    // #16: phiên hết hạn/thu hồi giữa chừng → app tự về màn đăng nhập
+    // bằng cách reload (route /me luôn public nên không vòng lặp).
+    if (ma === "CHUA_DANG_NHAP") {
+      window.location.reload();
+    }
     throw new LoiApiClient(
-      j.loi?.ma ?? "LOI_KHONG_XAC_DINH",
+      ma,
       j.loi?.thong_diep ?? "Lỗi không xác định.",
       j.loi?.chi_tiet,
     );
   }
   return j.du_lieu as T;
 }
+
+// #16: tài khoản instance + trạng thái phiên bootstrap.
+export type TaiKhoanView = {
+  id: string;
+  ten_dang_nhap: string;
+  ten_hien_thi: string;
+  vai_tro: "quan_tri" | "bien_tap";
+  trang_thai: "hoat_dong" | "vo_hieu";
+  tao_luc: string;
+  tao_boi: string;
+  cap_nhat_luc: string;
+};
+
+export type TrangThaiMe = {
+  che_do: "tin_cay" | "bao_ve";
+  tai_khoan: TaiKhoanView | null;
+};
 
 export function useApi<T>(path: string | null, deps: unknown[] = []) {
   const [data, setData] = useState<T | null>(null);
