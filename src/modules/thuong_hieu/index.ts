@@ -1189,6 +1189,9 @@ export function duyetNhieu(
   cp: Campaign,
   dsRaw: unknown,
   tacGia: string,
+  // #16: khi chế độ bảo vệ bật, api.ts truyền predicate kiểm reviewer
+  // local map tài khoản thật của instance — không truyền = bỏ qua.
+  kiemTraNguoiDuyet?: (id: string) => boolean,
 ): { ds_ket_qua: KetQuaDuyet[] } {
   if (!laThuongHieu(cp)) {
     throw new LoiApi(400, "VALIDATION", "Chỉ campaign loai 'thuong_hieu' mới duyệt hàng loạt theo thị trường.");
@@ -1230,6 +1233,12 @@ export function duyetNhieu(
     if (nguoiDuyetId && !tt.ds_nguoi_duyet.some((x) => x.id === nguoiDuyetId)) {
       dsLoi.push(
         `ds[${i}].nguoi_duyet_id '${nguoiDuyetId}' không có trong ds_nguoi_duyet của thị trường '${tt.ten}'.`,
+      );
+      continue;
+    }
+    if (kiemTraNguoiDuyet && nguoiDuyetId && !kiemTraNguoiDuyet(nguoiDuyetId)) {
+      dsLoi.push(
+        `ds[${i}].nguoi_duyet_id '${nguoiDuyetId}' không phải tài khoản hoạt động của instance.`,
       );
       continue;
     }

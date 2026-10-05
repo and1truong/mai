@@ -24,12 +24,23 @@ import type { CauHinhKenh } from "./modules/kenh/index.ts";
 
 export type { CauHinhKenh };
 
+// Xác thực instance (#16): 'tin_cay' = local tin cậy, actor demo cố định,
+// không đăng nhập; 'bao_ve' = bắt đăng nhập cho mọi /api/* (trừ đăng nhập
+// và trạng thái phiên). Giá trị khác → lỗi cấu hình, không âm thầm chạy
+// mở khi chủ cài tưởng đang bảo vệ.
+export type CauHinhBaoMat = {
+  che_do: "tin_cay" | "bao_ve";
+  phien_ttl_phut: number; // thời hạn phiên đăng nhập, mặc định 10080 (7 ngày)
+  cookie_secure: boolean; // đặt cờ Secure lên cookie phiên — bật khi chạy https
+};
+
 export type CauHinh = {
   port: number;
   dataDir: string;
   ai: CauHinhAi;
   jobs: { concurrency: number; chuKyMs: number };
   kenh: CauHinhKenh;
+  bao_mat: CauHinhBaoMat;
 };
 
 const MAC_DINH: CauHinh = {
@@ -38,7 +49,20 @@ const MAC_DINH: CauHinh = {
   ai: { provider: "fixture" },
   jobs: { concurrency: 2, chuKyMs: 500 },
   kenh: {},
+  bao_mat: { che_do: "tin_cay", phien_ttl_phut: 10080, cookie_secure: false },
 };
+
+function docCheDoBaoMat(v: unknown): "tin_cay" | "bao_ve" {
+  if (v === undefined || v === null || v === "") return "tin_cay";
+  if (v === "tin_cay" || v === "bao_ve") return v;
+  throw new Error(
+    `bao_mat.che_do không hợp lệ: '${String(v)}'. Cho phép: tin_cay | bao_ve. Không chạy với giá trị mơ hồ.`,
+  );
+}
+
+function docBool(v: unknown): boolean {
+  return v === true || v === "1" || v === "true";
+}
 
 function soTuyChon(v: unknown): number | undefined {
   const n = Number(v);
@@ -76,6 +100,15 @@ export async function taiCauHinh(env: Record<string, string | undefined> = Bun.e
       chuKyMs: Math.max(
         10,
         Number(env.MAI_JOB_CHU_KY_MS ?? tuFile.jobs?.chuKyMs ?? MAC_DINH.jobs.chuKyMs),
+      ),
+    },
+    bao_mat: {
+      che_do: docCheDoBaoMat(env.MAI_BAO_MAT_CHE_DO ?? tuFile.bao_mat?.che_do),
+      phien_ttl_phut:
+        soTuyChon(env.MAI_BAO_MAT_PHIEN_TTL_PHUT ?? tuFile.bao_mat?.phien_ttl_phut) ??
+        MAC_DINH.bao_mat.phien_ttl_phut,
+      cookie_secure: docBool(
+        env.MAI_BAO_MAT_COOKIE_SECURE ?? tuFile.bao_mat?.cookie_secure,
       ),
     },
     kenh: {

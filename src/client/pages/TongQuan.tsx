@@ -192,7 +192,7 @@ export default function TongQuanPage() {
         {/* Chế độ fixture hiển thị rõ để không nhầm đầu ra giả với provider live. */}
         <Callout.Root mt="4" color={provider?.la_fixture === false ? "green" : "blue"}>
           <Callout.Text>
-            MAI đang chạy chế độ demo: actor <Text weight="bold">demo</Text>, provider AI{" "}
+            MAI đang chạy chế độ demo: provider AI{" "}
             <Text weight="bold">{provider?.ten ?? "…"}</Text>
             {provider?.model ? ` (${provider.model})` : ""}{" "}
             {provider?.la_fixture ? (

@@ -16,6 +16,11 @@
     "concurrency": 2,
     "chuKyMs": 500
   },
+  "bao_mat": {
+    "che_do": "tin_cay",
+    "phien_ttl_phut": 10080,
+    "cookie_secure": false
+  },
   "kenh": {
     "url_goc": "http://localhost:3000",
     "email": {
