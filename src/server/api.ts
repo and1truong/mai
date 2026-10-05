@@ -2345,10 +2345,14 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
     route("GET", "/api/goi-y-ket-qua", (req, _p, c) => {
       const q = new URL(req.url).searchParams;
       return ok({
-        ds_goi_y: danhSachGoiYKetQua(c.db, {
-          thongDiepId: q.get("thong_diep_id") ?? undefined,
-          trangThai: q.get("trang_thai") ?? undefined,
-        }),
+        ds_goi_y: danhSachGoiYKetQua(
+          c.db,
+          {
+            thongDiepId: q.get("thong_diep_id") ?? undefined,
+            trangThai: q.get("trang_thai") ?? undefined,
+          },
+          c.kenh,
+        ),
       });
     }),
     route("POST", "/api/goi-y-ket-qua/:id/chap-nhan", async (_req, p, c) =>

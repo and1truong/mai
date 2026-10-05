@@ -96,7 +96,7 @@ CREATE TABLE goi_y_ket_qua (
   bat_dinh TEXT NOT NULL DEFAULT '',       -- 'thap' | 'vua' | 'cao'
   hanh_dong TEXT NOT NULL DEFAULT '{}',    -- JSON tham số tạo artifact khi chấp nhận
   ket_qua TEXT NOT NULL DEFAULT '{}',      -- JSON liên kết entity đã tạo
-  trang_thai TEXT NOT NULL DEFAULT 'moi',  -- 'moi' | 'chap_nhan' | 'tu_choi'
+  trang_thai TEXT NOT NULL DEFAULT 'moi',  -- 'moi' | 'het_han' | 'chap_nhan' | 'tu_choi'
   tao_luc TEXT NOT NULL,
   quyet_luc TEXT
 );

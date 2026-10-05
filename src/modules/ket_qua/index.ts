@@ -28,6 +28,7 @@ import {
   ghiSuKien,
   layBanTheHien,
   layCampaign,
+  layThiTruongTheoThongDiep,
   layThongDiep,
   taoBanTheHien,
   timBanTheHien,
@@ -882,7 +883,7 @@ export type GoiYKetQua = {
   bat_dinh: string; // 'thap' | 'vua' | 'cao'
   hanh_dong: Record<string, unknown>;
   ket_qua: Record<string, unknown>;
-  trang_thai: string; // 'moi' | 'chap_nhan' | 'tu_choi'
+  trang_thai: string; // 'moi' | 'chap_nhan' | 'tu_choi' | 'het_han'
   tao_luc: string;
   quyet_luc: string | null;
 };
@@ -922,8 +923,13 @@ function batDinhTheoMau(tongSuKien: number): string {
 
 // Sinh ứng viên gợi ý cho một thông điệp — deterministic trên số liệu
 // hiện có. Mỗi quan sát ghi rõ nguồn (first_party/provider/nhap_tay/
-// he_thong) để độc giả truy ngược bằng chứng.
-function ungVienTheoThongDiep(db: Database, td: ThongDiep): UngVien[] {
+// he_thong) để độc giả truy ngược bằng chứng. cauHinhKenh quyết định
+// san_sang của adapter (email thiếu config → không gợi ý kênh email).
+function ungVienTheoThongDiep(
+  db: Database,
+  td: ThongDiep,
+  cauHinhKenh?: CauHinhKenh,
+): UngVien[] {
   const dsBth = danhSachBanTheHien(db, { thongDiepId: td.id });
   const dsGiao = danhSachTatCaGiao(db, 500).filter((g) =>
     dsBth.some((b) => b.id === g.ban_the_hien_id),
@@ -945,7 +951,7 @@ function ungVienTheoThongDiep(db: Database, td: ThongDiep): UngVien[] {
   // đăng được khác chưa dùng → đề xuất biến thể cho kênh đó. Email chỉ
   // gợi ý khi adapter sẵn sàng (thiếu config thì giao fail vô ích).
   const sanSang = new Set(
-    layDsKenh(undefined)
+    layDsKenh(cauHinhKenh)
       .filter((a) => a.san_sang && a.nang_luc.includes("dang"))
       .map((a) => a.id),
   );
@@ -1093,7 +1099,7 @@ function ungVienTheoThongDiep(db: Database, td: ThongDiep): UngVien[] {
     (g) =>
       ["chap_nhan", "da_giao"].includes(g.trang_thai) &&
       !g.la_test &&
-      !!layAdapter(undefined, g.kenh)?.layMetric,
+      !!layAdapter(cauHinhKenh, g.kenh)?.layMetric,
   );
   const coMetricAdapter = giaoCoMetric.length > 0;
   if (coMetricAdapter) {
@@ -1133,14 +1139,19 @@ function ungVienTheoThongDiep(db: Database, td: ThongDiep): UngVien[] {
 // Đồng bộ ứng viên vào bảng goi_y_ket_qua: khoa ổn định → đọc lặp không
 // tạo trùng; gợi ý đã quyết (chap_nhan/tu_choi) không bị reset. Dòng
 // 'moi' không còn trong tập ứng viên → đóng 'het_han' để không chấp nhận
-// được trên quan sát lỗi thời (vd link đã có click).
-export function dongBoGoiY(db: Database, phamVi: { thongDiepId?: string } = {}): void {
+// được trên quan sát lỗi thời (vd link đã có click); 'het_han' hồi sinh
+// 'moi' khi khoa xuất hiện lại (vd nháp mở xong được duyệt).
+export function dongBoGoiY(
+  db: Database,
+  phamVi: { thongDiepId?: string } = {},
+  cauHinhKenh?: CauHinhKenh,
+): void {
   const dsTd = phamVi.thongDiepId
     ? ([layThongDiep(db, phamVi.thongDiepId)].filter(Boolean) as ThongDiep[])
     : danhSachThongDiep(db);
   txn(db, () => {
     for (const td of dsTd) {
-      const uvMoi = ungVienTheoThongDiep(db, td);
+      const uvMoi = ungVienTheoThongDiep(db, td, cauHinhKenh);
       const dsKhoa = [...new Set(uvMoi.map((u) => u.khoa))];
       const ph = dsKhoa.length > 0 ? dsKhoa.map(() => "?").join(",") : "''";
       db.query(
@@ -1153,11 +1164,21 @@ export function dongBoGoiY(db: Database, phamVi: { thongDiepId?: string } = {}):
           .query("SELECT id FROM goi_y_ket_qua WHERE khoa = ?")
           .get(uv.khoa) as { id: string } | null;
         if (cu) {
-          // Số liệu có thể đổi — làm tươi mô tả + quan sát cho bản 'moi'.
+          // Số liệu + tham số hành động có thể đổi — làm tươi mọi trường
+          // dẫn xuất cho bản còn mở; 'het_han' quay lại 'moi' khi khoa
+          // xuất hiện lại (bản đã quyết không động vào).
           db.query(
-            `UPDATE goi_y_ket_qua SET mo_ta = ?, quan_sat = ?, bat_dinh = ?
-             WHERE khoa = ? AND trang_thai = 'moi'`,
-          ).run(uv.mo_ta, JSON.stringify(uv.quan_sat), uv.bat_dinh, uv.khoa);
+            `UPDATE goi_y_ket_qua
+               SET trang_thai = 'moi', tieu_de = ?, mo_ta = ?, quan_sat = ?, bat_dinh = ?, hanh_dong = ?
+             WHERE khoa = ? AND trang_thai IN ('moi', 'het_han')`,
+          ).run(
+            uv.tieu_de,
+            uv.mo_ta,
+            JSON.stringify(uv.quan_sat),
+            uv.bat_dinh,
+            JSON.stringify(uv.hanh_dong),
+            uv.khoa,
+          );
           continue;
         }
         db.query(
@@ -1185,8 +1206,9 @@ export function dongBoGoiY(db: Database, phamVi: { thongDiepId?: string } = {}):
 export function danhSachGoiYKetQua(
   db: Database,
   loc: { thongDiepId?: string; trangThai?: string } = {},
+  cauHinhKenh?: CauHinhKenh,
 ): GoiYKetQua[] {
-  dongBoGoiY(db, { thongDiepId: loc.thongDiepId });
+  dongBoGoiY(db, { thongDiepId: loc.thongDiepId }, cauHinhKenh);
   const ds = db
     .query("SELECT * FROM goi_y_ket_qua ORDER BY tao_luc DESC")
     .all() as DongGoiY[];
@@ -1261,11 +1283,7 @@ export async function chapNhanGoiY(
       const dtId =
         danhSachDoiTuong(db).find((d) => d.ten === khoa.doi_tuong)?.id ?? undefined;
       const cpJob = tdJob?.campaign_id ? layCampaign(db, tdJob.campaign_id) : null;
-      const ttId = (
-        db
-          .query("SELECT id FROM thi_truong WHERE thong_diep_id = ?")
-          .get(khoa.thong_diep_id) as { id: string } | null
-      )?.id;
+      const ttId = layThiTruongTheoThongDiep(db, khoa.thong_diep_id)?.id;
       const { job, da_tao } = enqueueJob(db, {
         loai: "sinh_ban_the_hien",
         payload: {
