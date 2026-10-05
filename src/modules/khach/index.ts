@@ -857,7 +857,8 @@ function tinhQuyVe(
   const ds: { mo_hinh: MoHinhQuyVe; loai_dich: string; dich_id: string; do_tin: string }[] = [];
   // --- first_touch ---
   const dau = cd.khach_id ? layDauChamDau(db, cd.khach_id) : null;
-  if (dau) {
+  // Touch ở TƯƠNG LAI so với conversion (backdated) không phải touch.
+  if (dau && dau.xay_ra_luc <= cd.xay_ra_luc) {
     const dich = dichTuRefs(dau);
     ds.push({ mo_hinh: "first_touch", loai_dich: dich.loai_dich, dich_id: dich.dich_id, do_tin: "chac" });
   } else {
@@ -869,8 +870,8 @@ function tinhQuyVe(
     // Conversion tự mang ref (vd đơn hàng gắn campaign) → chắc chắn.
     ds.push({ mo_hinh: "last_touch", loai_dich: trucTiep.loai_dich, dich_id: trucTiep.dich_id, do_tin: "chac" });
   } else if (cd.khach_id) {
-    // Touch = interaction có ref; event không ref (vd chính event mua vừa
-    // ghi) không phải touch — tìm event có ref gần nhất trước conversion.
+    // Touch = interaction có ref; event không ref (vd chính event mua
+    // vừa ghi trong nạp đơn) không phải touch — tìm có ref trước nhất.
     const coRef = db
       .query(
         `SELECT * FROM tuong_tac WHERE khach_id = ? AND xay_ra_luc <= ?
@@ -1013,12 +1014,12 @@ export function quyVeCuaKhach(
 // (hàng chờ cho merge/backfill sau — không mất dữ liệu).
 export function danhSachChuyenDoi(
   db: Database,
-  loc: { chua_gan?: boolean } = {},
+  loc: { chua_gan?: boolean; gioi_han?: number } = {},
 ): ChuyenDoi[] {
   const where = loc.chua_gan ? "WHERE khach_id IS NULL" : "";
   return db
-    .query(`SELECT * FROM chuyen_doi ${where} ORDER BY xay_ra_luc, rowid`)
-    .all() as ChuyenDoi[];
+    .query(`SELECT * FROM chuyen_doi ${where} ORDER BY xay_ra_luc, rowid LIMIT ?`)
+    .all(loc.gioi_han ?? 200) as ChuyenDoi[];
 }
 
 // --- Nạp đơn hàng từ hệ thống commerce (ticket #64) ---
