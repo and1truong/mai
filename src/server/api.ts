@@ -213,6 +213,7 @@ import {
   chuanHoaCauHinhKenh,
   danhSachGiao,
   danhSachNguoiNhan,
+  danhSachTatCaGiao,
   goiYKenh,
   huyDangKyNguoiNhan,
   huyGiaoHang,
@@ -2146,6 +2147,10 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       );
       return ok({ giao, da_tao });
     }),
+
+    route("GET", "/api/giao-hang", (_req, _p, c) =>
+      ok({ ds_giao: danhSachTatCaGiao(c.db) }),
+    ),
 
     route("GET", "/api/giao-hang/:id", (_req, p, c) => {
       const giao = layGiaoHang(c.db, p.id!);

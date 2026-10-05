@@ -44,6 +44,7 @@ import {
   dongBoThiTruong,
 } from "../modules/thuong_hieu/index.ts";
 import { enqueueJob } from "../modules/jobs/index.ts";
+import { huyDangKyNguoiNhan, themNguoiNhan } from "../modules/kenh/index.ts";
 import {
   datAssetBanTheHien,
   duongDanTepAsset,
@@ -82,8 +83,9 @@ function themDoiTuong(db: Database, id: string, input: DauVaoDoiTuong, tacGia: s
 export function seed(
   db: Database,
   tacGia = "demo",
-  tuyChon: { dataDir?: string } = {},
+  tuyChon: { dataDir?: string; urlGoc?: string } = {},
 ): { da_seed: string[] } {
+  const urlGoc = tuyChon.urlGoc ?? "";
   const daSeed: string[] = [];
 
   // --- Hồ sơ thương hiệu fixture: creator solo, tiệm bánh, nhà xuất bản Phúc Âm ---
@@ -2288,6 +2290,54 @@ export function seed(
     daSeed.push("story_thuong_hieu_toan_cau");
   }
 
+  // --- Story #13: kênh sở hữu — dữ liệu demo luồng giao ---
+  // Một newsletter đã duyệt (demo xem trước + giao email), danh bạ opt-in
+  // gồm 2 người đang đăng ký và 1 đã hủy (demo suppression trong xem
+  // trước). Trang nội bộ dùng seed-bth-tb-web, xuất tay dùng
+  // seed-bth-tb-ig — hai đầu ra tiệm bánh đã duyệt sẵn.
+  if (!db.query("SELECT id FROM ban_the_hien WHERE id = 'seed-bth-kenh-newsletter'").get()) {
+    const tdTiemBanh = layThongDiep(db, "seed-td-tiem-banh");
+    if (tdTiemBanh) {
+      taoBanTheHien(
+        db,
+        {
+          thong_diep_id: tdTiemBanh.id,
+          dinh_dang: "newsletter",
+          ngon_ngu: "vi",
+          doi_tuong: "Khách quen khu phố (fixture)",
+          dich_den: "",
+        },
+        tacGia,
+        { id: "seed-bth-kenh-newsletter" },
+      );
+      themRevision(
+        db,
+        {
+          ban_the_hien_id: "seed-bth-kenh-newsletter",
+          noi_dung: JSON.stringify({
+            tieu_de: "Bản tin tuần — croissant hạt dẻ ra mắt thứ Bảy",
+            tom_tat: "Ra mắt 2026-10-10T08:00, giá 45.000đ, đặt trước cho khách quen.",
+            noi_dung:
+              "Chào khách quen,\n\nTiệm ra mắt bánh croissant hạt dẻ lúc 2026-10-10T08:00 (giờ Hà Nội) — vỏ giòn nhiều lớp, nhân hạt dẻ rang xay trong ngày, giá 45.000đ một ổ.\n\nĐặt trước qua link để giữ phần: https://tiembanh.example.com/dat-hang\n\nCảm ơn quý khách đã ủng hộ tiệm.",
+          }),
+          dua_tren_revision_id: null,
+          thong_diep_revision_id: tdTiemBanh.head_revision_id,
+        },
+        tacGia,
+      );
+      chuyenTrangThai(db, "seed-bth-kenh-newsletter", "cho_duyet", "seed: gửi duyệt", tacGia);
+      const head = layBanTheHien(db, "seed-bth-kenh-newsletter")?.head_revision_id ?? undefined;
+      chuyenTrangThai(db, "seed-bth-kenh-newsletter", "da_duyet", "seed: duyệt", tacGia, head);
+    }
+  }
+  if (!db.query("SELECT id FROM nguoi_nhan WHERE email = 'ngoc@example.com'").get()) {
+    themNguoiNhan(db, { email: "ngoc@example.com", ten: "Ngọc" }, urlGoc, tacGia);
+    themNguoiNhan(db, { email: "minh@example.com", ten: "Minh" }, urlGoc, tacGia);
+    const nnHuy = themNguoiNhan(db, { email: "tam@example.com", ten: "Tâm" }, urlGoc, tacGia);
+    huyDangKyNguoiNhan(db, nnHuy.nguoi_nhan.id, urlGoc);
+    daSeed.push("story_kenh_so_huu");
+  }
+
   return { da_seed: daSeed };
 }
 
@@ -3499,7 +3549,10 @@ if (import.meta.main) {
   const cauHinh = await taiCauHinh();
   const db = moDb(cauHinh.dataDir);
   chayMigration(db);
-  const ketQua = seed(db, "demo", { dataDir: cauHinh.dataDir });
+  const ketQua = seed(db, "demo", {
+    dataDir: cauHinh.dataDir,
+    urlGoc: cauHinh.kenh.url_goc ?? "",
+  });
   log.info("seed.xong", { dataDir: cauHinh.dataDir, ...ketQua });
   db.close();
 }

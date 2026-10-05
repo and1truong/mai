@@ -681,6 +681,24 @@ export function danhSachGiao(db: Database, bthId: string): GiaoHang[] {
   return dsGiaoRaw(db, bthId).map((g) => docGiaoHieuLuc(db, g));
 }
 
+// Toàn cục cho trang Kênh: N lần giao mới nhất kèm định dạng đầu ra để
+// hiển thị nhãn — lazy vệ sinh giống danh sách theo bth.
+export function danhSachTatCaGiao(
+  db: Database,
+  gioiHan = 100,
+): (GiaoHang & { dinh_dang: string })[] {
+  const ds = (
+    db
+      .query(
+        `SELECT g.*, b.dinh_dang AS dinh_dang FROM giao_hang g
+         JOIN ban_the_hien b ON b.id = g.ban_the_hien_id
+         ORDER BY g.tao_luc DESC, g.id DESC LIMIT ?`,
+      )
+      .all(gioiHan) as (DongGiao & { dinh_dang: string })[]
+  ).map((r) => ({ ...docDongGiao(r), dinh_dang: r.dinh_dang }));
+  return ds.map((g) => ({ ...docGiaoHieuLuc(db, g), dinh_dang: g.dinh_dang }));
+}
+
 function capNhatGiao(
   db: Database,
   id: string,

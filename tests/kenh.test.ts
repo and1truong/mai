@@ -287,6 +287,8 @@ describe("kênh sở hữu — email provider", () => {
     Bun.env.MAI_EMAIL_NGUOI_NHAN_TEST = "chu@example.com";
     const app = await taoServerTam();
     seed(app.db);
+    // Story #13 seed sẵn người nhận demo — test tự khai danh bạ, xóa hết.
+    app.db.query("DELETE FROM nguoi_nhan").run();
     try {
       const bthId = await bthNewsletterDuyet(app);
       expect((await getJson(app, "/api/kenh")).json.du_lieu.ds_kenh.find((k: {id:string})=>k.id==="email").san_sang).toBe(true);
@@ -362,6 +364,7 @@ describe("kênh sở hữu — email provider", () => {
     Bun.env.MAI_EMAIL_NGUOI_NHAN_TEST = "chu@example.com";
     const app = await taoServerTam();
     seed(app.db);
+    app.db.query("DELETE FROM nguoi_nhan").run();
     try {
       const bthId = await bthNewsletterDuyet(app);
 
