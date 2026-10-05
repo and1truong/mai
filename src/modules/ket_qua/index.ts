@@ -1018,11 +1018,12 @@ function ungVienTheoThongDiep(db: Database, td: ThongDiep): UngVien[] {
   // Thu thập metric: có lần giao provider đã nhận nhưng chưa có snapshot
   // mới (<24h) → đề xuất kéo metric. Chấp nhận chạy thuThapMetricGiao.
   const giaoCoMetric = dsGiao.filter(
-    (g) => ["chap_nhan", "da_giao"].includes(g.trang_thai) && !g.la_test,
+    (g) =>
+      ["chap_nhan", "da_giao"].includes(g.trang_thai) &&
+      !g.la_test &&
+      !!layAdapter(undefined, g.kenh)?.layMetric,
   );
-  const coMetricAdapter = giaoCoMetric.some(
-    (g) => !!layAdapter(undefined, g.kenh)?.layMetric,
-  );
+  const coMetricAdapter = giaoCoMetric.length > 0;
   if (coMetricAdapter) {
     const snapMoi = giaoCoMetric
       .flatMap((g) => danhSachSoLieu(db, { chu_loai: "giao_hang", chu_id: g.id, nguon: "provider" }))
