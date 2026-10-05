@@ -18,7 +18,7 @@ test("tạo khách trống: id ổn định, property tùy chọn", async () => 
   const { status, body } = await postKhach(app.url, { ten: "Bà Lan" });
   expect(status).toBe(201);
   expect(body.ok).toBe(true);
-  const khach = body.du_lieu.khach;
+  const khach = body.du_lieu;
   expect(khach.id).toBeTruthy();
   expect(khach.ten).toBe("Bà Lan");
   expect(khach.email).toBe("");
@@ -40,7 +40,7 @@ test("resolve theo email: tạo lần đầu rồi tìm lại cùng person", asy
   });
   expect(lan2.status).toBe(200);
   expect(lan2.body.du_lieu.da_tao).toBe(false);
-  expect(lan2.body.du_lieu.khach.id).toBe(lan1.body.du_lieu.khach.id);
+  expect(lan2.body.du_lieu.id).toBe(lan1.body.du_lieu.id);
   // Provenance identity giữ nguyên.
   const dd = lan2.body.du_lieu.dinh_danh[0];
   expect(dd.gia_tri_chuan).toBe("an@example.com");
@@ -59,7 +59,7 @@ test("identity external khóa theo nguồn: hai hệ thống trùng id không đ
   });
   expect(a.status).toBe(201);
   expect(b.status).toBe(201);
-  expect(a.body.du_lieu.khach.id).not.toBe(b.body.du_lieu.khach.id);
+  expect(a.body.du_lieu.id).not.toBe(b.body.du_lieu.id);
   // Thiếu nguon với external → 400 (provenance bắt buộc).
   const thieu = await postKhach(app.url, {
     dinh_danh: [{ loai: "external", gia_tri: "X-1" }],
@@ -74,7 +74,7 @@ test("gắn identity: thành công, đụng unique của person khác → 409", 
     dinh_danh: [{ loai: "email", gia_tri: "a@x.vn" }],
   });
   const b = await postKhach(app.url, { ten: "Người B" });
-  const idB = b.body.du_lieu.khach.id;
+  const idB = b.body.du_lieu.id;
   // Gắn visitor + sdt vào B thành công.
   for (const dd of [
     { loai: "visitor", gia_tri: "v-abc-1", nguon: "web" },
@@ -107,7 +107,7 @@ test("gắn identity: thành công, đụng unique của person khác → 409", 
   expect(xung.status).toBe(409);
   const xb = await xung.json();
   expect(xb.loi.ma).toBe("XUNG_DOT_DINH_DANH");
-  expect(xb.loi.chi_tiet.khach_id).toBe(a.body.du_lieu.khach.id);
+  expect(xb.loi.chi_tiet.khach_id).toBe(a.body.du_lieu.id);
   await app.dong();
 });
 
@@ -127,8 +127,8 @@ test("resolve nhiều identity rải trên hai person → 409, không ghi nửa"
   });
   expect(r.status).toBe(409);
   expect(r.body.loi.ma).toBe("XUNG_DOT_DINH_DANH");
-  expect(r.body.loi.chi_tiet.khach_ids).toContain(a.body.du_lieu.khach.id);
-  expect(r.body.loi.chi_tiet.khach_ids).toContain(b.body.du_lieu.khach.id);
+  expect(r.body.loi.chi_tiet.khach_ids).toContain(a.body.du_lieu.id);
+  expect(r.body.loi.chi_tiet.khach_ids).toContain(b.body.du_lieu.id);
   await app.dong();
 });
 
@@ -146,7 +146,7 @@ test("external khóa theo external_id: cùng id ngoài khác gia_tri vẫn một
   });
   expect(a.status).toBe(201);
   expect(b.status).toBe(200);
-  expect(b.body.du_lieu.khach.id).toBe(a.body.du_lieu.khach.id);
+  expect(b.body.du_lieu.id).toBe(a.body.du_lieu.id);
   await app.dong();
 });
 
@@ -163,12 +163,46 @@ test("identity trùng khóa trong cùng request: dedupe, không 500", async () =
   await app.dong();
 });
 
+test("external_id phân biệt hoa-thường: hai id khác case là hai person", async () => {
+  const app = await taoServerTam();
+  // Id ngoài là opaque — không được merge ngầm hai id chỉ khác case.
+  const a = await postKhach(app.url, {
+    dinh_danh: [{ loai: "external", gia_tri: "X", nguon: "shop", external_id: "AbC-9" }],
+  });
+  const b = await postKhach(app.url, {
+    dinh_danh: [{ loai: "external", gia_tri: "Y", nguon: "shop", external_id: "abc-9" }],
+  });
+  expect(a.status).toBe(201);
+  expect(b.status).toBe(201);
+  expect(b.body.du_lieu.id).not.toBe(a.body.du_lieu.id);
+  await app.dong();
+});
+
+test("resolve gắn identity mới vào person có sẵn: ghi su_kien gan_dinh_danh", async () => {
+  const app = await taoServerTam();
+  const a = await postKhach(app.url, {
+    dinh_danh: [{ loai: "email", gia_tri: "audit@x.vn" }],
+  });
+  const idA = a.body.du_lieu.id;
+  await postKhach(app.url, {
+    dinh_danh: [
+      { loai: "email", gia_tri: "audit@x.vn" },
+      { loai: "sdt", gia_tri: "0901222333" },
+    ],
+  });
+  const ds = app.db
+    .query("SELECT * FROM su_kien WHERE entity_loai = 'khach' AND entity_id = ? AND su_kien = 'gan_dinh_danh'")
+    .all(idA);
+  expect(ds.length).toBe(1);
+  await app.dong();
+});
+
 test("gắn lại identity đã thuộc chính person: trả row cũ, không 409", async () => {
   const app = await taoServerTam();
   const a = await postKhach(app.url, {
     dinh_danh: [{ loai: "email", gia_tri: "goc@x.vn" }],
   });
-  const idA = a.body.du_lieu.khach.id;
+  const idA = a.body.du_lieu.id;
   const ddGoc = a.body.du_lieu.dinh_danh[0];
   const r = await fetch(`${app.url}/api/khach/${idA}/dinh-danh`, {
     method: "POST",
@@ -190,7 +224,7 @@ test("resolve với identity mới trên person đã có: gắn thêm, không t�
   const a = await postKhach(app.url, {
     dinh_danh: [{ loai: "email", gia_tri: "them@x.vn" }],
   });
-  const idA = a.body.du_lieu.khach.id;
+  const idA = a.body.du_lieu.id;
   const r = await postKhach(app.url, {
     dinh_danh: [
       { loai: "email", gia_tri: "them@x.vn" },
@@ -198,11 +232,11 @@ test("resolve với identity mới trên person đã có: gắn thêm, không t�
     ],
   });
   expect(r.status).toBe(200);
-  expect(r.body.du_lieu.khach.id).toBe(idA);
+  expect(r.body.du_lieu.id).toBe(idA);
   expect(r.body.du_lieu.dinh_danh).toHaveLength(2);
   // lan_cuoi_thay tăng sau khi gắn identity mới.
   const khach = await (await fetch(`${app.url}/api/khach/${idA}`)).json();
-  expect(khach.du_lieu.lan_cuoi_thay >= a.body.du_lieu.khach.lan_cuoi_thay).toBe(true);
+  expect(khach.du_lieu.lan_cuoi_thay >= a.body.du_lieu.lan_cuoi_thay).toBe(true);
   await app.dong();
 });
 

@@ -120,6 +120,16 @@ Chuyển sai → 409 `XUNG_DOT_TRANG_THAI`.
 - `consentChoGui(db, khachId, kenh, muc_dich)` là điểm kiểm duy nhất trước khi gửi — consent mới nhất có hiệu lực ngay với campaign tương lai.
 - Bridge `nguoi_nhan` (#13): subscribe mới → person (identity email) + consent `email/marketing=cho` + event `dang_ky`; hủy (link hoặc tay) → `tu_choi` + event `huy_dang_ky`. Chỉ khi transition `nguoi_nhan` thật (da_tao/da_huy); khoa_idem `nb:<huong>:<email>`. Suppression `nguoi_nhan` vẫn là chặn cứng ở delivery boundary — consent là lớp audit phía person, không thay nó.
 
+- Identity `external`/`social`: khóa `<nguon>:<id_ngoai>` — `nguon` lowercase, phần id **giữ nguyên case** (opaque của hệ thống nguồn; fold case sẽ merge ngầm). `POST /api/khach` trả shape phẳng giống `GET /api/khach/:id` (`{...khach, dinh_danh, da_tao}`). Resolve gắn identity mới vào person có sẵn cũng `ghi_su_kien 'gan_dinh_danh'`. Ghi chú cho #67: person `trang_thai='da_gop'` chưa tồn tại đường nào set — khi làm merge phải xử lý resolve/liệt kê redirect sang person đích.
+
+### Conversion & attribution (#63)
+
+- `chuyen_doi`: `khach_id` **nullable** — conversion không resolve được person vẫn INSERT, giữ nguyên để backfill; `nguon` + `khoa_idem` bắt buộc (idempotency); `tien_te` (ISO 3 ký tự) bắt buộc khi có `gia_tri`, không trộn tiền tệ (không FX).
+- `dau_cham_dau` = first-touch: interaction ĐẦU TIÊN của person mang ref attribution (`campaign_id`/`link_dich_id`/`ban_the_hien_id`/`giao_hang_id` khác rỗng). `INSERT OR IGNORE` một lần — event sau không ghi đè. Giới hạn POC: chỉ tính lại khi sửa tay dữ liệu gốc.
+- `quy_ve`: 2 row mỗi conversion, `mo_hinh` `first_touch|last_touch` lưu CÙNG kết quả. Ưu tiên đích: `campaign` → `link_dich` → `ban_the_hien` → `giao_hang`. `first_touch` chỉ tính touch `xay_ra_luc <=` conversion (conversion backdated trước touch đầu → `khong_ro`). `last_touch` ưu tiên ref trên chính conversion, không thì interaction gần nhất CÓ ref trước `xay_ra_luc` (event không ref — vd chính event `mua` — không phải touch), không thì `nguon` của interaction gần nhất (`khong_chac`). Không touch nào → `loai_dich='khong_ro'` + `do_tin='khong_chac'`, không bịa.
+- `POST /api/khach/chuyen-doi` (khach_id | dinh_danh | trống → unattributed; dinh_danh malformed → 400, không nuốt thành unattributed; gia_tri non-number → 400). Idempotency kiểm `khoa_idem` TRƯỚC resolve — replay không tạo person/identity mồ côi. `GET /api/khach/:id/quy-ve`; `GET /api/chuyen-doi?chua_gan=1&gioi_han=` (cap 500, mặc định 200).
+- Report chỉ nói "quy về theo model X" — không biến correlation thành causation.
+
 ## Nạp nguồn & asset (#17)
 
 - Nguồn vào: dán text (`POST /api/nguon/nhap`, `POST /api/nguon/:id/nhap`) hoặc upload file (`POST /api/assets?ten=...`).

@@ -10,7 +10,7 @@ async function taoKhachQuaApi(url: string) {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ ten: "Khách A" }),
   });
-  return (await r.json()).du_lieu.khach.id as string;
+  return (await r.json()).du_lieu.id as string;
 }
 
 async function datDongY(url: string, khachId: string, body: unknown) {

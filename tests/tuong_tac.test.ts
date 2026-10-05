@@ -77,7 +77,7 @@ test("khach_id trực tiếp: person phải tồn tại; timeline đúng thứ t
       body: JSON.stringify({ ten: "A" }),
     })
   ).json();
-  const id = tao.du_lieu.khach.id;
+  const id = tao.du_lieu.id;
   const vong = await postSuKien(app.url, {
     khach_id: "kh-ao",
     loai: "xem",
