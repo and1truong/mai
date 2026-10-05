@@ -343,8 +343,8 @@ function ChiTietKhachView({ id }: { id: string }) {
         method: "PUT",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          ...(them ? { them } : {}),
-          ...(bo ? { bo } : {}),
+          ...(them ? { them: [them] } : {}),
+          ...(bo ? { bo: [bo] } : {}),
           nguon: "tay",
         }),
       });
