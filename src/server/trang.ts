@@ -8,6 +8,7 @@ import {
 import { layDinhDang } from "../modules/formats/index.ts";
 import { renderHtml } from "../modules/formats/render.ts";
 import { docHtmlDayDu } from "../modules/formats/xuat.ts";
+import { huyDangKyTheoToken } from "../modules/kenh/index.ts";
 
 // Trang cơ bản do MAI tự phục vụ (#6): GET /p/<ban_the_hien_id> → render
 // đúng revision đã ghim trong record xuat_ban mới nhất của bản đó — chỉ
@@ -49,4 +50,24 @@ export function phucVuTrang(db: Database, pathname: string): Response | null {
   return new Response(html, {
     headers: { "content-type": "text/html; charset=utf-8" },
   });
+}
+
+// Link hủy đăng ký một chạm trong email (#13): GET /huy-dang-ky?token=<t>.
+// Token là bí mật theo người nhận (không liệt kê được). Sai token → 404;
+// đúng token → suppression vĩnh viễn, kênh email không gửi tới nữa.
+export function phucVuHuyDangKy(db: Database, token: string | null): Response {
+  const ketQua = token ? huyDangKyTheoToken(db, token) : null;
+  if (!ketQua) {
+    return new Response(
+      "<!doctype html><html><body><p>Link hủy đăng ký không hợp lệ hoặc đã hết hạn.</p></body></html>",
+      { status: 404, headers: { "content-type": "text/html; charset=utf-8" } },
+    );
+  }
+  const thongDiep = ketQua.da_huy
+    ? `Đã hủy đăng ký cho ${ketQua.email}. Bạn sẽ không nhận email nữa.`
+    : `${ketQua.email} đã hủy đăng ký trước đó.`;
+  return new Response(
+    `<!doctype html><html><body><p>${thongDiep}</p></body></html>`,
+    { headers: { "content-type": "text/html; charset=utf-8" } },
+  );
 }

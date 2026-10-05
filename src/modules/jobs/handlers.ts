@@ -18,14 +18,15 @@ import {
   type KetQuaTask,
   type NhaCungCap,
 } from "../generation/index.ts";
+import { taoHandlerGiaoKenh, type CauHinhKenh } from "../kenh/index.ts";
 import { LoiVinhVien, type JobCtx, type JobHandler } from "./index.ts";
 
-// Handler của từng loại job nền — đăng ký loại mới ở đây (#20, sau này #13).
+// Handler của từng loại job nền — đăng ký loại mới ở đây (#20, #13).
 // Chữ ký: (payload, ctx) → Promise<ket_qua>. Handler chịu trách nhiệm
 // idempotency: kiểm lại entity/revision đích trước khi commit (attempt là
 // ít-nhất-một-lần). Ném LoiVinhVien cho lỗi không retry được; lỗi khác → retry.
 
-export const LOAI_JOB_HO_TRO = ["sinh_ban_the_hien"] as const;
+export const LOAI_JOB_HO_TRO = ["sinh_ban_the_hien", "giao_kenh"] as const;
 
 // Sửa đầu ra không hợp lệ tối đa một lần trong cùng attempt — sau đó fail
 // vĩnh viễn để người dùng inspect/sửa thủ công (bounded repair).
@@ -34,6 +35,7 @@ const SO_LAN_SUA_TOI_DA = 1;
 export type TuyChonHandlers = {
   gioi_han?: Partial<GioiHanContext>;
   gia?: { vao_moi_1k: number; ra_moi_1k: number };
+  kenh?: CauHinhKenh;
 };
 
 // Gọi provider + ghi usage cho MỌI lần gọi (ok lẫn lỗi). LoiApi 4xx/409 và
@@ -249,5 +251,8 @@ export function taoHandlers(
         throw e;
       }
     },
+    // Giao nội dung đã duyệt qua kênh sở hữu (#13): job kiểm lại đúng
+    // revision + quyền duyệt trước khi gửi, adapter ghi receipt/idempotent.
+    giao_kenh: taoHandlerGiaoKenh(tuyChon.kenh),
   };
 }

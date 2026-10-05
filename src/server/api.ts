@@ -210,6 +210,21 @@ import {
 } from "../modules/thay_doi/index.ts";
 import { danhSachSuDungSinh } from "../modules/generation/index.ts";
 import {
+  chuanHoaCauHinhKenh,
+  danhSachGiao,
+  danhSachNguoiNhan,
+  goiYKenh,
+  huyDangKyNguoiNhan,
+  huyGiaoHang,
+  layAdapter,
+  layDsKenh,
+  layGiaoHang,
+  taoGiaoHang,
+  themNguoiNhan,
+  thuLaiGiaoHang,
+  xemTruocGiao,
+} from "../modules/kenh/index.ts";
+import {
   cauHoiLamRo,
   chonDauRa,
   danhSachBanTheHienCu,
@@ -223,7 +238,7 @@ import {
   viecGanDay,
   type DauRaDeXuat,
 } from "../modules/luong/index.ts";
-import type { CauHinhAi } from "../config.ts";
+import type { CauHinhAi, CauHinhKenh } from "../config.ts";
 import { docBody, kiemTraByteDaDoc, kiemTraGioiHanBody, loi, ok } from "./http.ts";
 
 export type ApiCtx = {
@@ -232,6 +247,7 @@ export type ApiCtx = {
   actor: string;
   provider: { ten: string; la_fixture: boolean; model?: string };
   ai: CauHinhAi;
+  kenh: CauHinhKenh;
 };
 
 type Handler = (
@@ -2070,6 +2086,118 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
         }),
       );
     }),
+
+    // --- Kênh sở hữu (#13) ---
+    // Danh mục adapter: mỗi kênh quảng bá đúng năng lực đã hiện thực;
+    // email chưa cấu hình đủ → san_sang=false (không có credential trong
+    // response — chỉ cờ sẵn sàng).
+    route("GET", "/api/kenh", (_req, _p, c) =>
+      ok({
+        ds_kenh: layDsKenh(c.kenh).map((a) => ({
+          id: a.id,
+          nhan: a.nhan,
+          mo_ta: a.mo_ta,
+          nang_luc: a.nang_luc,
+          san_sang: a.san_sang,
+          dong_bo: !!a.dong_bo,
+        })),
+      }),
+    ),
+
+    // Xem trước payload sẽ giao — không gửi gì. ?kenh=<id>&la_test=1.
+    route("GET", "/api/ban-the-hien/:id/giao/xem-truoc", (req, p, c) => {
+      const q = new URL(req.url).searchParams;
+      const kenh = q.get("kenh") ?? "";
+      if (!kenh) loiRequest(400, "VALIDATION", "Thiếu tham số kenh.");
+      return ok(xemTruocGiao(c.db, p.id!, kenh, c.kenh, q.get("la_test") === "1"));
+    }),
+
+    route("GET", "/api/ban-the-hien/:id/giao", (_req, p, c) => {
+      const bth = layBanTheHien(c.db, p.id!);
+      if (!bth) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy bản thể hiện.");
+      return ok({ ds_giao: danhSachGiao(c.db, p.id!), goi_y_kenh: goiYKenh(bth) });
+    }),
+
+    // Tạo lần giao (hoặc đã lên lịch) cho head revision đã duyệt. Adapter
+    // đồng bộ (dry-run, xuất tay) chạy ngay trong request; còn lại qua job
+    // bền. Dedupe: còn 'cho_giao' cùng kênh+revision+đích → trả lần cũ.
+    route("POST", "/api/ban-the-hien/:id/giao", async (req, p, c) => {
+      const body = await docBody(req);
+      const dsLoi: string[] = [];
+      const kenh = batBuocChuoi(body.kenh, "kenh", dsLoi);
+      const lenLich = chuanHoaThoiDiem(body.len_lich_luc, "len_lich_luc", dsLoi);
+      const muiGio = tuyChonChuoi(body.mui_gio);
+      if (muiGio && !laMuiGio(muiGio)) {
+        dsLoi.push("mui_gio phải là tên timezone IANA (vd 'Asia/Ho_Chi_Minh').");
+      }
+      nemLoiValidation(dsLoi);
+      const { giao, da_tao } = await taoGiaoHang(
+        c.db,
+        {
+          ban_the_hien_id: p.id!,
+          kenh,
+          dich_den: tuyChonChuoi(body.dich_den) || undefined,
+          len_lich_luc: lenLich,
+          mui_gio: muiGio || undefined,
+          la_test: body.la_test === true,
+        },
+        c.kenh,
+        c.actor,
+      );
+      return ok({ giao, da_tao });
+    }),
+
+    route("GET", "/api/giao-hang/:id", (_req, p, c) => {
+      const giao = layGiaoHang(c.db, p.id!);
+      if (!giao) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy lần giao.");
+      return ok(giao);
+    }),
+
+    // Hủy trước khi gửi: chỉ 'cho_giao' (kể cả đã lên lịch) hủy được —
+    // đã giao/rồi thì không "rút" được.
+    route("POST", "/api/giao-hang/:id/huy", (_req, p, c) => ok(huyGiaoHang(c.db, p.id!))),
+
+    // Retry tay cho 'loi'/'khong_chac' — cùng khoa_idem provider, retry an
+    // toàn; vẫn đi qua kiểm hiệu lực (revision/duyệt/nguồn đổi → 409).
+    route("POST", "/api/giao-hang/:id/thu-lai", (_req, p, c) =>
+      ok(thuLaiGiaoHang(c.db, p.id!, c.kenh)),
+    ),
+
+    // Metric giao hàng mà provider có sẵn — 'chap_nhan' mới chỉ là provider
+    // đã nhận; đây là bước đọc trạng thái tới đích thực tế.
+    route("GET", "/api/giao-hang/:id/metric", async (_req, p, c) => {
+      const giao = layGiaoHang(c.db, p.id!);
+      if (!giao) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy lần giao.");
+      const adapter = layAdapter(c.kenh, giao.kenh);
+      if (!adapter?.layMetric) {
+        loiRequest(400, "VALIDATION", `Kênh '${giao.kenh}' không có metric giao hàng.`);
+      }
+      return ok(await adapter!.layMetric!(giao));
+    }),
+
+    // Danh bạ người nhận opt-in do chủ sở hữu khai báo (không tự tìm list).
+    route("GET", "/api/nguoi-nhan", (_req, _p, c) =>
+      ok({ ds_nguoi_nhan: danhSachNguoiNhan(c.db, chuanHoaCauHinhKenh(c.kenh).url_goc) }),
+    ),
+    route("POST", "/api/nguoi-nhan", async (req, _p, c) => {
+      const body = await docBody(req);
+      const dsLoi: string[] = [];
+      const email = batBuocChuoi(body.email, "email", dsLoi);
+      nemLoiValidation(dsLoi);
+      return ok(
+        themNguoiNhan(
+          c.db,
+          { email, ten: tuyChonChuoi(body.ten), nguon: tuyChonChuoi(body.nguon) },
+          chuanHoaCauHinhKenh(c.kenh).url_goc,
+          c.actor,
+        ),
+      );
+    }),
+    // Hủy đăng ký thủ công một địa chỉ — cùng đường suppression như link
+    // trong email, không hồi sinh được bằng cách thêm lại.
+    route("POST", "/api/nguoi-nhan/:id/huy-dang-ky", (_req, p, c) =>
+      ok(huyDangKyNguoiNhan(c.db, p.id!, chuanHoaCauHinhKenh(c.kenh).url_goc)),
+    ),
 
     // --- Job ---
     route("GET", "/api/job", (req, _p, c) => {

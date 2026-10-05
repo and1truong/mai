@@ -18,11 +18,18 @@ export type CauHinhAi = {
   gia_moi_1k_token_ra?: number;
 };
 
+// Kênh sở hữu (#13): kiểu cấu hình sống ở modules/kenh. Secret chỉ đọc từ
+// env phía server — config giữ TÊN biến (api_key_env), không giữ giá trị key.
+import type { CauHinhKenh } from "./modules/kenh/index.ts";
+
+export type { CauHinhKenh };
+
 export type CauHinh = {
   port: number;
   dataDir: string;
   ai: CauHinhAi;
   jobs: { concurrency: number; chuKyMs: number };
+  kenh: CauHinhKenh;
 };
 
 const MAC_DINH: CauHinh = {
@@ -30,6 +37,7 @@ const MAC_DINH: CauHinh = {
   dataDir: "./data",
   ai: { provider: "fixture" },
   jobs: { concurrency: 2, chuKyMs: 500 },
+  kenh: {},
 };
 
 function soTuyChon(v: unknown): number | undefined {
@@ -69,6 +77,21 @@ export async function taiCauHinh(env: Record<string, string | undefined> = Bun.e
         10,
         Number(env.MAI_JOB_CHU_KY_MS ?? tuFile.jobs?.chuKyMs ?? MAC_DINH.jobs.chuKyMs),
       ),
+    },
+    kenh: {
+      // url_goc: env > file > base localhost theo port hiệu lực.
+      url_goc:
+        env.MAI_KENH_URL_GOC ??
+        tuFile.kenh?.url_goc ??
+        `http://localhost:${Number(env.PORT ?? tuFile.port ?? MAC_DINH.port)}`,
+      email: {
+        base_url: env.MAI_EMAIL_BASE_URL ?? tuFile.kenh?.email?.base_url,
+        api_key_env: env.MAI_EMAIL_API_KEY_ENV ?? tuFile.kenh?.email?.api_key_env,
+        from: env.MAI_EMAIL_FROM ?? tuFile.kenh?.email?.from,
+        nguoi_nhan_test:
+          env.MAI_EMAIL_NGUOI_NHAN_TEST ?? tuFile.kenh?.email?.nguoi_nhan_test,
+        timeout_ms: soTuyChon(env.MAI_EMAIL_TIMEOUT_MS ?? tuFile.kenh?.email?.timeout_ms),
+      },
     },
   };
 }
