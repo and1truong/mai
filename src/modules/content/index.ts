@@ -1326,11 +1326,11 @@ export function capNhatCampaign(
 }
 
 // Xóa campaign: thông điệp đang gắn quay về bài lẻ (campaign_id → NULL).
-export function xoaCampaign(db: Database, id: string): void {
+export function xoaCampaign(db: Database, id: string, tacGia: string): void {
   txn(db, () => {
     if (!layCampaign(db, id)) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy campaign.");
     db.query("DELETE FROM campaign WHERE id = ?").run(id);
-    ghiSuKien(db, "campaign", id, "xoa", {}, "demo");
+    ghiSuKien(db, "campaign", id, "xoa", {}, tacGia);
   });
 }
 

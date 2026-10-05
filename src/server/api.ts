@@ -254,16 +254,40 @@ import {
   viecGanDay,
   type DauRaDeXuat,
 } from "../modules/luong/index.ts";
-import type { CauHinhAi, CauHinhKenh } from "../config.ts";
+import {
+  capNhatTaiKhoan,
+  dangNhap,
+  dangXuat,
+  danhSachTaiKhoan,
+  datCookiePhien,
+  docNhapTaiKhoan,
+  docPhien,
+  docSuaTaiKhoan,
+  docTokenCookie,
+  doiMatKhau,
+  kiemTraMatKhauCu,
+  laTaiKhoanHoatDong,
+  layTaiKhoan,
+  taoTaiKhoan,
+  xoaCookiePhien,
+  type TaiKhoan,
+} from "../modules/xac_thuc/index.ts";
+import type { CauHinhAi, CauHinhBaoMat, CauHinhKenh } from "../config.ts";
 import { docBody, kiemTraByteDaDoc, kiemTraGioiHanBody, loi, ok } from "./http.ts";
 
 export type ApiCtx = {
   db: Database;
   dataDir: string;
+  // Actor ghi vào su_kien/tao_boi: id tài khoản đang đăng nhập khi chế
+  // độ bảo vệ bật; hằng 'demo' ở chế độ tin cậy (#16).
   actor: string;
   provider: { ten: string; la_fixture: boolean; model?: string };
   ai: CauHinhAi;
   kenh: CauHinhKenh;
+  bao_mat: CauHinhBaoMat;
+  // Điền per-request bởi dispatcher (không nằm trong ctx gốc):
+  tai_khoan: TaiKhoan | null; // tài khoản của phiên — null ở chế độ tin cậy / route công khai
+  phien_token: string; // token raw của phiên hiện tại (để đăng xuất xóa đúng phiên)
 };
 
 type Handler = (
@@ -272,10 +296,24 @@ type Handler = (
   ctx: ApiCtx,
 ) => Promise<Response> | Response;
 
-type Route = { method: string; pattern: RegExp; keys: string[]; handler: Handler };
+type Route = {
+  method: string;
+  pattern: RegExp;
+  keys: string[];
+  handler: Handler;
+  // 'quan_tri' = chỉ quản trị gọi được khi chế độ bảo vệ bật (403
+  // KHONG_CO_QUYEN cho biên tập). Chế độ tin cậy không kiểm vai trò —
+  // người vận hành local là quản trị ngầm.
+  vaiTro?: "quan_tri";
+};
 
 // Route nhỏ gọn, đủ dùng cho POC. Mẫu path: /api/tai-nguyen/:id.
-function route(method: string, duongDan: string, handler: Handler): Route {
+function route(
+  method: string,
+  duongDan: string,
+  handler: Handler,
+  tuyChon: { vai_tro?: "quan_tri" } = {},
+): Route {
   const keys: string[] = [];
   const pattern = new RegExp(
     "^" +
@@ -285,7 +323,22 @@ function route(method: string, duongDan: string, handler: Handler): Route {
       }) +
       "$",
   );
-  return { method, pattern, keys, handler };
+  return { method, pattern, keys, handler, vaiTro: tuyChon.vai_tro };
+}
+
+// Quản trị = vai trò quan_tri khi bảo vệ bật; chế độ tin cậy (không phiên)
+// coi người vận hành local là quản trị ngầm.
+function laQuanTri(c: ApiCtx): boolean {
+  return c.bao_mat.che_do !== "bao_ve" || c.tai_khoan?.vai_tro === "quan_tri";
+}
+
+// Route /api cố ý công khai khi bảo vệ bật: đăng nhập + trạng thái phiên
+// (client cần gọi me để biết có hiện form đăng nhập không).
+function laRouteApiCongKhai(method: string, pathname: string): boolean {
+  return (
+    (pathname === "/api/dang-nhap" && method === "POST") ||
+    (pathname === "/api/tai-khoan/me" && method === "GET")
+  );
 }
 
 // --- Helper đọc input hồ sơ ---
@@ -672,6 +725,133 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
     route("GET", "/api/health", (_req, _p, c) =>
       ok({ trang_thai: "hoat_dong", provider: c.provider }),
     ),
+
+    // --- Xác thực instance (#16) ---
+    // Đăng nhập/đăng xuất chỉ có nghĩa ở chế độ bảo vệ; chế độ tin cậy
+    // báo rõ thay vì tạo phiên không được dùng (bypass demo không được
+    // âm thầm còn bật — mọi request đã đi thẳng mà không cần phiên).
+    route("POST", "/api/dang-nhap", async (req, _p, c) => {
+      if (c.bao_mat.che_do !== "bao_ve") {
+        throw new LoiApi(
+          400,
+          "VALIDATION",
+          "Instance đang chế độ tin cậy — không cần đăng nhập.",
+        );
+      }
+      const body = await docBody(req);
+      const dsLoi: string[] = [];
+      const tenDangNhap = batBuocChuoi(body.ten_dang_nhap, "ten_dang_nhap", dsLoi);
+      const matKhau = batBuocChuoi(body.mat_khau, "mat_khau", dsLoi);
+      nemLoiValidation(dsLoi);
+      const kq = await dangNhap(c.db, tenDangNhap, matKhau, {
+        ttlPhut: c.bao_mat.phien_ttl_phut,
+        userAgent: req.headers.get("user-agent") ?? "",
+      });
+      return new Response(JSON.stringify({ ok: true, du_lieu: { tai_khoan: kq.tai_khoan } }), {
+        status: 200,
+        headers: {
+          "content-type": "application/json; charset=utf-8",
+          "set-cookie": datCookiePhien(kq.token, {
+            ttlPhut: c.bao_mat.phien_ttl_phut,
+            secure: c.bao_mat.cookie_secure,
+          }),
+        },
+      });
+    }),
+    route("POST", "/api/dang-xuat", (_req, _p, c) => {
+      if (c.bao_mat.che_do !== "bao_ve") {
+        throw new LoiApi(
+          400,
+          "VALIDATION",
+          "Instance đang chế độ tin cậy — không có phiên để đăng xuất.",
+        );
+      }
+      if (c.phien_token) dangXuat(c.db, c.phien_token);
+      return new Response(
+        JSON.stringify({ ok: true, du_lieu: { da_dang_xuat: true } }),
+        {
+          status: 200,
+          headers: {
+            "content-type": "application/json; charset=utf-8",
+            "set-cookie": xoaCookiePhien(c.bao_mat.cookie_secure),
+          },
+        },
+      );
+    }),
+    // Trạng thái phiên + chế độ: client bootstrap gọi route này trước
+    // để quyết định hiện form đăng nhập hay app (công khai ở bảo vệ).
+    route("GET", "/api/tai-khoan/me", (_req, _p, c) =>
+      ok({ che_do: c.bao_mat.che_do, tai_khoan: c.tai_khoan }),
+    ),
+    // Quản lý tài khoản: chỉ quản trị khi bảo vệ bật (biên tập gọi trực
+    // tiếp → 403 — credential/cài đặt admin không đổi được từ biên tập).
+    route(
+      "GET",
+      "/api/tai-khoan",
+      (_req, _p, c) => ok(danhSachTaiKhoan(c.db)),
+      { vai_tro: "quan_tri" },
+    ),
+    route(
+      "POST",
+      "/api/tai-khoan",
+      async (req, _p, c) => {
+        const body = await docBody(req);
+        const dsLoi: string[] = [];
+        const nhap = docNhapTaiKhoan(body, dsLoi);
+        nemLoiValidation(dsLoi);
+        return ok(await taoTaiKhoan(c.db, nhap, c.actor), 201);
+      },
+      { vai_tro: "quan_tri" },
+    ),
+    route(
+      "PUT",
+      "/api/tai-khoan/:id",
+      async (req, p, c) => {
+        const body = await docBody(req);
+        const dsLoi: string[] = [];
+        const sua = docSuaTaiKhoan(body, dsLoi);
+        // Chặn tự giáng quyền / tự vô hiệu — tránh khóa hết quản trị.
+        if (c.tai_khoan && p.id === c.tai_khoan.id) {
+          if (sua.vai_tro !== undefined && sua.vai_tro !== "quan_tri") {
+            dsLoi.push("Không thể tự giáng vai trò của tài khoản đang đăng nhập.");
+          }
+          if (sua.trang_thai === "vo_hieu") {
+            dsLoi.push("Không thể tự vô hiệu tài khoản đang đăng nhập.");
+          }
+        }
+        nemLoiValidation(dsLoi);
+        return ok(capNhatTaiKhoan(c.db, p.id!, sua, c.actor));
+      },
+      { vai_tro: "quan_tri" },
+    ),
+    // Đổi mật khẩu: chính mình cần mat_khau_cu; quản trị reset cho người
+    // khác không cần. Biên tập không đụng được credential tài khoản khác.
+    route("POST", "/api/tai-khoan/:id/mat-khau", async (req, p, c) => {
+      if (!layTaiKhoan(c.db, p.id!)) {
+        loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy tài khoản.");
+      }
+      const laMinh = c.tai_khoan !== null && c.tai_khoan.id === p.id;
+      if (!laMinh && !laQuanTri(c)) {
+        throw new LoiApi(
+          403,
+          "KHONG_CO_QUYEN",
+          "Chỉ quản trị mới đặt lại mật khẩu của tài khoản khác.",
+        );
+      }
+      const body = await docBody(req);
+      const dsLoi: string[] = [];
+      const matKhauMoi = batBuocChuoi(body.mat_khau_moi, "mat_khau_moi", dsLoi);
+      nemLoiValidation(dsLoi);
+      if (laMinh) {
+        const matKhauCu = batBuocChuoi(body.mat_khau_cu, "mat_khau_cu", dsLoi);
+        nemLoiValidation(dsLoi);
+        if (!(await kiemTraMatKhauCu(c.db, p.id!, matKhauCu))) {
+          throw new LoiApi(401, "SAI_THONG_TIN_DANG_NHAP", "Mật khẩu hiện tại không đúng.");
+        }
+      }
+      await doiMatKhau(c.db, p.id!, matKhauMoi, c.actor);
+      return ok({ da_doi: true });
+    }),
 
     // Usage sinh nội dung (#20): provider/model/task, token khi có,
     // thời gian chạy và lỗi mỗi lần gọi.
@@ -1332,7 +1512,7 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       });
     }),
     route("DELETE", "/api/campaign/:id", (_req, p, c) => {
-      xoaCampaign(c.db, p.id!);
+      xoaCampaign(c.db, p.id!, c.actor);
       return ok({ da_xoa: true });
     }),
     // --- Thị trường của chiến dịch thương hiệu (#12) ---
@@ -1418,7 +1598,18 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       const cp = layCampaign(c.db, p.id!);
       if (!cp) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy campaign.");
       const body = await docBody(req);
-      return ok(duyetNhieu(c.db, cp, body.ds, c.actor));
+      // #16: bảo vệ bật → reviewer local phải map tài khoản thật.
+      return ok(
+        duyetNhieu(
+          c.db,
+          cp,
+          body.ds,
+          c.actor,
+          c.bao_mat.che_do === "bao_ve"
+            ? (id) => laTaiKhoanHoatDong(c.db, id)
+            : undefined,
+        ),
+      );
     }),
 
     // --- Thông điệp chuẩn ---
@@ -1921,6 +2112,15 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
             400,
             "VALIDATION",
             `nguoi_duyet_id '${nguoiDuyetId}' không có trong ds_nguoi_duyet của campaign.`,
+          );
+        }
+        // #16: chế độ bảo vệ — reviewer local phải là tài khoản thật của
+        // instance (id hoặc ten_dang_nhap), không chỉ id khai trong policy.
+        if (c.bao_mat.che_do === "bao_ve" && !laTaiKhoanHoatDong(c.db, nguoiDuyetId)) {
+          throw new LoiApi(
+            400,
+            "VALIDATION",
+            `nguoi_duyet_id '${nguoiDuyetId}' không phải tài khoản hoạt động của instance.`,
           );
         }
       }
@@ -2730,15 +2930,38 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
 
   return async (req) => {
     const url = new URL(req.url);
+    // #16: chế độ bảo vệ — giải phiên cookie trước khi so route. Mọi
+    // /api/* trừ laRouteApiCongKhai đòi phiên hợp lệ; thiếu → 401. Actor
+    // audit là id tài khoản thật, bypass demo không còn bật ở chế độ này.
+    let taiKhoan: TaiKhoan | null = null;
+    let phienToken = "";
+    const baoVe = ctx.bao_mat.che_do === "bao_ve";
+    if (baoVe) {
+      phienToken = docTokenCookie(req);
+      const phien = phienToken ? docPhien(ctx.db, phienToken) : null;
+      taiKhoan = phien ? layTaiKhoan(ctx.db, phien.tai_khoan_id) : null;
+      if (!taiKhoan && !laRouteApiCongKhai(req.method, url.pathname)) {
+        return loi(new LoiApi(401, "CHUA_DANG_NHAP", "Cần đăng nhập để dùng API."));
+      }
+    }
+    const c: ApiCtx = {
+      ...ctx,
+      tai_khoan: taiKhoan,
+      phien_token: phienToken,
+      actor: taiKhoan?.id ?? ctx.actor,
+    };
     for (const r of routes) {
       if (r.method !== req.method) continue;
       const m = r.pattern.exec(url.pathname);
       if (!m) continue;
       try {
+        if (r.vaiTro === "quan_tri" && !laQuanTri(c)) {
+          throw new LoiApi(403, "KHONG_CO_QUYEN", "Chỉ tài khoản quản trị gọi được endpoint này.");
+        }
         const thamSo = Object.fromEntries(
           r.keys.map((k, i) => [k, decodeURIComponent(m[i + 1]!)]),
         );
-        return await r.handler(req, thamSo, ctx);
+        return await r.handler(req, thamSo, c);
       } catch (e) {
         if (e instanceof URIError) {
           return loi(new LoiApi(400, "VALIDATION", "Tham số URL không hợp lệ."));

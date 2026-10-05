@@ -1,6 +1,6 @@
 import { rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { taiCauHinh } from "../config.ts";
+import { taiCauHinh, type CauHinhBaoMat } from "../config.ts";
 import { log } from "../log.ts";
 import { layNhaCungCap } from "../modules/generation/index.ts";
 import { khoiDongRunner } from "../modules/jobs/index.ts";
@@ -11,7 +11,8 @@ import { loi } from "./http.ts";
 import { phucVuTinh } from "./static.ts";
 import { phucVuHuyDangKy, phucVuLinkDich, phucVuTrang } from "./trang.ts";
 
-// POC chạy local tin cậy với actor demo cố định. Access control instance: #16 (P1).
+// POC chạy local tin cậy với actor demo cố định. Chế độ bảo vệ (#16)
+// thay actor này bằng id tài khoản đang đăng nhập — demo chỉ còn ở tin_cay.
 export const ACTOR_DEMO = "demo";
 
 export type TuyChonServer = {
@@ -19,6 +20,8 @@ export type TuyChonServer = {
   dataDir?: string;
   chuKyJobMs?: number;
   concurrencyJob?: number;
+  // Override chế độ bảo mật (test); bỏ trống = theo config file/env.
+  bao_mat?: Partial<CauHinhBaoMat>;
 };
 
 // Một process duy nhất: API + static frontend + job runner nền.
@@ -40,6 +43,7 @@ export async function startServer(tuyChon: TuyChonServer = {}) {
   const cauHinh = await taiCauHinh();
   const dataDir = resolve(tuyChon.dataDir ?? cauHinh.dataDir);
   const port = tuyChon.port ?? cauHinh.port;
+  const baoMat: CauHinhBaoMat = { ...cauHinh.bao_mat, ...tuyChon.bao_mat };
 
   const db = moDb(dataDir);
   chayMigration(db);
@@ -76,6 +80,10 @@ export async function startServer(tuyChon: TuyChonServer = {}) {
     provider: { ten: provider.ten, la_fixture: provider.la_fixture, model: provider.model },
     ai: cauHinh.ai,
     kenh: cauHinh.kenh,
+    bao_mat: baoMat,
+    // Giá trị mặc định — dispatcher điền lại per-request.
+    tai_khoan: null,
+    phien_token: "",
   });
   const distDir = resolve(import.meta.dir, "../../dist/client");
 
@@ -125,7 +133,12 @@ export async function startServer(tuyChon: TuyChonServer = {}) {
     },
   });
 
-  log.info("server.khoi_dong", { port: server.port, dataDir, provider: provider.ten });
+  log.info("server.khoi_dong", {
+    port: server.port,
+    dataDir,
+    provider: provider.ten,
+    che_do: baoMat.che_do,
+  });
 
   // Lockfile cho scripts (reset/restore) biết server nào đang giữ dataDir.
   const tepLock = join(dataDir, "mai.server.lock");

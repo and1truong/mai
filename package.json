@@ -9,6 +9,7 @@
     "build": "bun build ./src/client/index.html --outdir ./dist/client --minify",
     "start": "bun src/server/index.ts",
     "reset": "bun scripts/reset.ts",
+    "tao-tai-khoan": "bun scripts/tao-tai-khoan.ts",
     "seed": "bun src/server/seed.ts",
     "backup": "bun scripts/backup.ts",
     "restore": "bun scripts/restore.ts",
