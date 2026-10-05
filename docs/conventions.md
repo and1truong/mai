@@ -167,6 +167,16 @@ Chuyển sai → 409 `XUNG_DOT_TRANG_THAI`.
 - Edge: nguồn/đích thiếu → 404/400, tự gộp → 400, nguồn đã gộp → 400 (gộp vào person cuối), đích đã gộp → 400. `giai_thich_doi` đọc qua `layKhach`/`danhSachKhach` trả OBJECT (cùng kiểu với derive live) — một kiểu dữ liệu cho mọi endpoint khách.
 - Giới hạn POC: không unmerge (ghi rõ), không bulk auto-merge — merge là hành động tường minh qua API.
 
+### Resolve audience từ segment (#68)
+
+- `campaign.segment_id` + kênh `email`: job `giao_kenh` resolve audience TẠI LÚC GỬI — sau `kiemTraConHieuGiao` (approval #13 giữ nguyên: chưa qua duyệt → không resolve, không gửi). `damBaoAudienceGiao`: `thanhVienSegmentAll(segment_id)` → identity `email` (kênh khác map riêng trong `LOAI_DINH_DANH_THEO_KENH`) → gate theo thứ tự `khong_dinh_danh` → `huy_dang_ky` (suppression `nguoi_nhan`, vẫn là boundary cuối của #13) → `khong_consent` (`consentChoGui(khach, kenh, 'marketing')`).
+- `doi_tuong_giao` (migration 0028): snapshot một dòng mỗi thành viên `{giao_hang_id, khach_id, dinh_danh_id, email, quyet_dinh: gui|bo_qua, ly_do}` — ghi một lần trong một transaction, không sửa sau giao. `GET /api/giao-hang/:id` trả thêm `doi_tuong` cho audit/reporting.
+- Idempotent theo lần giao: snapshot đã có → tái dùng từ bảng (retry không resolve lại, không đổi danh sách giữa các lần thử). Consent rút giữa lúc tạo giao và lúc job chạy → bị loại ngay lần gửi đó (resolve lúc gửi, không phải lúc tạo giao).
+- Delivery boundary (#13): snapshot chỉ đóng băng quyết định RESOLVE — trước mỗi lần gửi adapter kiểm lại `lyDoChanLucGiao` (suppression `nguoi_nhan` + `consentChoGui`); hủy đăng ký/rút consent giữa hai attempt vẫn bị chặn, lý do vào `chi_tiet.bo_qua_gui[khach_id]` (không sửa snapshot — hai tầng audit: quyết định resolve vs hành vi lúc gửi).
+- Adapter email: khi `giao.chi_tiet.audience` có → gửi theo snapshot thay `danhSachNguoiNhanRaw`; `so_bo_qua` = bo_qua resolve + bo_qua lúc gửi. `so_nguoi_nhan`/`so_bo_qua` trên `giao_hang` ghi ngay sau resolve → lần giao 'loi' (toàn bộ bị gate) vẫn báo đúng. Recipient `gui` chưa có dòng `nguoi_nhan` → `urlHuy` rỗng (không bịa link hủy). `id` người nhận audience = `khach_id` (ổn định cho checkpoint `da_gui`).
+- Giới hạn POC: chỉ kênh email; không A/B split, không frequency capping, không đổi contract approval/delivery ngoài phần resolve người nhận.
+
+
 ## Nạp nguồn & asset (#17)
 
 - Nguồn vào: dán text (`POST /api/nguon/nhap`, `POST /api/nguon/:id/nhap`) hoặc upload file (`POST /api/assets?ten=...`).

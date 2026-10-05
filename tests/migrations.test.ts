@@ -54,6 +54,7 @@ test("migration chạy được và idempotent", () => {
     "segment",
     "khach_tag",
     "khach_gop",
+    "doi_tuong_giao",
     "schema_migrations",
   ]) {
     expect(bang).toContain(t);

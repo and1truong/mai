@@ -20,6 +20,7 @@ import {
   danhSachXuatBan,
   ghiSuKien,
   layBanTheHien,
+  layCampaign,
   layRevision,
   layThongDiep,
   xuatBanBanTheHien,
@@ -27,6 +28,7 @@ import {
   type Revision,
   type ThongDiep,
 } from "../content/index.ts";
+import { damBaoAudienceGiao, lyDoChanLucGiao } from "./audience.ts";
 import {
   docNoiDung,
   layDinhDang,
@@ -303,15 +305,25 @@ function adapterEmail(cauHinh: Required<CauHinhKenh>): AdapterKenh {
         }
         dsDen = [{ id: "", email: test, urlHuy: "" }];
       } else {
-        const tatCa = danhSachNguoiNhanRaw(yc.db);
-        const dangKy = tatCa.filter((n) => n.trang_thai === "dang_ky");
-        // Suppression: đã hủy đăng ký không bao giờ nằm trong danh sách gửi.
-        soBoQua = tatCa.length - dangKy.length;
-        dsDen = dangKy.map((n) => ({
-          id: n.id,
-          email: n.email,
-          urlHuy: `${cauHinh.url_goc}/huy-dang-ky?token=${n.token_huy}`,
-        }));
+        // #68: audience resolve từ segment (snapshot trong chi_tiet lúc
+        // giao) thay danh bạ nguoi_nhan mặc định.
+        const audience = Array.isArray(yc.giao.chi_tiet.audience)
+          ? (yc.giao.chi_tiet.audience as { id: string; email: string; urlHuy: string }[])
+          : null;
+        if (audience) {
+          dsDen = audience;
+          soBoQua = Number(yc.giao.chi_tiet.audience_bo_qua) || 0;
+        } else {
+          const tatCa = danhSachNguoiNhanRaw(yc.db);
+          const dangKy = tatCa.filter((n) => n.trang_thai === "dang_ky");
+          // Suppression: đã hủy đăng ký không bao giờ nằm trong danh sách gửi.
+          soBoQua = tatCa.length - dangKy.length;
+          dsDen = dangKy.map((n) => ({
+            id: n.id,
+            email: n.email,
+            urlHuy: `${cauHinh.url_goc}/huy-dang-ky?token=${n.token_huy}`,
+          }));
+        }
       }
       if (dsDen.length === 0) {
         throw new LoiApi(400, "VALIDATION", "Không có người nhận nào đang đăng ký.");
@@ -327,9 +339,26 @@ function adapterEmail(cauHinh: Required<CauHinhKenh>): AdapterKenh {
         typeof yc.giao.chi_tiet.bien_nhan === "object" && yc.giao.chi_tiet.bien_nhan !== null
           ? { ...(yc.giao.chi_tiet.bien_nhan as Record<string, string>) }
           : {};
+      // #68: người nhận audience bị chặn NGAY TRƯỚC GỬI (hủy đăng ký/
+      // rút consent giữa hai attempt) — snapshot không sửa, lý do ghi
+      // vào chi_tiet.bo_qua_gui (khach_id → ly_do), đếm vào so_bo_qua.
+      const boQuaGui: Record<string, string> =
+        typeof yc.giao.chi_tiet.bo_qua_gui === "object" && yc.giao.chi_tiet.bo_qua_gui !== null
+          ? { ...(yc.giao.chi_tiet.bo_qua_gui as Record<string, string>) }
+          : {};
+      const laAudience = Array.isArray(yc.giao.chi_tiet.audience);
       for (const den of dsDen) {
         if (den.id && daGui.has(den.id)) continue;
+        if (den.id && den.id in boQuaGui) continue;
         yc.assertConHan();
+        if (laAudience) {
+          const chan = lyDoChanLucGiao(yc.db, den.id, den.email, "email");
+          if (chan) {
+            boQuaGui[den.id] = chan;
+            ghiChiTietGiao(yc.db, yc.giao.id, { bo_qua_gui: { ...boQuaGui } });
+            continue;
+          }
+        }
         const email = dungEmail(yc, den.urlHuy || undefined);
         // Khóa idempotency per (lần giao, người nhận) — retry cùng khóa:
         // provider dedupe thay vì gửi kép.
@@ -356,9 +385,9 @@ function adapterEmail(cauHinh: Required<CauHinhKenh>): AdapterKenh {
       return {
         trang_thai: "chap_nhan",
         ma_bien_nhan: Object.values(bienNhan).join(", "),
-        so_nguoi_nhan: dsDen.length,
-        so_bo_qua: soBoQua,
-        chi_tiet: { da_gui: [...daGui], bien_nhan: bienNhan },
+        so_nguoi_nhan: dsDen.length - Object.keys(boQuaGui).length,
+        so_bo_qua: soBoQua + Object.keys(boQuaGui).length,
+        chi_tiet: { da_gui: [...daGui], bien_nhan: bienNhan, bo_qua_gui: { ...boQuaGui } },
       };
     },
     // Metric có sẵn của provider: GET /emails/{id} trả sự kiện cuối
@@ -890,7 +919,7 @@ export async function taoGiaoHang(
           ma_bien_nhan: kq.ma_bien_nhan ?? "",
           so_nguoi_nhan: kq.so_nguoi_nhan ?? 0,
           so_bo_qua: kq.so_bo_qua ?? 0,
-          chi_tiet: { ...giao.chi_tiet, ...(kq.chi_tiet ?? {}) },
+          chi_tiet: { ...docGiaoRaw(db, giao.id)!.chi_tiet, ...(kq.chi_tiet ?? {}) },
           revision_thanh_cong: revision.id,
           xong_luc: bayGio(),
         },
@@ -1128,6 +1157,35 @@ export function taoHandlerGiaoKenh(cauHinhRaw: CauHinhKenh | undefined): JobHand
       throw new LoiVinhVien(`Kênh '${giao.kenh}' không hỗ trợ đăng.`);
     }
 
+    // #68: campaign gắn segment → resolve audience tại thời điểm gửi
+    // (sau kiểm duyệt — chưa duyệt không tới đây) + snapshot
+    // doi_tuong_giao ghi một lần; retry job đọc lại snapshot.
+    const campaign = thongDiep.campaign_id
+      ? layCampaign(ctx.db, thongDiep.campaign_id)
+      : null;
+    if (campaign?.segment_id && giao.kenh === "email") {
+      const audience = damBaoAudienceGiao(
+        ctx.db,
+        giaoId,
+        campaign.segment_id,
+        giao.kenh,
+        cauHinh.url_goc ?? "",
+      );
+      if (audience) {
+        ghiChiTietGiao(ctx.db, giaoId, {
+          audience: audience.ds_gui,
+          audience_bo_qua: audience.so_bo_qua,
+          audience_segment_id: audience.segment_id,
+        });
+        // Counter trên giao_hang phản ánh resolve ngay — lần giao lỗi
+        // (vd toàn bộ bị gate) vẫn báo đúng so_bo_qua thay vì 0.
+        capNhatGiao(ctx.db, giaoId, {
+          so_nguoi_nhan: audience.ds_gui.length,
+          so_bo_qua: audience.so_bo_qua,
+        });
+      }
+    }
+
     ctx.baoTienDo({ buoc: "gui", kenh: giao.kenh });
     ctx.assertConHan();
     try {
@@ -1152,7 +1210,9 @@ export function taoHandlerGiaoKenh(cauHinhRaw: CauHinhKenh | undefined): JobHand
           ma_bien_nhan: kq.ma_bien_nhan ?? "",
           so_nguoi_nhan: kq.so_nguoi_nhan ?? 0,
           so_bo_qua: kq.so_bo_qua ?? 0,
-          chi_tiet: { ...giao.chi_tiet, ...(kq.chi_tiet ?? {}) },
+          // Merge trên chi_tiet đọc lại từ DB — giao in-memory đọc trước
+          // resolve audience/checkpoint nên stale, đè mất audience_*.
+          chi_tiet: { ...docGiaoRaw(ctx.db, giaoId)!.chi_tiet, ...(kq.chi_tiet ?? {}) },
           revision_thanh_cong: revision.id,
           loi: "",
           xong_luc: bayGio(),
