@@ -97,8 +97,9 @@ describe("merge person (#67)", () => {
     expect(ka.body.du_lieu.da_gop_vao).toBe(b);
     // List khách không còn person nguồn.
     const ls = await get(app.url, "/api/khach");
-    expect(ls.body.du_lieu.map((k: { id: string }) => k.id)).not.toContain(a);
-    expect(ls.body.du_lieu.map((k: { id: string }) => k.id)).toContain(b);
+    // #70: response bọc {ds_khach, tong}.
+    expect(ls.body.du_lieu.ds_khach.map((k: { id: string }) => k.id)).not.toContain(a);
+    expect(ls.body.du_lieu.ds_khach.map((k: { id: string }) => k.id)).toContain(b);
 
     // Audit: khach_gop đọc được + su_kien hai đầu.
     const g = await get(app.url, `/api/khach/${b}/gop`);
