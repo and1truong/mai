@@ -147,7 +147,7 @@ test("visitor cookie: /p/ đặt mai_v, person + event xem trên timeline", asyn
   // #64 có person với lan_cuoi_thay mới hơn đứng trước).
   const row = app.db
     .query("SELECT khach_id FROM dinh_danh WHERE loai = 'visitor' AND gia_tri_chuan = ?")
-    .get(visitorId) as { khach_id: string } | null;
+    .get(visitorId!) as { khach_id: string } | null;
   expect(row).toBeTruthy();
   const khach = { id: row!.khach_id };
   const dd = await (

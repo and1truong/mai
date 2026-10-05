@@ -1116,9 +1116,13 @@ export function napDonHang(
     .query("SELECT * FROM chuyen_doi WHERE khoa_idem = ?")
     .get(`nd:${khoa}`) as ChuyenDoi | null;
   if (daCo) {
+    // Replay trả đủ bản ghi cũ — event 'mua' cũng lấy lại theo khóa nd-sk.
+    const skCu = db
+      .query("SELECT * FROM tuong_tac WHERE khoa_idem = ?")
+      .get(`nd-sk:${khoa}`) as TuongTac | null;
     return {
       khach: daCo.khach_id ? layKhach(db, daCo.khach_id) : null,
-      su_kien: null,
+      su_kien: skCu,
       chuyen_doi: daCo,
       quy_ve: db
         .query("SELECT * FROM quy_ve WHERE chuyen_doi_id = ? ORDER BY mo_hinh")
