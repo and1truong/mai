@@ -105,6 +105,13 @@ Chuyển sai → 409 `XUNG_DOT_TRANG_THAI`.
 - `resolveKhach` = tìm-hoặc-tạo: identity đã có → trả person giữ; chưa có → tạo person + identity trong một transaction. `external`/`social` bắt buộc `nguon` (provenance).
 - `lan_dau_thay`/`lan_cuoi_thay` trên `khach`: tạo = lần đầu; mọi lần person được nhìn thấy sau (gắn identity, sự kiện) gọi `chamKhach` kéo `lan_cuoi_thay` về gần nhất, không lùi.
 
+### Sự kiện tương tác (#61)
+
+- `tuong_tac` = event first/second-party gắn một person: `loai` trong registry `DANH_SACH_LOAI_TUONG_TAC`, `nguon` (provenance) + `khoa_idem` bắt buộc. Refs (`ban_the_hien_id`, `campaign_id`, `link_dich_id`, `giao_hang_id`, `don_hang_ngoai_id`) là tham chiếu lỏng tới entity MAI — `POST /api/khach/su-kien` validate tồn tại trước khi ghi.
+- Idempotent: `khoa_idem` unique → delivery lặp (retry/webhook đẩy lại) trả event cũ, không nhân. Khoảng trống vẫn tính unique qua index `WHERE khoa_idem <> ''`.
+- Timeline: `GET /api/khach/:id/timeline?tu=&den=&loai=` — sắp `xay_ra_luc, id` tăng dần, mỗi event gọi `chamKhach`.
+- Bridge visitor: cookie `mai_v` (1 năm, HttpOnly, SameSite=Lax) mint ở `/p/`, `/l/`, `/huy-dang-ky`. Visitor làm thành identity loại `visitor` → event xem/click đi vào đúng person. Khóa dedupe deterministic `vt:<loai>:<ref>:<visitor>:<khung30p>` — event cùng khung 30 phút chỉ ghi một lần, lớp thứ hai sau fingerprint `su_kien_do`. `la_bot` không ghi tuong_tac.
+
 ## Nạp nguồn & asset (#17)
 
 - Nguồn vào: dán text (`POST /api/nguon/nhap`, `POST /api/nguon/:id/nhap`) hoặc upload file (`POST /api/assets?ten=...`).

@@ -315,3 +315,199 @@ export function ganDinhDanh(
     return row;
   });
 }
+
+// --- Sự kiện tương tác (ticket #61) ---
+// Event bất biến theo person: timestamp, loai, nguon (provenance bắt
+// buộc), tham chiếu lỏng tới entity MAI, khoa_idem chặn delivery lặp.
+// `loai` là registry — mở rộng schema bằng giá trị mới, không redesign.
+
+export const DANH_SACH_LOAI_TUONG_TAC = [
+  "xem",
+  "click",
+  "dang_ky",
+  "mo",
+  "click_mail",
+  "mua",
+  "huy_dang_ky",
+  "bo_gio_hang",
+  "nhap_ngoai",
+] as const;
+export type LoaiTuongTac = (typeof DANH_SACH_LOAI_TUONG_TAC)[number];
+
+export type TuongTac = {
+  id: string;
+  khach_id: string;
+  loai: LoaiTuongTac;
+  nguon: string;
+  xay_ra_luc: string;
+  ban_the_hien_id: string;
+  campaign_id: string;
+  link_dich_id: string;
+  giao_hang_id: string;
+  don_hang_ngoai_id: string;
+  khoa_idem: string;
+  chi_tiet: string;
+  tao_luc: string;
+};
+
+export type NhapSuKien = {
+  khach_id: string;
+  loai: string;
+  nguon: string;
+  xay_ra_luc?: string;
+  khoa_idem: string;
+  ban_the_hien_id?: string;
+  campaign_id?: string;
+  link_dich_id?: string;
+  giao_hang_id?: string;
+  don_hang_ngoai_id?: string;
+  chi_tiet?: Record<string, unknown>;
+};
+
+// Ghi một event. khoa_idem đã có → trả event cũ (da_tao=false), không
+// nhân — INSERT OR IGNORE để hai request đồng thời không ném UNIQUE.
+// xay_ra_luc sai định dạng → 400; rỗng → thời điểm ghi.
+export function ghiTuongTac(
+  db: Database,
+  nhap: NhapSuKien,
+): { su_kien: TuongTac; da_tao: boolean } {
+  const dsLoi: string[] = [];
+  if (!(DANH_SACH_LOAI_TUONG_TAC as readonly string[]).includes(nhap.loai)) {
+    dsLoi.push(`loai không hợp lệ. Cho phép: ${DANH_SACH_LOAI_TUONG_TAC.join(", ")}.`);
+  }
+  const nguon = tuyChonChuoi(nhap.nguon);
+  if (!nguon) dsLoi.push("nguon là bắt buộc (provenance của event).");
+  const khoaIdem = tuyChonChuoi(nhap.khoa_idem);
+  if (!khoaIdem) dsLoi.push("khoa_idem là bắt buộc (khử trùng delivery lặp).");
+  let xayRaLuc = tuyChonChuoi(nhap.xay_ra_luc);
+  if (xayRaLuc) {
+    const t = Date.parse(xayRaLuc);
+    if (!Number.isFinite(t)) {
+      dsLoi.push("xay_ra_luc không phải thời điểm hợp lệ (ISO 8601).");
+      xayRaLuc = "";
+    } else {
+      xayRaLuc = new Date(t).toISOString();
+    }
+  }
+  nemLoiValidation(dsLoi);
+  if (!xayRaLuc) xayRaLuc = bayGio();
+  const id = crypto.randomUUID();
+  const kq = db
+    .query(
+      `INSERT OR IGNORE INTO tuong_tac
+       (id, khach_id, loai, nguon, xay_ra_luc, ban_the_hien_id, campaign_id,
+        link_dich_id, giao_hang_id, don_hang_ngoai_id, khoa_idem, chi_tiet, tao_luc)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      id,
+      nhap.khach_id,
+      nhap.loai,
+      nguon,
+      xayRaLuc,
+      tuyChonChuoi(nhap.ban_the_hien_id),
+      tuyChonChuoi(nhap.campaign_id),
+      tuyChonChuoi(nhap.link_dich_id),
+      tuyChonChuoi(nhap.giao_hang_id),
+      tuyChonChuoi(nhap.don_hang_ngoai_id),
+      khoaIdem,
+      JSON.stringify(nhap.chi_tiet ?? {}),
+      bayGio(),
+    );
+  if (kq.changes === 0) {
+    const cu = db
+      .query("SELECT * FROM tuong_tac WHERE khoa_idem = ?")
+      .get(khoaIdem) as TuongTac;
+    return { su_kien: cu, da_tao: false };
+  }
+  chamKhach(db, nhap.khach_id, xayRaLuc);
+  return {
+    su_kien: db.query("SELECT * FROM tuong_tac WHERE id = ?").get(id) as TuongTac,
+    da_tao: true,
+  };
+}
+
+// Timeline theo person: sắp xếp thời gian tăng dần (id làm tie-break),
+// lọc theo khung tu/den và loai. chi_tiet trả JSON đã parse cho client.
+export function timelineKhach(
+  db: Database,
+  khachId: string,
+  loc: { tu?: string; den?: string; loai?: string; gioiHan?: number } = {},
+): TuongTac[] {
+  const dieuKien = ["khach_id = ?"];
+  const thamSo: string[] = [khachId];
+  if (loc.tu) {
+    dieuKien.push("xay_ra_luc >= ?");
+    thamSo.push(loc.tu);
+  }
+  if (loc.den) {
+    dieuKien.push("xay_ra_luc <= ?");
+    thamSo.push(loc.den);
+  }
+  if (loc.loai) {
+    dieuKien.push("loai = ?");
+    thamSo.push(loc.loai);
+  }
+  return db
+    .query(
+      `SELECT * FROM tuong_tac WHERE ${dieuKien.join(" AND ")}
+       ORDER BY xay_ra_luc, id LIMIT ?`,
+    )
+    .all(...thamSo, loc.gioiHan ?? 500) as TuongTac[];
+}
+
+// --- Visitor nặc danh (cookie mai_v) ---
+// Trang public (/p/, /l/, /huy-dang-ky) đặt/giữ cookie mai_v: visitor
+// chưa định danh vẫn là person trong graph — khi identity email gắn vào
+// (subscribe, form, import) timeline liền nhau một người. Cookie kín
+// giác (HttpOnly), sống ~1 năm, khóa khử trùng person-event theo khung
+// 30 phút như su_kien_do — bridge ghi person-event chỉ khi first-party
+// đếm được sự kiện (không phải bot, không trùng fingerprint).
+
+export const TEN_COOKIE_VISITOR = "mai_v";
+const KHUNG_DEDUPE_TT_MS = 30 * 60 * 1000;
+
+export function docVisitorId(req: Request): string {
+  const cookie = req.headers.get("cookie") ?? "";
+  const m = new RegExp(`(?:^|;\\s*)${TEN_COOKIE_VISITOR}=([a-z0-9-]+)`, "i").exec(cookie);
+  return m?.[1] ?? "";
+}
+
+export function datCookieVisitor(visitorId: string): string {
+  return `${TEN_COOKIE_VISITOR}=${visitorId}; Path=/; Max-Age=31536000; SameSite=Lax; HttpOnly`;
+}
+
+// Bridge first-party → person graph. visitorId là khóa nặc danh: person
+// tự tạo khi chưa có identity. loai 'xem'|'click'; refs từ đối tượng đo.
+export function ghiTuongTacVisitor(
+  db: Database,
+  nhap: {
+    visitor_id: string;
+    loai: "xem" | "click";
+    ban_the_hien_id?: string;
+    campaign_id?: string;
+    link_dich_id?: string;
+    chi_tiet?: Record<string, unknown>;
+  },
+): { khach_id: string; da_tao: boolean } {
+  const kq = resolveKhach(
+    db,
+    [{ loai: "visitor", gia_tri: nhap.visitor_id, nguon: "web" }],
+    {},
+    "web",
+  );
+  const refId =
+    nhap.link_dich_id ?? nhap.ban_the_hien_id ?? nhap.campaign_id ?? "trang";
+  const khung = Math.floor(Date.now() / KHUNG_DEDUPE_TT_MS);
+  const sk = ghiTuongTac(db, {
+    khach_id: kq.khach.id,
+    loai: nhap.loai,
+    nguon: "web",
+    khoa_idem: `vt:${nhap.loai}:${refId}:${nhap.visitor_id}:${khung}`,
+    ban_the_hien_id: nhap.ban_the_hien_id,
+    campaign_id: nhap.campaign_id,
+    link_dich_id: nhap.link_dich_id,
+    chi_tiet: nhap.chi_tiet,
+  });
+  return { khach_id: kq.khach.id, da_tao: sk.da_tao };
+}
