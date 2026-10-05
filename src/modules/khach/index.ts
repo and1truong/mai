@@ -31,6 +31,8 @@ export type Khach = {
   email: string;
   sdt: string;
   trang_thai: TrangThaiKhach;
+  trang_thai_doi: TrangThaiDoi;
+  giai_thich_doi: string;
   lan_dau_thay: string;
   lan_cuoi_thay: string;
   tao_luc: string;
@@ -248,20 +250,24 @@ function chenKhach(db: Database, nhap: NhapKhach, actor: string): Khach {
     email: tuyChonChuoi(nhap.email),
     sdt: tuyChonChuoi(nhap.sdt),
     trang_thai: "hoat_dong",
+    trang_thai_doi: "khach_vang_lai",
+    giai_thich_doi: "{}",
     lan_dau_thay: luc,
     lan_cuoi_thay: luc,
     tao_luc: luc,
     tao_boi: actor,
   };
   db.query(
-    `INSERT INTO khach (id, ten, email, sdt, trang_thai, lan_dau_thay, lan_cuoi_thay, tao_luc, tao_boi)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO khach (id, ten, email, sdt, trang_thai, trang_thai_doi, giai_thich_doi, lan_dau_thay, lan_cuoi_thay, tao_luc, tao_boi)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     row.id,
     row.ten,
     row.email,
     row.sdt,
     row.trang_thai,
+    row.trang_thai_doi,
+    row.giai_thich_doi,
     row.lan_dau_thay,
     row.lan_cuoi_thay,
     row.tao_luc,
@@ -469,6 +475,7 @@ export function ghiTuongTac(
   const moi = db.query("SELECT * FROM tuong_tac WHERE id = ?").get(id) as TuongTac;
   chamDauTien(db, moi);
   chamKhach(db, nhap.khach_id, xayRaLuc);
+  capNhatDoiKhach(db, nhap.khach_id);
   return { su_kien: moi, da_tao: true };
 }
 
@@ -670,6 +677,7 @@ export function datDongY(
       nguon,
     }, nguon);
     const moi = layDongY(db, khachId, nhap.kenh, nhap.muc_dich)!;
+    capNhatDoiKhach(db, khachId, luc);
     return { dong_y: moi, da_ghi_log: true };
   });
 }
@@ -974,7 +982,10 @@ export function ghiChuyenDoi(
       return { chuyen_doi: cu, quy_ve: qvCu, da_tao: false };
     }
     const cd = db.query("SELECT * FROM chuyen_doi WHERE id = ?").get(id) as ChuyenDoi;
-    if (cd.khach_id) chamKhach(db, cd.khach_id, xayRaLuc);
+    if (cd.khach_id) {
+      chamKhach(db, cd.khach_id, xayRaLuc);
+      capNhatDoiKhach(db, cd.khach_id);
+    }
     const dsQv = tinhQuyVe(db, cd).map((qv) => {
       const rid = crypto.randomUUID();
       db.query(
@@ -1183,4 +1194,174 @@ export function napDonHang(
       da_tao: true,
     };
   });
+}
+
+// --- Lifecycle + chỉ số giá trị (ticket #65) ---
+// Rules deterministic từ nguồn events — không sửa tay, không AI:
+//   ngu_dong      : có tương tác và event cuối >= 90 ngày trước
+//   khach_quen    : >= 2 chuyen_doi loai 'mua'
+//   khach_mua     : >= 1 chuyen_doi loai 'mua'
+//   dang_ky       : có dong_y 'cho' HOẶC tuong_tac/chuyen_doi loai 'dang_ky'
+//   khach_vang_lai: còn lại (mặc định)
+// capNhatDoiKhach chạy trong cùng txn khi ghi tuong_tac/dong_y/chuyen_doi
+// (ghi ở ghiTuongTac/datDongY/ghiChuyenDoi) + backfill lúc boot — state
+// luôn khớp events hiện có, không cần cron.
+
+export const DANH_SACH_TRANG_THAI_DOI = [
+  "khach_vang_lai",
+  "dang_ky",
+  "khach_mua",
+  "khach_quen",
+  "ngu_dong",
+] as const;
+export type TrangThaiDoi = (typeof DANH_SACH_TRANG_THAI_DOI)[number];
+
+export const NGUONG_NGU_DONG_NGAY = 90;
+
+export type GiaiThichDoi = {
+  ly_do: string;
+  so_don_mua: number;
+  co_dong_y_cho: boolean;
+  su_kien_cuoi_luc: string;
+  nguong_ngu_dong_ngay: number;
+  tinh_luc: string;
+};
+
+// Derive trạng thái đời từ dữ liệu nguồn — thuần đọc, để test/segment
+// gọi trực tiếp mà không cần ghi.
+export function tinhDoiKhach(
+  db: Database,
+  khachId: string,
+  luc = bayGio(),
+): { trang_thai: TrangThaiDoi; giai_thich: GiaiThichDoi } {
+  const cuoi = db
+    .query(
+      "SELECT xay_ra_luc FROM tuong_tac WHERE khach_id = ? ORDER BY xay_ra_luc DESC, rowid DESC LIMIT 1",
+    )
+    .get(khachId) as { xay_ra_luc: string } | null;
+  const soDonMua = (
+    db
+      .query("SELECT COUNT(*) AS c FROM chuyen_doi WHERE khach_id = ? AND loai = 'mua'")
+      .get(khachId) as { c: number }
+  ).c;
+  const coDongYCho = !!db
+    .query("SELECT 1 FROM dong_y WHERE khach_id = ? AND trang_thai = 'cho' LIMIT 1")
+    .get(khachId);
+  const coDangKy =
+    coDongYCho ||
+    !!db
+      .query(
+        "SELECT 1 FROM tuong_tac WHERE khach_id = ? AND loai = 'dang_ky' LIMIT 1",
+      )
+      .get(khachId) ||
+    !!db
+      .query(
+        "SELECT 1 FROM chuyen_doi WHERE khach_id = ? AND loai = 'dang_ky' LIMIT 1",
+      )
+      .get(khachId);
+
+  const giaiThich: GiaiThichDoi = {
+    ly_do: "",
+    so_don_mua: soDonMua,
+    co_dong_y_cho: coDongYCho,
+    su_kien_cuoi_luc: cuoi?.xay_ra_luc ?? "",
+    nguong_ngu_dong_ngay: NGUONG_NGU_DONG_NGAY,
+    tinh_luc: luc,
+  };
+
+  // Ngủ đông override các state trên: khách quen cũng ngủ khi mất tích
+  // đủ lâu — event mới sẽ đánh thức vì recompute xếp cuoi mới hơn.
+  if (cuoi) {
+    const troiNgay = (Date.parse(luc) - Date.parse(cuoi.xay_ra_luc)) / 86400000;
+    if (troiNgay >= NGUONG_NGU_DONG_NGAY) {
+      giaiThich.ly_do = `Không tương tác ${Math.floor(troiNgay)} ngày (>= ${NGUONG_NGU_DONG_NGAY}).`;
+      return { trang_thai: "ngu_dong", giai_thich: giaiThich };
+    }
+  }
+  if (soDonMua >= 2) {
+    giaiThich.ly_do = `${soDonMua} conversion 'mua' — khách quay lại.`;
+    return { trang_thai: "khach_quen", giai_thich: giaiThich };
+  }
+  if (soDonMua >= 1) {
+    giaiThich.ly_do = "Có ít nhất 1 conversion 'mua'.";
+    return { trang_thai: "khach_mua", giai_thich: giaiThich };
+  }
+  if (coDangKy) {
+    giaiThich.ly_do = coDongYCho
+      ? "Có consent 'cho' trên ít nhất một kênh."
+      : "Có sự kiện/conversion loai 'dang_ky'.";
+    return { trang_thai: "dang_ky", giai_thich: giaiThich };
+  }
+  giaiThich.ly_do = "Chưa đăng ký, chưa mua.";
+  return { trang_thai: "khach_vang_lai", giai_thich: giaiThich };
+}
+
+// Tính lại + persist; ghi su_kien 'doi_trang_thai_doi' khi state đổi —
+// transitions luôn audit được, không tay sửa.
+export function capNhatDoiKhach(db: Database, khachId: string, luc = bayGio()): void {
+  const khach = layKhach(db, khachId);
+  if (!khach || khach.trang_thai === "da_gop") return;
+  const { trang_thai, giai_thich } = tinhDoiKhach(db, khachId, luc);
+  if (trang_thai !== khach.trang_thai_doi) {
+    ghiSuKien(db, "khach", khachId, "doi_trang_thai_doi", {
+      tu: khach.trang_thai_doi,
+      sang: trang_thai,
+    }, "he_thong");
+  }
+  db.query("UPDATE khach SET trang_thai_doi = ?, giai_thich_doi = ? WHERE id = ?").run(
+    trang_thai,
+    JSON.stringify(giai_thich),
+    khachId,
+  );
+}
+
+// Backfill sau migration cho DB cũ — idempotent, chỉ ghi khi state đổi.
+// Gọi một lần lúc boot (sau chayMigration).
+export function damBaoDoiKhach(db: Database): void {
+  const ds = db.query("SELECT id FROM khach").all() as { id: string }[];
+  for (const k of ds) capNhatDoiKhach(db, k.id);
+}
+
+// Chỉ số giá trị derive từ chuyen_doi loai 'mua'. Currency explicit:
+// mỗi tien_te một tổng riêng trong doanh_thu — không trộn khi chưa có
+// FX policy. tan_suat = so_don / số khung-90-ngày kể từ đơn đầu (tối
+// thiểu 1) — đơn/90 ngày.
+export type GiaTriKhach = {
+  so_don: number;
+  doanh_thu: Record<string, { tong: number; so_don_co_gia: number; gia_tri_tb: number }>;
+  don_dau_luc: string;
+  don_cuoi_luc: string;
+  tan_suat: number;
+};
+
+export function giaTriKhach(db: Database, khachId: string, luc = bayGio()): GiaTriKhach {
+  const dsDon = db
+    .query(
+      `SELECT gia_tri, tien_te, xay_ra_luc FROM chuyen_doi
+       WHERE khach_id = ? AND loai = 'mua'
+       ORDER BY xay_ra_luc, rowid`,
+    )
+    .all(khachId) as { gia_tri: number | null; tien_te: string; xay_ra_luc: string }[];
+  const so_don = dsDon.length;
+  const doanh_thu: GiaTriKhach["doanh_thu"] = {};
+  for (const d of dsDon) {
+    if (d.gia_tri === null) continue;
+    const c = (doanh_thu[d.tien_te] ??= { tong: 0, so_don_co_gia: 0, gia_tri_tb: 0 });
+    c.tong += d.gia_tri;
+    c.so_don_co_gia += 1;
+  }
+  for (const c of Object.values(doanh_thu)) {
+    c.gia_tri_tb = c.tong / c.so_don_co_gia;
+  }
+  const don_dau_luc = dsDon[0]?.xay_ra_luc ?? "";
+  const don_cuoi_luc = dsDon[so_don - 1]?.xay_ra_luc ?? "";
+  let tan_suat = 0;
+  if (so_don > 0) {
+    const khung = Math.max(
+      1,
+      Math.ceil((Date.parse(luc) - Date.parse(don_dau_luc)) / (NGUONG_NGU_DONG_NGAY * 86400000)),
+    );
+    tan_suat = so_don / khung;
+  }
+  return { so_don, doanh_thu, don_dau_luc, don_cuoi_luc, tan_suat };
 }
