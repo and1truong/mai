@@ -317,7 +317,11 @@ function ChiTietKhachView({ id }: { id: string }) {
     [id],
   );
   const tags = useApi<{ ds_tag: KhachTag[] }>(`/api/khach/${id}/tags`, [id]);
-  const giaTri = useApi<GiaTriKhach>(`/api/khach/${id}/gia-tri`, [id]);
+  const giaTri = useApi<{
+    trang_thai_doi: string;
+    giai_thich: GiaiThichDoi;
+    gia_tri: GiaTriKhach;
+  }>(`/api/khach/${id}/gia-tri`, [id]);
   const quyVe = useApi<{ ds: QuyVeView[] }>(`/api/khach/${id}/quy-ve`, [id]);
   const timeline = useApi<{ ds_su_kien: TuongTac[]; tong: number }>(
     `/api/khach/${id}/timeline`,
@@ -373,6 +377,7 @@ function ChiTietKhachView({ id }: { id: string }) {
   }
 
   const k = khach.data;
+  const gt = giaTri.data?.gia_tri;
   const jtHienThi: HanhTrinhView | null = jt ?? hanhTrinh.data ?? null;
   const dsSk = timeline.data?.ds_su_kien ?? [];
   const TT_TIMELINE = 10;
@@ -581,27 +586,27 @@ function ChiTietKhachView({ id }: { id: string }) {
                   Chỉ số giá trị
                 </Text>
                 <TrangThai loading={giaTri.loading} error={giaTri.error}>
-                  {giaTri.data && (
+                  {gt && (
                     <Flex gap="4" wrap="wrap">
                       <Text size="1">
-                        Số đơn mua: <strong>{giaTri.data.so_don}</strong>
+                        Số đơn mua: <strong>{gt.so_don}</strong>
                       </Text>
-                      {Object.entries(giaTri.data.doanh_thu).map(([tien, c]) => (
+                      {Object.entries(gt.doanh_thu).map(([tien, c]) => (
                         <Text size="1" key={tien}>
                           Doanh thu {tien}: <strong>{c.tong.toLocaleString("vi-VN")}</strong>{" "}
                           (TB/đơn: {Math.round(c.gia_tri_tb).toLocaleString("vi-VN")})
                         </Text>
                       ))}
                       <Text size="1">
-                        Tần suất: {giaTri.data.tan_suat.toFixed(2)} đơn/90 ngày
+                        Tần suất: {gt.tan_suat.toFixed(2)} đơn/90 ngày
                       </Text>
                       <Text size="1" color="gray">
-                        Đơn đầu: {fmtLuc(giaTri.data.don_dau_luc)} · Đơn cuối:{" "}
-                        {fmtLuc(giaTri.data.don_cuoi_luc)}
+                        Đơn đầu: {fmtLuc(gt.don_dau_luc)} · Đơn cuối:{" "}
+                        {fmtLuc(gt.don_cuoi_luc)}
                       </Text>
                     </Flex>
                   )}
-                  {giaTri.data && giaTri.data.so_don === 0 && (
+                  {gt && gt.so_don === 0 && (
                     <Text size="1" color="gray">
                       Chưa có đơn mua nào.
                     </Text>
