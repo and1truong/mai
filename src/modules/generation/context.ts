@@ -4,12 +4,15 @@ import {
   layBanTheHien,
   layCampaign,
   layNguonRevision,
+  layThiTruong,
+  layThiTruongTheoThongDiep,
   layThongDiep,
   layThongDiepRevision,
   type BanTheHien,
 } from "../content/index.ts";
 import { timDieuKhoanMoHo } from "../cong_quyen/index.ts";
-import type { ContextSinhSnapshot } from "../context/index.ts";
+import { nhanKhaDung } from "../thuong_hieu/index.ts";
+import { layDoiTuong, type ContextSinhSnapshot } from "../context/index.ts";
 import { layDinhDang } from "../formats/index.ts";
 import type { ContextTask, NguonContext } from "./index.ts";
 import type { TaskDinhNghia } from "./task.ts";
@@ -88,6 +91,9 @@ export function lapContextNoiDung(
     // Campaign/số báo tường minh từ payload job (#8); vắng mặt → theo
     // thong_diep.campaign_id.
     campaign_id?: string;
+    // Thị trường tường minh của tổ hợp (#12); vắng mặt → suy từ thông
+    // điệp riêng của thị trường (thi_truong.thong_diep_id).
+    thi_truong_id?: string;
   },
 ): ContextTask {
   // Merge từng field với ?? — key có mặt nhưng undefined (vd server truyền
@@ -251,6 +257,60 @@ export function lapContextNoiDung(
     };
   }
 
+  // Chiến dịch thương hiệu (#12): fact chung (claim đã duyệt kèm cờ xác
+  // nhận bằng chứng, giọng văn, asset hình, CTA mặc định) + fact thị
+  // trường của đúng biến thể. Giá/tiền tệ/khả dụng giữ nguyên văn; thiếu
+  // → cờ co_* = false và chứng cứ thiếu (provider để [CÂU HỎI], không
+  // quy đổi tiền, không bịa giá hay yêu cầu pháp lý).
+  let thuongHieu: ContextTask["thuong_hieu"];
+  if (cp && cp.loai === "thuong_hieu") {
+    const tt =
+      (input.thi_truong_id ? layThiTruong(db, input.thi_truong_id) : null) ??
+      layThiTruongTheoThongDiep(db, bth.thong_diep_id);
+    const dsClaim = cp.ds_claim.map((cl) => {
+      const tieuDe = daXacNhan(cl.nguon_id, cl.muc_id);
+      return { ...cl, xac_nhan: !!tieuDe, nguon_tieu_de: tieuDe };
+    });
+    if (dsClaim.some((cl) => !cl.xac_nhan)) thieuCc.push("claim_chua_xac_nhan");
+    // Chi tiết đã duyệt riêng cho đối tượng của đầu ra này — khớp theo
+    // doi_tuong_id của hồ sơ (tên hồ sơ hiển thị trên bth).
+    const chiTiet =
+      tt?.ds_chi_tiet.find(
+        (ct) => layDoiTuong(db, ct.doi_tuong_id)?.ten === input.doi_tuong,
+      )?.chi_tiet ?? "";
+    thuongHieu = {
+      ten: cp.ten,
+      thong_diep_loi: cp.thong_diep_loi,
+      dinh_vi: cp.dinh_vi,
+      giong_van: cp.giong_van,
+      cta: cp.cta,
+      ds_claim: dsClaim,
+      ds_asset_hinh: cp.ds_asset_hinh,
+      thi_truong: tt
+        ? {
+            ma: tt.ma,
+            ten: tt.ten,
+            ngon_ngu: tt.ngon_ngu,
+            gia: tt.gia,
+            tien_te: tt.tien_te,
+            co_gia: !!tt.gia,
+            kha_dung: nhanKhaDung(tt.kha_dung),
+            co_kha_dung: !!tt.kha_dung,
+            landing_page: tt.landing_page,
+            cta_nhan: tt.cta_nhan,
+            cta_url: tt.cta_url,
+            chi_tiet: chiTiet,
+            ds_ghi_de: Object.entries(tt.ghi_de).map(([k, v]: [string, string]) => ({
+              khoa: k,
+              gia_tri: v,
+            })),
+          }
+        : null,
+    };
+    if (tt && !tt.gia) thieuCc.push("gia_chua_co");
+    if (tt && !tt.kha_dung) thieuCc.push("kha_dung_chua_co");
+  }
+
   return {
     task: input.task,
     thong_diep: {
@@ -267,6 +327,7 @@ export function lapContextNoiDung(
     phat_hanh: phatHanh,
     gay_quy: gayQuy,
     cong_quyen: congQuyen,
+    thuong_hieu: thuongHieu,
     thieu_chung_cu: thieuCc,
     gioi_han_dau_ra: gioiHan.toi_da_ky_tu_dau_ra,
   };

@@ -2,6 +2,8 @@ import type { CauHinhAi } from "../../config.ts";
 import { LoiApi } from "../../loi.ts";
 import type { ContextSinhSnapshot } from "../context/index.ts";
 import type {
+  AssetHinh,
+  ClaimThuongHieu,
   CtaLienKet,
   FactPhatHanh,
   FactVanHanh,
@@ -130,6 +132,52 @@ export type CongQuyenContext = {
   dieu_khoan_mo_ho: string[];
 };
 
+// Claim đã duyệt của chiến dịch thương hiệu đưa vào context (#12):
+// xac_nhan=false khi claim không trỏ nguồn đã nạp hoặc nguồn đó không
+// vào chuỗi provenance — provider phải để [CÂU HỎI], không trình bày
+// như claim đã duyệt (không bịa hiệu năng/sức khỏe).
+export type ClaimThuongHieuContext = ClaimThuongHieu & {
+  xac_nhan: boolean;
+  nguon_tieu_de?: string;
+};
+
+// Fact thị trường đưa vào context — mọi giá trị là nguyên văn được đội
+// local cung cấp: không quy đổi tiền tệ, không bịa. co_gia=false → đầu
+// ra phải để [CÂU HỎI] thay vì nhắc giá.
+export type ThiTruongContext = {
+  ma: string;
+  ten: string;
+  ngon_ngu: string;
+  gia: string;
+  tien_te: string;
+  co_gia: boolean;
+  kha_dung: string; // nhãn đã đọc ('Còn hàng' / 'Hết hàng' / 'Đặt trước')
+  co_kha_dung: boolean;
+  landing_page: string;
+  cta_nhan: string;
+  cta_url: string;
+  // Chi tiết đã duyệt riêng cho đối tượng của đầu ra này — provider giữ
+  // nguyên văn; rỗng khi thị trường không cung cấp cho đối tượng đó.
+  chi_tiet: string;
+  // Ghi đè tự do tường minh — liệt kê dạng "khoa: giá trị".
+  ds_ghi_de: { khoa: string; gia_tri: string }[];
+};
+
+// Context chiến dịch thương hiệu (#12) — chỉ có khi thông điệp thuộc
+// campaign loai 'thuong_hieu' và tổ hợp thị trường được chọn: fact chung
+// (claim đã duyệt + giọng văn + asset hình + CTA mặc định) và fact thị
+// trường của đúng biến thể.
+export type ThuongHieuContext = {
+  ten: string;
+  thong_diep_loi: string;
+  dinh_vi: string;
+  giong_van: string;
+  cta: CtaLienKet[];
+  ds_claim: ClaimThuongHieuContext[];
+  ds_asset_hinh: AssetHinh[];
+  thi_truong: ThiTruongContext | null;
+};
+
 // Context một lần sinh — provider nhận nguyên object này, không tự truy DB.
 export type ContextTask = {
   task: TaskDinhNghia;
@@ -151,6 +199,10 @@ export type ContextTask = {
   // Chiến dịch công quyền (#11) — có khi campaign loai 'cong_quyen':
   // provider lấy yêu cầu/ngoại lệ/fact/phạm vi/ngày hiệu lực từ đây.
   cong_quyen?: CongQuyenContext;
+  // Chiến dịch thương hiệu (#12) — có khi campaign loai 'thuong_hieu':
+  // provider lấy claim đã duyệt + giọng văn + fact thị trường của đúng
+  // biến thể từ đây — không quy đổi tiền, không bịa giá/khả dụng.
+  thuong_hieu?: ThuongHieuContext;
   // Chứng cứ còn thiếu trong input (số liệu/mốc thời gian/văn bản tham
   // chiếu) — provider phải để câu hỏi/khoảng trống tường minh thay vì bịa.
   thieu_chung_cu: string[];
