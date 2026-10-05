@@ -141,11 +141,11 @@ Chuyển sai → 409 `XUNG_DOT_TRANG_THAI`.
 ### Lifecycle + chỉ số giá trị (#65)
 
 - `khach.trang_thai_doi`: `khach_vang_lai → dang_ky → khach_mua → khach_quen → ngu_dong`. Rules deterministic: không hoạt động ≥90 ngày → `ngu_dong` (override các state khác — event/conversion mới đánh thức); ≥2 conversion `mua` → `khach_quen`; ≥1 → `khach_mua`; có consent `cho` hoặc event/conversion `dang_ky` mới hơn `huy_dang_ky` gần nhất → `dang_ky`; còn lại `khach_vang_lai`.
-- "Hoạt động cuối" = `MAX(xay_ra_luc)` trên `tuong_tac` UNION `chuyen_doi` — một conversion mới cũng đánh thức dormant, không chỉ tính event. `huy_dang_ky` mới hơn `dang_ky` hạ được state `dang_ky`.
+- "Hoạt động cuối" = `MAX(xay_ra_luc)` trên `tuong_tac` UNION `chuyen_doi` UNION `dong_y.cap_nhat_luc` — conversion hay consent mới cũng đánh thức dormant. `dang_ky`/`huy_dang_ky` so theo (xay_ra_luc, rowid) — bản ghi mới nhất quyết state; `huy_dang_ky` mới hơn `dang_ky` hạ được `dang_ky`.
 - Cập nhật EAGER trong cùng transaction khi ghi `tuong_tac`/`dong_y`/`chuyen_doi` (không lazy, không cron); `damBaoDoiKhach` backfill idempotent chạy một lần lúc boot sau `chayMigration`. Đổi state → `su_kien` `doi_trang_thai_doi` — transitions từ source events, không sửa tay.
 - `giai_thich_doi` JSON giải thích state hiện tại (`ly_do`, `so_don_mua`, `co_dong_y_cho`, `su_kien_cuoi_luc`, `tinh_luc`); điền ngay khi tạo person.
 - `giaTriKhach`: metrics từ `chuyen_doi` `mua` — `doanh_thu` tách THEO `tien_te` (mỗi currency một tổng + `gia_tri_tb` riêng, không trộn, không FX); `tan_suat` = `so_don / ceil(ngày kể từ đơn đầu / 90)` (tối thiểu 1 khung).
-- `GET /api/khach/:id/gia-tri` → `{trang_thai_doi, giai_thich, gia_tri}` — trả derive LIVE qua `tinhDoiKhach` (dormant phụ thuộc thời gian nên đọc cột lưu có thể stale); cột lưu phục vụ liệt kê/segment. Hàm derive export để segment (#66) dùng lại.
+- `GET /api/khach/:id/gia-tri` → `{trang_thai_doi, giai_thich, gia_tri}` — trả derive LIVE qua `tinhDoiKhach` (dormant phụ thuộc thời gian nên đọc cột lưu có thể stale); `GET /api/khach/:id` cũng trả state derive live (object); cột lưu phục vụ liệt kê/segment. Hàm derive export để segment (#66) dùng lại.
 - Giới hạn POC: segment trên cột lưu có thể trễ một nhịp giữa hai lần ghi, không lead scoring/churn/CLV, không generic state machine.
 
 ### Segment động + tag (#66)

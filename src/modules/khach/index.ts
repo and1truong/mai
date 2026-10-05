@@ -274,6 +274,8 @@ function chenKhach(db: Database, nhap: NhapKhach, actor: string): Khach {
     row.tao_boi,
   );
   ghiSuKien(db, "khach", row.id, "tao", { ten: row.ten, email: row.email }, actor);
+  // Điền giai_thich_doi ngay từ lúc tạo — person mới không được để '{}'.
+  capNhatDoiKhach(db, row.id, luc);
   return row;
 }
 
@@ -336,9 +338,6 @@ export function resolveKhach(
     }
     const khach = chenKhach(db, nhap, actor);
     const tao = dsDd.map((d) => chenDinhDanh(db, khach.id, d));
-    // Điền giai_thich_doi ngay từ lúc tạo — person mới không được trả
-    // giải thích rỗng '{}' (state 'khach_vang_lai' cũng cần lý do).
-    capNhatDoiKhach(db, khach.id);
     return { khach: layKhach(db, khach.id)!, dinh_danh: tao, da_tao: true };
   });
 }
@@ -1254,9 +1253,11 @@ export function tinhDoiKhach(
          SELECT xay_ra_luc FROM tuong_tac WHERE khach_id = ?
          UNION ALL
          SELECT xay_ra_luc FROM chuyen_doi WHERE khach_id = ?
+         UNION ALL
+         SELECT cap_nhat_luc AS xay_ra_luc FROM dong_y WHERE khach_id = ?
        )`,
     )
-    .get(khachId, khachId) as { xay_ra_luc: string | null };
+    .get(khachId, khachId, khachId) as { xay_ra_luc: string | null };
   const soDonMua = (
     db
       .query("SELECT COUNT(*) AS c FROM chuyen_doi WHERE khach_id = ? AND loai = 'mua'")
@@ -1265,25 +1266,26 @@ export function tinhDoiKhach(
   const coDongYCho = !!db
     .query("SELECT 1 FROM dong_y WHERE khach_id = ? AND trang_thai = 'cho' LIMIT 1")
     .get(khachId);
-  // Đang đăng ký = có consent 'cho', hoặc có event/conversion 'dang_ky'
-  // mới hơn 'huy_dang_ky' gần nhất — unsubscribe phải hạ được state.
-  const dangKyCuoi = db
+  // Đang đăng ký = có consent 'cho', hoặc bản ghi mới nhất trong
+  // {dang_ky, huy_dang_ky} là 'dang_ky'. So event mới nhất theo
+  // (xay_ra_luc, rowid) — cùng timestamp thì insert sau thắng.
+  const suKienGanNhat = db
     .query(
-      `SELECT MAX(xay_ra_luc) AS m FROM (
-         SELECT xay_ra_luc FROM tuong_tac WHERE khach_id = ? AND loai = 'dang_ky'
-         UNION ALL
-         SELECT xay_ra_luc FROM chuyen_doi WHERE khach_id = ? AND loai = 'dang_ky'
-       )`,
+      `SELECT loai, xay_ra_luc FROM tuong_tac
+       WHERE khach_id = ? AND loai IN ('dang_ky', 'huy_dang_ky')
+       ORDER BY xay_ra_luc DESC, rowid DESC LIMIT 1`,
     )
-    .get(khachId, khachId) as { m: string | null };
-  const huyCuoi = db
+    .get(khachId) as { loai: string; xay_ra_luc: string } | null;
+  const chuyenDoiDangKy = db
     .query(
-      "SELECT MAX(xay_ra_luc) AS m FROM tuong_tac WHERE khach_id = ? AND loai = 'huy_dang_ky'",
+      "SELECT xay_ra_luc FROM chuyen_doi WHERE khach_id = ? AND loai = 'dang_ky' ORDER BY xay_ra_luc DESC, rowid DESC LIMIT 1",
     )
-    .get(khachId) as { m: string | null };
+    .get(khachId) as { xay_ra_luc: string } | null;
   const coDangKy =
     coDongYCho ||
-    (!!dangKyCuoi.m && (!huyCuoi.m || dangKyCuoi.m > huyCuoi.m));
+    suKienGanNhat?.loai === "dang_ky" ||
+    (!!chuyenDoiDangKy &&
+      (!suKienGanNhat || chuyenDoiDangKy.xay_ra_luc > suKienGanNhat.xay_ra_luc));
 
   const giaiThich: GiaiThichDoi = {
     ly_do: "",

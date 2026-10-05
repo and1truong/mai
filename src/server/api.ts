@@ -2703,7 +2703,15 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
     route("GET", "/api/khach/:id", (_req, p, c) => {
       const khach = layKhach(c.db, p.id!);
       if (!khach) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy khách hàng.");
-      return ok({ ...khach, dinh_danh: danhSachDinhDanh(c.db, khach.id) });
+      // trang_thai_doi/giai_thich_doi derive live (dormant phụ thuộc
+      // thời gian) — khớp /gia-tri; cột lưu chỉ phục vụ liệt kê/segment.
+      const { trang_thai, giai_thich } = tinhDoiKhach(c.db, khach.id);
+      return ok({
+        ...khach,
+        trang_thai_doi: trang_thai,
+        giai_thich_doi: giai_thich,
+        dinh_danh: danhSachDinhDanh(c.db, khach.id),
+      });
     }),
     route("GET", "/api/khach/:id/dinh-danh", (_req, p, c) => {
       if (!layKhach(c.db, p.id!)) {

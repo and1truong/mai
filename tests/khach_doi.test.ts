@@ -64,7 +64,7 @@ describe("lifecycle (#65)", () => {
     ).json();
     k = await (await fetch(`${app.url}/api/khach/${khachId}`)).json();
     expect(k.du_lieu.trang_thai_doi).toBe("dang_ky");
-    expect(JSON.parse(k.du_lieu.giai_thich_doi).co_dong_y_cho).toBe(true);
+    expect(k.du_lieu.giai_thich_doi.co_dong_y_cho).toBe(true);
 
     // Mua 1 → khach_mua; mua 2 → khach_quen.
     await ghiMua(app.url, "lc@x.com", "lc-1");
@@ -92,7 +92,7 @@ describe("lifecycle (#65)", () => {
     });
     let k = await (await fetch(`${app.url}/api/khach/${khachId}`)).json();
     expect(k.du_lieu.trang_thai_doi).toBe("ngu_dong");
-    expect(JSON.parse(k.du_lieu.giai_thich_doi).ly_do).toContain("Không hoạt động");
+    expect(k.du_lieu.giai_thich_doi.ly_do).toContain("Không hoạt động");
 
     // Event mới → recompute, hết dormant (vẫn chưa mua → khach_vang_lai).
     await post(app.url, "/api/khach/su-kien", {
@@ -161,6 +161,28 @@ describe("lifecycle (#65)", () => {
     k = await (await fetch(`${app.url}/api/khach/${unsubId}/gia-tri`)).json();
     // huy_dang_ky mới hơn dang_ky → không còn dang_ky; event mới → hết dormant.
     expect(k.du_lieu.trang_thai_doi).toBe("khach_vang_lai");
+    await app.dong();
+  });
+
+  test("dang_ky/huy_dang_ky cùng timestamp: insert sau thắng (rowid)", async () => {
+    const app = await taoServerTam();
+    const khachId = await taoKhachMoi(app.url, "tie@x.com");
+    const ts = new Date().toISOString();
+    for (const [i, loai] of ["dang_ky", "huy_dang_ky", "dang_ky"].entries()) {
+      await post(app.url, "/api/khach/su-kien", {
+        dinh_danh: { loai: "email", gia_tri: "tie@x.com" },
+        loai, nguon: "web", khoa_idem: `tie-${i}`, xay_ra_luc: ts,
+      });
+    }
+    const k = await (await fetch(`${app.url}/api/khach/${khachId}/gia-tri`)).json();
+    expect(k.du_lieu.trang_thai_doi).toBe("dang_ky");
+    // Thêm một huy_dang_ky cùng timestamp → lại là mới nhất → hạ state.
+    await post(app.url, "/api/khach/su-kien", {
+      dinh_danh: { loai: "email", gia_tri: "tie@x.com" },
+      loai: "huy_dang_ky", nguon: "web", khoa_idem: "tie-3", xay_ra_luc: ts,
+    });
+    const k2 = await (await fetch(`${app.url}/api/khach/${khachId}/gia-tri`)).json();
+    expect(k2.du_lieu.trang_thai_doi).toBe("khach_vang_lai");
     await app.dong();
   });
 });
