@@ -17,6 +17,7 @@ Mã lỗi hiện có:
 | `XUNG_DOT_TRANG_THAI` | 409 | Xung đột trạng thái: chuyển trạng thái review không hợp lệ, xóa asset đang được tham chiếu. |
 | `PAYLOAD_QUA_LON` | 413 | Body request vượt 50 MB. |
 | `XUNG_DOT_JOB` | 409 | Chuyển trạng thái job không hợp lệ (hủy/retry sai trạng thái). |
+| `XUNG_DOT_DINH_DANH` | 409 | Gắn identity đã thuộc khách hàng khác; `chi_tiet.khach_id` là person đang giữ identity đó. |
 | `CHUA_DANG_NHAP` | 401 | Chế độ bảo vệ bật mà request không có phiên hợp lệ. |
 | `SAI_THONG_TIN_DANG_NHAP` | 401 | Sai tên đăng nhập/mật khẩu, hoặc `mat_khau_cu` không đúng. |
 | `KHONG_CO_QUYEN` | 403 | Đã đăng nhập nhưng vai trò không đủ (route chỉ quản trị). |
@@ -95,6 +96,14 @@ Chuyển sai → 409 `XUNG_DOT_TRANG_THAI`.
 
 - POC dùng actor cố định `demo` phía server (`ACTOR_DEMO`).
 - Field `tao_boi`/`cap_nhat_boi` ghi actor. Access control instance: #16 (P1).
+
+## Đồ thị khách hàng (#59)
+
+- `khach` = person nội bộ id ổn định; `ten`/`email`/`sdt` là property hiển thị tùy chọn — định danh thật nằm ở `dinh_danh`.
+- `dinh_danh` unique `(loai, gia_tri_chuan)`: `email` lowercase, `sdt` chỉ digit + dấu `+` đầu, `visitor` id nặc danh nguyên văn, `external`/`social` khóa `<nguon>:<external_id>` scoped hệ thống nguồn (thiếu `external_id` thì khóa theo `gia_tri`).
+- Đụng unique khi gắn identity → 409 `XUNG_DOT_DINH_DANH`. **Không auto-merge** theo heuristic — merge là hành động tường minh (ticket #67). `chi_tiet.khach_id` = person đang giữ identity trúng (một chủ); nhiều identity rải trên nhiều person → `chi_tiet.khach_ids` (mảng). Gắn lại identity đã thuộc chính person → trả row cũ, không lỗi.
+- `resolveKhach` = tìm-hoặc-tạo: identity đã có → trả person giữ; chưa có → tạo person + identity trong một transaction. `external`/`social` bắt buộc `nguon` (provenance).
+- `lan_dau_thay`/`lan_cuoi_thay` trên `khach`: tạo = lần đầu; mọi lần person được nhìn thấy sau (gắn identity, sự kiện) gọi `chamKhach` kéo `lan_cuoi_thay` về gần nhất, không lùi.
 
 ## Nạp nguồn & asset (#17)
 
