@@ -12,7 +12,7 @@ import { createHash, randomBytes } from "node:crypto";
 import type { Database } from "bun:sqlite";
 import { LoiApi, batBuocChuoi, loiRequest, nemLoiValidation, tuyChonChuoi } from "../../loi.ts";
 import { log } from "../../log.ts";
-import { ghiSuKien } from "../content/index.ts";
+import { ghiSuKien, txn } from "../content/index.ts";
 
 export const TEN_COOKIE = "mai_phien";
 export const TTL_PHIEN_MAC_DINH_PHUT = 10080; // 7 ngày
@@ -184,18 +184,21 @@ export function capNhatTaiKhoan(
   const cu = layTaiKhoan(db, id);
   if (!cu) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy tài khoản.");
   const luc = bayGio();
-  db.query(
-    `UPDATE tai_khoan SET ten_hien_thi = ?, vai_tro = ?, trang_thai = ?, cap_nhat_luc = ? WHERE id = ?`,
-  ).run(
-    sua.ten_hien_thi ?? cu.ten_hien_thi,
-    sua.vai_tro ?? cu.vai_tro,
-    sua.trang_thai ?? cu.trang_thai,
-    luc,
-    id,
-  );
-  ghiSuKien(db, "tai_khoan", id, "cap_nhat", { ...sua }, tacGia);
-  // Vô hiệu tài khoản → phiên đang mở của họ chết ngay, không chờ hết hạn.
-  if (sua.trang_thai === "vo_hieu") xoaPhienCuaTaiKhoan(db, id);
+  // UPDATE + thu hồi phiên + sự kiện nguyên tử — đường vô hiệu không để
+  // lửng trạng thái giữa chừng (docPhien vẫn chặn qua JOIN trang_thai).
+  txn(db, () => {
+    db.query(
+      `UPDATE tai_khoan SET ten_hien_thi = ?, vai_tro = ?, trang_thai = ?, cap_nhat_luc = ? WHERE id = ?`,
+    ).run(
+      sua.ten_hien_thi ?? cu.ten_hien_thi,
+      sua.vai_tro ?? cu.vai_tro,
+      sua.trang_thai ?? cu.trang_thai,
+      luc,
+      id,
+    );
+    if (sua.trang_thai === "vo_hieu") xoaPhienCuaTaiKhoan(db, id);
+    ghiSuKien(db, "tai_khoan", id, "cap_nhat", { ...sua }, tacGia);
+  });
   return layTaiKhoan(db, id)!;
 }
 
@@ -211,14 +214,18 @@ export async function doiMatKhau(
   if (matKhauMoi.length < 8 || matKhauMoi.length > 200) {
     throw new LoiApi(400, "VALIDATION", "mat_khau từ 8 đến 200 ký tự.");
   }
+  // Hash trước txn (argon2 chậm — không giữ khóa ghi); ghi + thu hồi phiên
+  // + sự kiện nguyên tử.
   const hash = await Bun.password.hash(matKhauMoi);
-  db.query("UPDATE tai_khoan SET hash_mat_khau = ?, cap_nhat_luc = ? WHERE id = ?").run(
-    hash,
-    bayGio(),
-    id,
-  );
-  xoaPhienCuaTaiKhoan(db, id);
-  ghiSuKien(db, "tai_khoan", id, "doi_mat_khau", {}, tacGia);
+  txn(db, () => {
+    db.query("UPDATE tai_khoan SET hash_mat_khau = ?, cap_nhat_luc = ? WHERE id = ?").run(
+      hash,
+      bayGio(),
+      id,
+    );
+    xoaPhienCuaTaiKhoan(db, id);
+    ghiSuKien(db, "tai_khoan", id, "doi_mat_khau", {}, tacGia);
+  });
 }
 
 // Kiểm mật khẩu hiện tại của chính tài khoản (đổi mật khẩu tự phục vụ).

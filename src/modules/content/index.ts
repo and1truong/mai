@@ -432,7 +432,7 @@ const bayGio = () => new Date().toISOString();
 
 // Bọc một gói ghi trong transaction; gọi lồng nhau được (bên trong transaction
 // có sẵn thì chạy thẳng) — composite như nhapBaiViet giữ nguyên tử toàn cục.
-function txn<T>(db: Database, fn: () => T): T {
+export function txn<T>(db: Database, fn: () => T): T {
   if (db.inTransaction) return fn();
   db.exec("BEGIN IMMEDIATE");
   try {

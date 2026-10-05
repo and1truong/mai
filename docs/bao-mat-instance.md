@@ -28,11 +28,12 @@ MAI self-hosted có hai chế độ, chọn bằng config `bao_mat.che_do` (file
 - Setup tạo admin đầu tiên bằng script:
 
   ```
-  bun run tao-tai-khoan -- --ten-dang-nhap admin --mat-khau '<mk>' \
-      --ten-hien-thi 'Quản trị' --vai-tro quan_tri
+  MAI_MAT_KHAU='<mk>' bun run tao-tai-khoan -- \
+      --ten-dang-nhap admin --ten-hien-thi 'Quản trị' --vai-tro quan_tri
   ```
 
-  Không truyền `--mat-khau` thì script hỏi tương tác (hoặc env `MAI_MAT_KHAU`).
+  Không đặt `MAI_MAT_KHAU` thì script hỏi tương tác không echo. Cố ý
+  không nhận flag `--mat-khau`: argv lọt vào shell history và `ps`.
 - Quản lý tiếp ở UI `#/tai-khoan` hoặc API `/api/tai-khoan` (chỉ quản trị).
   Biên tập tự đổi mật khẩu của mình tại cùng trang (cần mật khẩu cũ).
 - Vô hiệu tài khoản hoặc đổi mật khẩu thu hồi ngay toàn bộ phiên của tài
