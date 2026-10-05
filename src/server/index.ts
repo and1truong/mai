@@ -9,7 +9,7 @@ import { taoApi } from "./api.ts";
 import { chayMigration, moDb } from "./db.ts";
 import { loi } from "./http.ts";
 import { phucVuTinh } from "./static.ts";
-import { phucVuHuyDangKy, phucVuTrang } from "./trang.ts";
+import { phucVuHuyDangKy, phucVuLinkDich, phucVuTrang } from "./trang.ts";
 
 // POC chạy local tin cậy với actor demo cố định. Access control instance: #16 (P1).
 export const ACTOR_DEMO = "demo";
@@ -88,11 +88,16 @@ export async function startServer(tuyChon: TuyChonServer = {}) {
       if (url.pathname.startsWith("/api/")) {
         res = await api(req);
       } else {
+        // IP dùng để dedupe sự kiện first-party (#15); fallback header khi
+        // chạy sau proxy. server.requestIP cần Bun ≥1.2 cái này luôn có.
+        const ip =
+          server.requestIP(req)?.address ?? req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "";
         res =
           (url.pathname === "/huy-dang-ky"
             ? phucVuHuyDangKy(db, url.searchParams.get("token"))
             : null) ??
-          phucVuTrang(db, url.pathname) ??
+          (await phucVuLinkDich(db, url.pathname, req, ip)) ??
+          (await phucVuTrang(db, url.pathname, req, ip)) ??
           phucVuTinh(distDir, url.pathname) ??
           Response.json(
             {
