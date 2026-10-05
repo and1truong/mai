@@ -44,6 +44,7 @@ import {
   taoThongDiep,
   themRevision,
   timBanTheHien,
+  txn,
   xoaCampaign,
   xoaNhapSoan,
   xuatBanBanTheHien,
@@ -273,12 +274,15 @@ import {
   type TaiKhoan,
 } from "../modules/xac_thuc/index.ts";
 import {
+  DANH_SACH_LOAI_TUONG_TAC,
   danhSachDinhDanh,
   danhSachKhach,
   ganDinhDanh,
+  ghiTuongTac,
   layKhach,
   resolveKhach,
   taoKhach,
+  timelineKhach,
   type NhapDinhDanh,
 } from "../modules/khach/index.ts";
 import type { CauHinhAi, CauHinhBaoMat, CauHinhKenh } from "../config.ts";
@@ -2645,6 +2649,95 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
         external_id: tuyChonChuoi(body.external_id) || undefined,
       };
       return ok(ganDinhDanh(c.db, p.id!, nhap, c.actor), 201);
+    }),
+
+    // Ticket #61: ingestion sự kiện theo person. Contract: identity (hoặc
+    // khach_id) + loai + nguon + khoa_idem bắt buộc; refs là entity MAI
+    // phải tồn tại; delivery lặp cùng khoa_idem → 200 event cũ.
+    route("POST", "/api/khach/su-kien", async (req, _p, c) => {
+      const body = await docBody(req);
+      const dsLoi: string[] = [];
+      const khachId = tuyChonChuoi(body.khach_id);
+      const ddRaw = body.dinh_danh;
+      if (!khachId && (typeof ddRaw !== "object" || ddRaw === null || Array.isArray(ddRaw))) {
+        dsLoi.push("Cần khach_id hoặc dinh_danh {loai, gia_tri, nguon?, external_id?}.");
+      }
+      const loai = tuyChonChuoi(body.loai);
+      if (loai && !(DANH_SACH_LOAI_TUONG_TAC as readonly string[]).includes(loai)) {
+        dsLoi.push(`loai không hợp lệ. Cho phép: ${DANH_SACH_LOAI_TUONG_TAC.join(", ")}.`);
+      }
+      // Refs là tham chiếu lỏng tới entity MAI — validate tồn tại để
+      // timeline không trỏ vào hư không; id ngoài để trong chi_tiet.
+      const banTheHienId = tuyChonChuoi(body.ban_the_hien_id);
+      if (banTheHienId && !layBanTheHien(c.db, banTheHienId)) {
+        dsLoi.push(`ban_the_hien_id '${banTheHienId}' không tồn tại.`);
+      }
+      const campaignId = tuyChonChuoi(body.campaign_id);
+      if (campaignId && !layCampaign(c.db, campaignId)) {
+        dsLoi.push(`campaign_id '${campaignId}' không tồn tại.`);
+      }
+      const linkDichId = tuyChonChuoi(body.link_dich_id);
+      if (
+        linkDichId &&
+        !c.db.query("SELECT id FROM link_dich WHERE id = ?").get(linkDichId)
+      ) {
+        dsLoi.push(`link_dich_id '${linkDichId}' không tồn tại.`);
+      }
+      const giaoHangId = tuyChonChuoi(body.giao_hang_id);
+      if (giaoHangId && !layGiaoHang(c.db, giaoHangId)) {
+        dsLoi.push(`giao_hang_id '${giaoHangId}' không tồn tại.`);
+      }
+      nemLoiValidation(dsLoi);
+      return txn(c.db, () => {
+        let khach;
+        let daTaoKhach = false;
+        if (khachId) {
+          khach = layKhach(c.db, khachId);
+          if (!khach) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy khách hàng.");
+        } else {
+          const kq = resolveKhach(c.db, [ddRaw as NhapDinhDanh], {}, c.actor);
+          khach = kq.khach;
+          daTaoKhach = kq.da_tao;
+        }
+        const sk = ghiTuongTac(c.db, {
+          khach_id: khach!.id,
+          loai,
+          nguon: tuyChonChuoi(body.nguon),
+          xay_ra_luc: tuyChonChuoi(body.xay_ra_luc) || undefined,
+          khoa_idem: tuyChonChuoi(body.khoa_idem),
+          ban_the_hien_id: banTheHienId || undefined,
+          campaign_id: campaignId || undefined,
+          link_dich_id: linkDichId || undefined,
+          giao_hang_id: giaoHangId || undefined,
+          don_hang_ngoai_id: tuyChonChuoi(body.don_hang_ngoai_id) || undefined,
+          chi_tiet: tuyChonObject(body.chi_tiet),
+        });
+        return ok(
+          {
+            khach,
+            su_kien: sk.su_kien,
+            da_tao_khach: daTaoKhach,
+            da_tao_su_kien: sk.da_tao,
+          },
+          sk.da_tao ? 201 : 200,
+        );
+      });
+    }),
+    // Timeline theo person: sắp xếp thời gian, lọc tu/den/loai.
+    route("GET", "/api/khach/:id/timeline", (req, p, c) => {
+      if (!layKhach(c.db, p.id!)) {
+        loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy khách hàng.");
+      }
+      const q = new URL(req.url).searchParams;
+      const ds = timelineKhach(c.db, p.id!, {
+        tu: chuanHoaThoiDiem(q.get("tu"), "tu", []) ?? undefined,
+        den: chuanHoaThoiDiem(q.get("den"), "den", []) ?? undefined,
+        loai: tuyChonChuoi(q.get("loai")) || undefined,
+      });
+      return ok({
+        ds_su_kien: ds.map((s) => ({ ...s, chi_tiet: JSON.parse(s.chi_tiet) as unknown })),
+        tong: ds.length,
+      });
     }),
 
     // --- Job ---

@@ -10,6 +10,18 @@ import { renderHtml } from "../modules/formats/render.ts";
 import { docHtmlDayDu } from "../modules/formats/xuat.ts";
 import { escHtml, huyDangKyTheoToken } from "../modules/kenh/index.ts";
 import { ghiSuKienDo, layLinkDichTheoToken } from "../modules/ket_qua/index.ts";
+import {
+  datCookieVisitor,
+  docVisitorId,
+  ghiTuongTacVisitor,
+} from "../modules/khach/index.ts";
+
+// Cookie visitor nặc danh (mai_v, #61): mint khi thiếu — person được
+// tạo/tìm qua identity 'visitor' khi sự kiện first-party ghi được.
+function visitorTuRequest(req?: Request): { id: string; moi: boolean } {
+  const co = req ? docVisitorId(req) : "";
+  return co ? { id: co, moi: false } : { id: crypto.randomUUID(), moi: true };
+}
 
 // Trang cơ bản do MAI tự phục vụ (#6): GET /p/<ban_the_hien_id> → render
 // đúng revision đã ghim trong record xuat_ban mới nhất của bản đó — chỉ
@@ -57,16 +69,28 @@ export async function phucVuTrang(
   );
   // Sự kiện first-party ghi sau khi trang hợp lệ — await để request kết
   // thúc đã ghi xong (request trùng fingerprint trong 30 phút → no-op).
-  await ghiSuKienDo(db, {
+  const sk = await ghiSuKienDo(db, {
     loai: "xem_trang",
     doiTuongLoai: "ban_the_hien",
     doiTuongId: bth.id,
     ua: req?.headers.get("user-agent") ?? "",
     ip,
   });
-  return new Response(html, {
-    headers: { "content-type": "text/html; charset=utf-8" },
-  });
+  // #61: bridge person graph — event 'xem' lên timeline của visitor.
+  const visitor = visitorTuRequest(req);
+  if (sk.da_ghi && !sk.la_bot) {
+    ghiTuongTacVisitor(db, {
+      visitor_id: visitor.id,
+      loai: "xem",
+      ban_the_hien_id: bth.id,
+      chi_tiet: { path: pathname },
+    });
+  }
+  const headers: Record<string, string> = {
+    "content-type": "text/html; charset=utf-8",
+  };
+  if (visitor.moi) headers["set-cookie"] = datCookieVisitor(visitor.id);
+  return new Response(html, { headers });
 }
 
 // Link đích theo dõi (#15): GET /l/<token> → ghi 'click_link' rồi 302 tới
@@ -93,20 +117,39 @@ export async function phucVuLinkDich(
       { status: 404 },
     );
   }
-  await ghiSuKienDo(db, {
+  const sk = await ghiSuKienDo(db, {
     loai: "click_link",
     doiTuongLoai: "link_dich",
     doiTuongId: link.id,
     ua: req?.headers.get("user-agent") ?? "",
     ip,
   });
-  return Response.redirect(link.url_dich, 302);
+  // #61: bridge person graph — event 'click' kèm link_dich + bản thể hiện.
+  const visitor = visitorTuRequest(req);
+  if (sk.da_ghi && !sk.la_bot) {
+    ghiTuongTacVisitor(db, {
+      visitor_id: visitor.id,
+      loai: "click",
+      link_dich_id: link.id,
+      ban_the_hien_id: link.ban_the_hien_id || undefined,
+      chi_tiet: { token: m[1], thong_diep_id: link.thong_diep_id },
+    });
+  }
+  const res = Response.redirect(link.url_dich, 302);
+  if (visitor.moi) res.headers.set("set-cookie", datCookieVisitor(visitor.id));
+  return res;
 }
 
 // Link hủy đăng ký một chạm trong email (#13): GET /huy-dang-ky?token=<t>.
 // Token là bí mật theo người nhận (không liệt kê được). Sai token → 404;
 // đúng token → suppression vĩnh viễn, kênh email không gửi tới nữa.
-export function phucVuHuyDangKy(db: Database, token: string | null): Response {
+// #61: giữ cookie mai_v — trang này biết email, visitor id đi cùng giúp
+// ticket consent link hoạt động web vào person có email identity.
+export function phucVuHuyDangKy(
+  db: Database,
+  token: string | null,
+  req?: Request,
+): Response {
   const ketQua = token ? huyDangKyTheoToken(db, token) : null;
   if (!ketQua) {
     return new Response(
@@ -119,8 +162,13 @@ export function phucVuHuyDangKy(db: Database, token: string | null): Response {
   const thongDiep = ketQua.da_huy
     ? `Đã hủy đăng ký cho ${email}. Bạn sẽ không nhận email nữa.`
     : `${email} đã hủy đăng ký trước đó.`;
+  const visitor = visitorTuRequest(req);
+  const headers: Record<string, string> = {
+    "content-type": "text/html; charset=utf-8",
+  };
+  if (visitor.moi) headers["set-cookie"] = datCookieVisitor(visitor.id);
   return new Response(
     `<!doctype html><html><body><p>${thongDiep}</p></body></html>`,
-    { headers: { "content-type": "text/html; charset=utf-8" } },
+    { headers },
   );
 }

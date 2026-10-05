@@ -102,7 +102,7 @@ export async function startServer(tuyChon: TuyChonServer = {}) {
           server.requestIP(req)?.address ?? req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "";
         res =
           (url.pathname === "/huy-dang-ky"
-            ? phucVuHuyDangKy(db, url.searchParams.get("token"))
+            ? phucVuHuyDangKy(db, url.searchParams.get("token"), req)
             : null) ??
           (await phucVuLinkDich(db, url.pathname, req, ip)) ??
           (await phucVuTrang(db, url.pathname, req, ip)) ??
