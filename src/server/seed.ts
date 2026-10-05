@@ -44,7 +44,13 @@ import {
   dongBoThiTruong,
 } from "../modules/thuong_hieu/index.ts";
 import { enqueueJob } from "../modules/jobs/index.ts";
-import { huyDangKyNguoiNhan, themNguoiNhan } from "../modules/kenh/index.ts";
+import { huyDangKyNguoiNhan, layGiaoHang, themNguoiNhan } from "../modules/kenh/index.ts";
+import {
+  datMucTieu,
+  ghiSnapshotProvider,
+  nhapKetQua,
+  taoLinkDich,
+} from "../modules/ket_qua/index.ts";
 import {
   datAssetBanTheHien,
   duongDanTepAsset,
@@ -2336,6 +2342,189 @@ export function seed(
     const nnHuy = themNguoiNhan(db, { email: "tam@example.com", ten: "Tâm" }, urlGoc, tacGia);
     huyDangKyNguoiNhan(db, nnHuy.nguoi_nhan.id, urlGoc);
     daSeed.push("story_kenh_so_huu");
+  }
+
+  // --- Story #15: đo kết quả kênh sở hữu — dữ liệu demo cho trang
+  // Kết quả: mục tiêu trên thông điệp tiệm bánh, link đích theo dõi đặt
+  // trước, lần giao fixture (trang nội bộ da_giao + email chap_nhan +
+  // caption xuất tay), sự kiện first-party, snapshot provider, và một
+  // kết quả nhập tay kèm bằng chứng. Đủ dữ liệu để dashboard + gợi ý
+  // có nội dung ngay sau seed.
+  if (
+    !db
+      .query("SELECT id FROM muc_tieu_ket_qua WHERE chu_loai = 'thong_diep' AND chu_id = 'seed-td-tiem-banh'")
+      .get()
+  ) {
+    const tdTiemBanh = layThongDiep(db, "seed-td-tiem-banh");
+    const bthWeb = layBanTheHien(db, "seed-bth-tb-web");
+    const bthNews = layBanTheHien(db, "seed-bth-kenh-newsletter");
+    const bthIg = layBanTheHien(db, "seed-bth-tb-ig");
+    if (tdTiemBanh && bthWeb && bthNews && bthIg) {
+      datMucTieu(
+        db,
+        {
+          chu_loai: "thong_diep",
+          chu_id: tdTiemBanh.id,
+          mo_ta: "Bán hết 30 ổ croissant hạt dẻ trong ngày ra mắt 2026-10-10.",
+          tieu_chi: [{ ten: "don_dat_truoc", don_vi: "đơn", nguong: 20 }],
+        },
+        tacGia,
+      );
+      const { link } = taoLinkDich(
+        db,
+        {
+          url_dich: "https://tiembanh.example.com/dat-hang",
+          thong_diep_id: tdTiemBanh.id,
+          nhan: "Đặt trước croissant",
+        },
+        urlGoc,
+        tacGia,
+      );
+      // Link thứ hai gắn đầu ra web, cố ý KHÔNG có sự kiện click — kích
+      // hoạt gợi ý 'cau_hoi' (xem nhiều, click 0) trong demo.
+      taoLinkDich(
+        db,
+        {
+          url_dich: "https://tiembanh.example.com/menu",
+          ban_the_hien_id: bthWeb.id,
+          nhan: "Xem thực đơn",
+        },
+        urlGoc,
+        tacGia,
+      );
+
+      // Lần giao fixture — insert trực tiếp vì seed chạy đồng bộ, không
+      // qua được adapter async. Trạng thái khớp semantics adapter thật:
+      // trang_noi_bo → da_giao, email → chap_nhan (provider mới nhận),
+      // xuat_tay → chỉ là bundle đã xuất, không phải đã đăng.
+      const tsCu = new Date(Date.now() - 26 * 60 * 60 * 1000).toISOString();
+      const ts = new Date().toISOString();
+      const giaoFixture = [
+        {
+          id: "seed-giao-web",
+          bth: bthWeb,
+          kenh: "trang_noi_bo",
+          trang_thai: "da_giao",
+          url: `${urlGoc}/p/${bthWeb.id}`,
+          so_nhan: 0,
+          chi_tiet: {},
+        },
+        {
+          id: "seed-giao-email",
+          bth: bthNews,
+          kenh: "email",
+          trang_thai: "chap_nhan",
+          url: "",
+          so_nhan: 2,
+          chi_tiet: {
+            da_gui: ["ngoc@example.com", "minh@example.com"],
+            bien_nhan: { "ngoc@example.com": "re_seed_ngoc", "minh@example.com": "re_seed_minh" },
+          },
+        },
+        {
+          id: "seed-giao-ig",
+          bth: bthIg,
+          kenh: "xuat_tay",
+          trang_thai: "xuat_tay",
+          url: "",
+          so_nhan: 0,
+          chi_tiet: {},
+        },
+      ];
+      for (const g of giaoFixture) {
+        db.query(
+          `INSERT INTO giao_hang
+             (id, ban_the_hien_id, revision_id, kenh, dich_den, trang_thai, job_id, khoa_idem,
+              ma_bien_nhan, url, len_lich_luc, mui_gio, so_nguoi_nhan, so_bo_qua, lan_thu, loi,
+              chi_tiet, revision_thanh_cong, la_test, tao_luc, tao_boi, xong_luc)
+           VALUES (?, ?, ?, ?, '', ?, '', ?, ?, ?, NULL, 'Asia/Ho_Chi_Minh', ?, ?, 1, '', ?, ?, 0, ?, ?, ?)`,
+        ).run(
+          g.id,
+          g.bth.id,
+          g.bth.head_revision_id ?? "",
+          g.kenh,
+          g.trang_thai,
+          `seed:${g.id}`,
+          g.kenh === "email" ? "re_seed_demo_001" : "",
+          g.url,
+          g.so_nhan,
+          g.kenh === "email" ? 1 : 0,
+          JSON.stringify(g.chi_tiet),
+          g.bth.head_revision_id ?? "",
+          tsCu,
+          tacGia,
+          tsCu,
+        );
+      }
+
+      // Sự kiện first-party fixture: xem trang trên đầu ra web, click link
+      // đặt trước, và 1 sự kiện bot (đếm riêng, không gộp vào số chính).
+      const suKien = [
+        ...Array.from({ length: 12 }, (_, i) => ({
+          loai: "xem_trang",
+          dtLoai: "ban_the_hien",
+          dtId: bthWeb.id,
+          khoa: `xem_trang:${bthWeb.id}:seed-vt${String(i).padStart(2, "0")}:k0`,
+          bot: 0,
+        })),
+        { loai: "xem_trang", dtLoai: "ban_the_hien", dtId: bthWeb.id, khoa: `xem_trang:${bthWeb.id}:seed-bot:k0`, bot: 1 },
+        ...Array.from({ length: 4 }, (_, i) => ({
+          loai: "click_link",
+          dtLoai: "link_dich",
+          dtId: link.id,
+          khoa: `click_link:${link.id}:seed-vt${String(i).padStart(2, "0")}:k0`,
+          bot: 0,
+        })),
+        { loai: "click_link", dtLoai: "link_dich", dtId: link.id, khoa: `click_link:${link.id}:seed-bot:k0`, bot: 1 },
+      ];
+      for (const [i, s] of suKien.entries()) {
+        db.query(
+          `INSERT INTO su_kien_do (id, loai, doi_tuong_loai, doi_tuong_id, khoa_dedupe, la_bot, chi_tiet, tao_luc)
+           VALUES (?, ?, ?, ?, ?, ?, '{}', ?)`,
+        ).run(
+          `seed-sk-${String(i).padStart(2, "0")}`,
+          s.loai,
+          s.dtLoai,
+          s.dtId,
+          s.khoa,
+          s.bot,
+          new Date(Date.now() - (suKien.length - i) * 47 * 60 * 1000).toISOString(),
+        );
+      }
+
+      // Snapshot provider cho lần giao email — số đếm do provider báo,
+      // giữ riêng khỏi sự kiện first-party.
+      const giaoEmail = layGiaoHang(db, "seed-giao-email");
+      if (giaoEmail) {
+        ghiSnapshotProvider(db, giaoEmail, {
+          "ngoc@example.com": { su_kien_cuoi: "opened" },
+          "minh@example.com": { su_kien_cuoi: "delivered" },
+        });
+        // Đẩy thu_luc snapshot về >24h trước → gợi ý 'thu_metric' hiện ra
+        // trong demo (metric cũ cần thu lại).
+        db.query("UPDATE so_lieu SET thu_luc = ? WHERE chu_id = 'seed-giao-email'").run(tsCu);
+      }
+
+      // Kết quả tự nhập kèm bằng chứng — nhãn tu_bao.
+      nhapKetQua(
+        db,
+        {
+          chu_loai: "thong_diep",
+          chu_id: tdTiemBanh.id,
+          ten: "don_dat_truoc",
+          gia_tri: 12,
+          don_vi: "đơn",
+          mo_ta: "Đơn đặt trước croissant tính tới sáng ra mắt.",
+          bang_chung: "sổ ghi đơn đặt trước 2026-10-10",
+          nhan_dinh: "tu_bao",
+          cua_so_tu: tsCu,
+          cua_so_den: ts,
+          mui_gio: "Asia/Ho_Chi_Minh",
+        },
+        tacGia,
+      );
+      daSeed.push("story_do_ket_qua");
+    }
   }
 
   return { da_seed: daSeed };

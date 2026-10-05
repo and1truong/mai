@@ -226,6 +226,21 @@ import {
   xemTruocGiao,
 } from "../modules/kenh/index.ts";
 import {
+  baoCaoKetQua,
+  chapNhanGoiY,
+  danhSachGoiYKetQua,
+  danhSachLinkDich,
+  danhSachSoLieu,
+  datMucTieu,
+  ghiSnapshotProvider,
+  layMucTieu,
+  nhapKetQua,
+  taoLinkDich,
+  thuThapMetricGiao,
+  tuChoiGoiY,
+  type TieuChiThanhCong,
+} from "../modules/ket_qua/index.ts";
+import {
   cauHoiLamRo,
   chonDauRa,
   danhSachBanTheHienCu,
@@ -2170,6 +2185,8 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
 
     // Metric giao hàng mà provider có sẵn — 'chap_nhan' mới chỉ là provider
     // đã nhận; đây là bước đọc trạng thái tới đích thực tế.
+    // Metric giao hàng provider báo — đọc trực tiếp rồi lưu snapshot vào
+    // so_lieu (nguon 'provider', kèm thu_luc → báo cáo biết độ tươi).
     route("GET", "/api/giao-hang/:id/metric", async (_req, p, c) => {
       const giao = layGiaoHang(c.db, p.id!);
       if (!giao) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy lần giao.");
@@ -2177,8 +2194,169 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       if (!adapter?.layMetric) {
         loiRequest(400, "VALIDATION", `Kênh '${giao.kenh}' không có metric giao hàng.`);
       }
-      return ok(await adapter!.layMetric!(giao));
+      if (!adapter.san_sang) {
+        loiRequest(500, "LOI_CAU_HINH", `Kênh '${giao.kenh}' chưa cấu hình đủ để lấy metric.`);
+      }
+      const duLieu = await adapter!.layMetric!(giao);
+      if (typeof duLieu.loi === "string") {
+        loiRequest(500, "LOI_CAU_HINH", duLieu.loi);
+      }
+      const snapshot = ghiSnapshotProvider(c.db, giao, duLieu);
+      return ok({ ...duLieu, snapshot_id: snapshot?.id ?? null });
     }),
+
+    // --- Đo kết quả kênh sở hữu (#15) ---
+
+    // Mục tiêu + tiêu chí thành công tùy chọn gắn campaign/thong_diep —
+    // PUT upsert (một dòng per chủ); GET đọc lại.
+    route("PUT", "/api/muc-tieu", async (req, _p, c) => {
+      const body = await docBody(req);
+      const dsLoi: string[] = [];
+      const chuLoai = batBuocChuoi(body.chu_loai, "chu_loai", dsLoi);
+      const chuId = batBuocChuoi(body.chu_id, "chu_id", dsLoi);
+      const tieuChiRaw = body.tieu_chi ?? [];
+      const dsTieuChi: TieuChiThanhCong[] = [];
+      if (!Array.isArray(tieuChiRaw)) {
+        dsLoi.push("tieu_chi phải là mảng {ten, don_vi?, nguong?}.");
+      } else {
+        for (const [i, tc] of tieuChiRaw.entries()) {
+          if (typeof tc !== "object" || tc === null || Array.isArray(tc)) {
+            dsLoi.push(`tieu_chi[${i}] phải là object.`);
+            continue;
+          }
+          const o = tc as Record<string, unknown>;
+          const ten = tuyChonChuoi(o.ten);
+          if (!ten) dsLoi.push(`tieu_chi[${i}].ten bắt buộc.`);
+          else dsTieuChi.push({ ten, don_vi: tuyChonChuoi(o.don_vi) || undefined, nguong: typeof o.nguong === "number" ? o.nguong : undefined });
+        }
+      }
+      nemLoiValidation(dsLoi);
+      return ok(
+        datMucTieu(
+          c.db,
+          { chu_loai: chuLoai, chu_id: chuId, mo_ta: tuyChonChuoi(body.mo_ta), tieu_chi: dsTieuChi },
+          c.actor,
+        ),
+      );
+    }),
+    route("GET", "/api/muc-tieu", (req, _p, c) => {
+      const q = new URL(req.url).searchParams;
+      const mt = layMucTieu(c.db, q.get("chu_loai") ?? "", q.get("chu_id") ?? "");
+      return ok({ muc_tieu: mt });
+    }),
+
+    // Link đích theo dõi: tạo token → URL /l/<token> chèn vào nội dung;
+    // GET liệt kê kèm số click đã lọc dedupe+bot.
+    route("POST", "/api/link-dich", async (req, _p, c) => {
+      const body = await docBody(req);
+      const dsLoi: string[] = [];
+      const urlDich = batBuocChuoi(body.url_dich, "url_dich", dsLoi);
+      nemLoiValidation(dsLoi);
+      return ok(
+        taoLinkDich(
+          c.db,
+          {
+            url_dich: urlDich,
+            thong_diep_id: tuyChonChuoi(body.thong_diep_id) || undefined,
+            ban_the_hien_id: tuyChonChuoi(body.ban_the_hien_id) || undefined,
+            nhan: tuyChonChuoi(body.nhan),
+          },
+          chuanHoaCauHinhKenh(c.kenh).url_goc,
+          c.actor,
+        ),
+      );
+    }),
+    route("GET", "/api/link-dich", (req, _p, c) => {
+      const q = new URL(req.url).searchParams;
+      return ok({
+        ds_link: danhSachLinkDich(c.db, chuanHoaCauHinhKenh(c.kenh).url_goc, {
+          thongDiepId: q.get("thong_diep_id") ?? undefined,
+          banTheHienId: q.get("ban_the_hien_id") ?? undefined,
+        }),
+      });
+    }),
+
+    // Kết quả người dùng tự nhập (gây quỹ/kinh doanh đã kiểm chứng) —
+    // bang_chung bắt buộc; nhan_dinh 'tu_bao' trừ khi đo được ('da_do').
+    route("POST", "/api/ket-qua", async (req, _p, c) => {
+      const body = await docBody(req);
+      const dsLoi: string[] = [];
+      const chuLoai = batBuocChuoi(body.chu_loai, "chu_loai", dsLoi);
+      const chuId = batBuocChuoi(body.chu_id, "chu_id", dsLoi);
+      const ten = batBuocChuoi(body.ten, "ten", dsLoi);
+      const bangChung = batBuocChuoi(body.bang_chung, "bang_chung", dsLoi);
+      const giaTri = body.gia_tri === undefined || body.gia_tri === null ? null : Number(body.gia_tri);
+      if (giaTri !== null && (!Number.isFinite(giaTri) || giaTri < 0)) {
+        dsLoi.push("gia_tri phải là số >= 0.");
+      }
+      nemLoiValidation(dsLoi);
+      return ok(
+        nhapKetQua(
+          c.db,
+          {
+            chu_loai: chuLoai,
+            chu_id: chuId,
+            ten,
+            gia_tri: giaTri,
+            don_vi: tuyChonChuoi(body.don_vi),
+            mo_ta: tuyChonChuoi(body.mo_ta),
+            bang_chung: bangChung,
+            nhan_dinh: tuyChonChuoi(body.nhan_dinh) || undefined,
+            cua_so_tu: tuyChonChuoi(body.cua_so_tu) || undefined,
+            cua_so_den: tuyChonChuoi(body.cua_so_den) || undefined,
+            mui_gio: tuyChonChuoi(body.mui_gio) || undefined,
+          },
+          c.actor,
+        ),
+      );
+    }),
+    route("GET", "/api/ket-qua", (req, _p, c) => {
+      const q = new URL(req.url).searchParams;
+      return ok({
+        ds_ket_qua: danhSachSoLieu(c.db, {
+          chu_loai: q.get("chu_loai") ?? undefined,
+          chu_id: q.get("chu_id") ?? undefined,
+          nguon: q.get("nguon") ?? undefined,
+        }),
+      });
+    }),
+
+    // Báo cáo gom: tách riêng provider/first-party/nhập tay, kèm định
+    // nghĩa metric + giới hạn + độ tươi. Không cộng dồn người duy nhất.
+    route("GET", "/api/bao-cao-ket-qua", (req, _p, c) => {
+      const q = new URL(req.url).searchParams;
+      return ok(
+        baoCaoKetQua(c.db, {
+          thongDiepId: q.get("thong_diep_id") ?? undefined,
+          campaignId: q.get("campaign_id") ?? undefined,
+        }),
+      );
+    }),
+
+    // Thu thập snapshot metric provider cho mọi lần giao đã chấp nhận —
+    // kênh không có metric bị bỏ qua, đếm riêng.
+    route("POST", "/api/metric/thu-thap", async (_req, _p, c) =>
+      ok(await thuThapMetricGiao(c.db, c.kenh)),
+    ),
+
+    // Gợi ý hành động tiếp theo: đọc là đồng bộ (sinh ứng viên mới, làm
+    // tươi quan sát của gợi ý còn 'moi'). Chấp nhận tạo việc liên kết;
+    // từ chối chỉ ghi trạng thái.
+    route("GET", "/api/goi-y-ket-qua", (req, _p, c) => {
+      const q = new URL(req.url).searchParams;
+      return ok({
+        ds_goi_y: danhSachGoiYKetQua(c.db, {
+          thongDiepId: q.get("thong_diep_id") ?? undefined,
+          trangThai: q.get("trang_thai") ?? undefined,
+        }),
+      });
+    }),
+    route("POST", "/api/goi-y-ket-qua/:id/chap-nhan", async (_req, p, c) =>
+      ok(await chapNhanGoiY(c.db, p.id!, c.actor, c.kenh)),
+    ),
+    route("POST", "/api/goi-y-ket-qua/:id/tu-choi", (_req, p, c) =>
+      ok(tuChoiGoiY(c.db, p.id!, c.actor)),
+    ),
 
     // Danh bạ người nhận opt-in do chủ sở hữu khai báo (không tự tìm list).
     route("GET", "/api/nguoi-nhan", (_req, _p, c) =>
