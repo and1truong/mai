@@ -46,6 +46,12 @@ const MAU_BAT_DINH: Record<string, "green" | "orange" | "red"> = {
   cao: "red",
 };
 
+const NHAN_BAT_DINH: Record<string, string> = {
+  thap: "thấp",
+  vua: "vừa",
+  cao: "cao",
+};
+
 const NHAN_NGUON: Record<string, string> = {
   first_party: "first-party",
   provider: "provider",
@@ -137,7 +143,7 @@ function TheGoiY({ g, reload }: { g: GoiYKetQua; reload: () => void }) {
             {g.tieu_de}
           </Text>
           <Badge color={MAU_BAT_DINH[g.bat_dinh] ?? "gray"} variant="soft">
-            bất định: {g.bat_dinh}
+            bất định: {NHAN_BAT_DINH[g.bat_dinh] ?? g.bat_dinh}
           </Badge>
           <Badge variant="outline">
             {g.trang_thai === "moi"
@@ -433,7 +439,11 @@ export default function KetQuaPage() {
                   </Text>
                 ))}
                 <Text size="1" color="amber">
-                  Reach social: {bc.social.trang_thai} — {bc.social.ghi_chu}
+                  Reach social:{" "}
+                  {bc.social.trang_thai === "khong_co"
+                    ? "không có"
+                    : String(bc.social.trang_thai)}{" "}
+                  — {bc.social.ghi_chu}
                 </Text>
               </Flex>
             </Card>
