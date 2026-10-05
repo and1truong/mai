@@ -4,6 +4,7 @@ import { taiCauHinh, type CauHinhBaoMat } from "../config.ts";
 import { log } from "../log.ts";
 import { layNhaCungCap } from "../modules/generation/index.ts";
 import { khoiDongRunner } from "../modules/jobs/index.ts";
+import { damBaoDoiKhach } from "../modules/khach/index.ts";
 import { taoHandlers } from "../modules/jobs/handlers.ts";
 import { taoApi } from "./api.ts";
 import { chayMigration, moDb } from "./db.ts";
@@ -47,6 +48,8 @@ export async function startServer(tuyChon: TuyChonServer = {}) {
 
   const db = moDb(dataDir);
   chayMigration(db);
+  // Backfill lifecycle sau migration cho DB cũ (#65) — idempotent.
+  damBaoDoiKhach(db);
 
   const provider = layNhaCungCap(cauHinh.ai);
   const dungRunner = khoiDongRunner(
