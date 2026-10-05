@@ -130,6 +130,33 @@ Chuyển sai → 409 `XUNG_DOT_TRANG_THAI`.
 - `POST /api/khach/chuyen-doi` (khach_id | dinh_danh | trống → unattributed; dinh_danh malformed → 400, không nuốt thành unattributed; gia_tri non-number → 400). Idempotency kiểm `khoa_idem` TRƯỚC resolve — replay không tạo person/identity mồ côi. `GET /api/khach/:id/quy-ve`; `GET /api/chuyen-doi?chua_gan=1&gioi_han=` (cap 500, mặc định 200).
 - Report chỉ nói "quy về theo model X" — không biến correlation thành causation.
 
+### Nạp đơn hàng commerce (#64)
+
+- `POST /api/khach/nap-don-hang`: `{he_thong, khach_ngoai_id, don_hang_ngoai_id, dinh_danh?, email?, ten?, items[], gia_tri, tien_te, mua_luc?, khoa_idem?, chi_tiet?}` — một txn tạo person + event `mua` + conversion `mua`.
+- Identity matching có kiểm soát: luôn gắn `external` khóa `<he_thong>:<khach_ngoai_id>`; email/`dinh_danh[]` chỉ khi payload khai báo — không fuzzy. Đụng identity của person khác → 409 `XUNG_DOT_DINH_DANH` kèm `khach_ids`.
+- Idempotent: `khoa_idem`, dự phòng `he_thong:don_hang_ngoai_id` (key `nd:<khoa>` trên `chuyen_doi`) — replay trả bản ghi cũ, không nhân person/event/conversion.
+- Adapter fixture: `modules/khach/nap_fixture.ts` đọc `server/seed-assets/don-hang-mau.json` → cùng contract; seed `story_khach_hang`.
+- Giới hạn POC: không refund/cancel, không sync hai chiều, không adapter Shopify/Woo thật.
+
+### Lifecycle + chỉ số giá trị (#65)
+
+- `khach.trang_thai_doi`: `khach_vang_lai → dang_ky → khach_mua → khach_quen → ngu_dong`. Rules deterministic: không hoạt động ≥90 ngày → `ngu_dong` (override các state khác — event/conversion mới đánh thức); ≥2 conversion `mua` → `khach_quen`; ≥1 → `khach_mua`; có consent `cho` hoặc event/conversion `dang_ky` mới hơn `huy_dang_ky` gần nhất → `dang_ky`; còn lại `khach_vang_lai`.
+- "Hoạt động cuối" = `MAX(xay_ra_luc)` trên `tuong_tac` UNION `chuyen_doi` UNION `dong_y.cap_nhat_luc` — conversion hay consent mới cũng đánh thức dormant. `dang_ky`/`huy_dang_ky` so theo (xay_ra_luc, rowid) — bản ghi mới nhất quyết state; `huy_dang_ky` mới hơn `dang_ky` hạ được `dang_ky`.
+- Cập nhật EAGER trong cùng transaction khi ghi `tuong_tac`/`dong_y`/`chuyen_doi` (không lazy, không cron); `damBaoDoiKhach` backfill idempotent chạy một lần lúc boot sau `chayMigration`. Đổi state → `su_kien` `doi_trang_thai_doi` — transitions từ source events, không sửa tay.
+- `giai_thich_doi` JSON giải thích state hiện tại (`ly_do`, `so_don_mua`, `co_dong_y_cho`, `su_kien_cuoi_luc`, `tinh_luc`); điền ngay khi tạo person.
+- `giaTriKhach`: metrics từ `chuyen_doi` `mua` — `doanh_thu` tách THEO `tien_te` (mỗi currency một tổng + `gia_tri_tb` riêng, không trộn, không FX); `tan_suat` = `so_don / ceil(ngày kể từ đơn đầu / 90)` (tối thiểu 1 khung).
+- `GET /api/khach/:id/gia-tri` → `{trang_thai_doi, giai_thich, gia_tri}` — trả derive LIVE qua `tinhDoiKhach` (dormant phụ thuộc thời gian nên đọc cột lưu có thể stale); `GET /api/khach/:id` cũng trả state derive live (object); cột lưu phục vụ liệt kê/segment. Hàm derive export để segment (#66) dùng lại.
+- Giới hạn POC: segment trên cột lưu có thể trễ một nhịp giữa hai lần ghi, không lead scoring/churn/CLV, không generic state machine.
+
+### Segment động + tag (#66)
+
+- `segment` lưu `ten` + `quy_tac` JSON — DSL tối thiểu, deterministic: `{all:[dk...], any:[dk...]}`, mỗi điều kiện đúng một khóa trong `trang_thai_doi`, `co_truong|khong_co_truong` (`ten|email|sdt`), `co_su_kien|khong_co_su_kien` (`{loai, trong_ngay?}` trên `tuong_tac`), `co_tag`, `so_don_toi_thieu`, `tong_doanh_thu_toi_thieu` (`{tien_te, gia_tri}` — riêng theo currency), `don_cuoi_truoc_ngay` (ISO). `all` = mọi điều kiện đúng, `any` = ít nhất một; thiếu cả hai = tất cả person `hoat_dong`.
+- Membership **tính lại khi đọc** (`thanhVienSegment` per person, `thanhVienSegmentAll` quét) — không bảng materialize, không snapshot. Person `da_gop` (#67) không bao giờ thuộc segment.
+- CRUD: `POST|GET /api/segment`, `GET|PUT|DELETE /api/segment/:id`, `GET .../xem-truoc` (`{so_luong, mau[]}` — mẫu tối đa 20 id). DSL xấu → 400 liệt kê lỗi. DELETE khi có campaign gắn `segment_id` → 409 `SEGMENT_DANG_DUNG`.
+- `campaign.segment_id` (migration 0026): field nhận ở POST/PUT campaign, validate tồn tại — resolve audience thành người nhận là việc của #68.
+- `khach_tag` (khach_id+tag PK): tag chuẩn hóa trim+lowercase, `nguon` ∈ `tay|automation|import` ghi lúc thêm — audit nguồn tag. `PUT /api/khach/:id/tags {them[], bo[], nguon?}` idempotent (INSERT OR IGNORE + DELETE), `GET` cùng path đọc. Lọc `?tag=` là phần #70.
+- Giới hạn POC: không rule-builder UI (JSON tay), không nested segment, không streaming real-time.
+
 ## Nạp nguồn & asset (#17)
 
 - Nguồn vào: dán text (`POST /api/nguon/nhap`, `POST /api/nguon/:id/nhap`) hoặc upload file (`POST /api/assets?ten=...`).

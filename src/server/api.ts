@@ -285,8 +285,23 @@ import {
   ghiChuyenDoi,
   ghiTuongTac,
   layKhach,
+  giaTriKhach,
+  tinhDoiKhach,
+  napDonHang,
   quyVeCuaKhach,
   resolveKhach,
+} from "../modules/khach/index.ts";
+import {
+  capNhatSegment,
+  danhSachSegment,
+  datTagKhach,
+  laySegment,
+  layTagCuaKhach,
+  taoSegment,
+  thanhVienSegmentAll,
+  xoaSegment,
+} from "../modules/khach/segment.ts";
+import {
   taoKhach,
   timelineKhach,
   type Khach,
@@ -1183,6 +1198,10 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       const dsClaim = kiemTraDsClaim(c.db, body.ds_claim, dsLoi) ?? [];
       const giongVan = docGiongVan(body.giong_van, dsLoi) ?? "";
       const dsAssetHinh = kiemTraDsAssetHinh(c.db, body.ds_asset_hinh, dsLoi) ?? [];
+      const segmentId = tuyChonChuoi(body.segment_id);
+      if (segmentId && !laySegment(c.db, segmentId)) {
+        dsLoi.push(`segment_id '${segmentId}' không tồn tại.`);
+      }
       nemLoiValidation(dsLoi);
       const cp = taoCampaign(
         c.db,
@@ -1221,6 +1240,7 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
           ds_ngoai_le: dsNgoaiLe,
           ds_fact_van_hanh: dsFactVanHanh,
           ds_nguoi_duyet: dsNguoiDuyet,
+          segment_id: segmentId,
         },
         c.actor,
       );
@@ -1408,6 +1428,11 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       ) {
         dsLoi.push("so_tien_muc_tieu có giá trị thì tien_te bắt buộc.");
       }
+      // Audience (#66): gắn segment phải trỏ segment có thật; rỗng = gỡ.
+      const segmentId = body.segment_id === undefined ? undefined : tuyChonChuoi(body.segment_id);
+      if (segmentId && !laySegment(c.db, segmentId)) {
+        dsLoi.push(`segment_id '${segmentId}' không tồn tại.`);
+      }
       nemLoiValidation(dsLoi);
       const cp = capNhatCampaign(
         c.db,
@@ -1451,6 +1476,7 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
           ds_claim: dsClaim,
           giong_van: giongVan,
           ds_asset_hinh: dsAssetHinh,
+          segment_id: body.segment_id === undefined ? undefined : tuyChonChuoi(body.segment_id),
         },
         c.actor,
       );
@@ -2677,7 +2703,15 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
     route("GET", "/api/khach/:id", (_req, p, c) => {
       const khach = layKhach(c.db, p.id!);
       if (!khach) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy khách hàng.");
-      return ok({ ...khach, dinh_danh: danhSachDinhDanh(c.db, khach.id) });
+      // trang_thai_doi/giai_thich_doi derive live (dormant phụ thuộc
+      // thời gian) — khớp /gia-tri; cột lưu chỉ phục vụ liệt kê/segment.
+      const { trang_thai, giai_thich } = tinhDoiKhach(c.db, khach.id);
+      return ok({
+        ...khach,
+        trang_thai_doi: trang_thai,
+        giai_thich_doi: giai_thich,
+        dinh_danh: danhSachDinhDanh(c.db, khach.id),
+      });
     }),
     route("GET", "/api/khach/:id/dinh-danh", (_req, p, c) => {
       if (!layKhach(c.db, p.id!)) {
@@ -2808,6 +2842,46 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       return ok(docDongY(c.db, p.id!));
     }),
 
+    // Ticket #64: contract nạp đơn hàng từ commerce (idempotent theo
+    // khoa_idem hoặc he_thong:don_hang_ngoai_id; identity có kiểm soát).
+    route("POST", "/api/khach/nap-don-hang", async (req, _p, c) => {
+      const body = await docBody(req);
+      const kq = napDonHang(
+        c.db,
+        {
+          he_thong: tuyChonChuoi(body.he_thong),
+          khach_ngoai_id: tuyChonChuoi(body.khach_ngoai_id),
+          don_hang_ngoai_id: tuyChonChuoi(body.don_hang_ngoai_id),
+          dinh_danh: Array.isArray(body.dinh_danh)
+            ? (body.dinh_danh as NhapDinhDanh[])
+            : undefined,
+          email: tuyChonChuoi(body.email) || undefined,
+          ten: tuyChonChuoi(body.ten) || undefined,
+          items: Array.isArray(body.items)
+            ? (body.items as { ma?: string; ten: string; so_luong: number; gia: number }[])
+            : undefined,
+          gia_tri: typeof body.gia_tri === "number" ? body.gia_tri : NaN,
+          tien_te: tuyChonChuoi(body.tien_te),
+          mua_luc: tuyChonChuoi(body.mua_luc) || undefined,
+          khoa_idem: tuyChonChuoi(body.khoa_idem) || undefined,
+          chi_tiet: tuyChonObject(body.chi_tiet),
+        },
+        c.actor,
+      );
+      return ok(
+        {
+          khach: kq.khach,
+          su_kien: kq.su_kien,
+          chuyen_doi: kq.chuyen_doi
+            ? { ...kq.chuyen_doi, chi_tiet: JSON.parse(kq.chuyen_doi.chi_tiet) as unknown }
+            : null,
+          quy_ve: kq.quy_ve,
+          da_tao: kq.da_tao,
+        },
+        kq.da_tao ? 201 : 200,
+      );
+    }),
+
     // Ticket #63: conversion + attribution. nguon + khoa_idem bắt buộc;
     // tien_te bắt buộc khi có gia_tri; person resolve qua dinh_danh hoặc
     // khach_id, thiếu cả hai → unattributed vẫn INSERT (không ép gán).
@@ -2916,6 +2990,79 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
           quy_ve: x.quy_ve,
         })),
       });
+    }),
+    // Lifecycle + chỉ số giá trị (#65): trạng thái đời kèm giải thích
+    // deterministic + metrics derive từ chuyen_doi 'mua' theo currency.
+    route("GET", "/api/khach/:id/gia-tri", (_req, p, c) => {
+      const khach = layKhach(c.db, p.id!);
+      if (!khach) {
+        loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy khách hàng.");
+      }
+      // Derive live thay vì đọc cột lưu: rule ngu_dong phụ thuộc thời
+      // gian nên state theo thời điểm đọc mới đúng (#65); cột lưu vẫn
+      // cập nhật eager để liệt kê/segment dùng.
+      const { trang_thai, giai_thich } = tinhDoiKhach(c.db, khach.id);
+      return ok({
+        trang_thai_doi: trang_thai,
+        giai_thich,
+        gia_tri: giaTriKhach(c.db, khach.id),
+      });
+    }),
+
+    // --- Segment + tag (ticket #66) ---
+    // DSL quy_tac JSON {all:[], any:[]}; membership tính khi đọc, không
+    // materialize. Tag: PUT /api/khach/:id/tags {them:[], bo:[], nguon}.
+    route("POST", "/api/segment", async (req, _p, c) => {
+      const body = await docBody(req);
+      const seg = taoSegment(c.db, { ten: body.ten, quy_tac: body.quy_tac }, c.actor);
+      return ok({ ...seg, quy_tac: JSON.parse(seg.quy_tac) as unknown }, 201);
+    }),
+    route("GET", "/api/segment", (_req, _p, c) => {
+      return ok({
+        ds: danhSachSegment(c.db).map((s) => ({ ...s, quy_tac: JSON.parse(s.quy_tac) as unknown })),
+      });
+    }),
+    route("GET", "/api/segment/:id", (_req, p, c) => {
+      const seg = laySegment(c.db, p.id!);
+      if (!seg) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy segment.");
+      return ok({ ...seg, quy_tac: JSON.parse(seg.quy_tac) as unknown });
+    }),
+    route("PUT", "/api/segment/:id", async (req, p, c) => {
+      const body = await docBody(req);
+      const seg = capNhatSegment(c.db, p.id!, { ten: body.ten, quy_tac: body.quy_tac });
+      if (!seg) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy segment.");
+      return ok({ ...seg, quy_tac: JSON.parse(seg.quy_tac) as unknown });
+    }),
+    route("DELETE", "/api/segment/:id", (_req, p, c) => {
+      if (!laySegment(c.db, p.id!)) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy segment.");
+      const kq = xoaSegment(c.db, p.id!);
+      if (kq.so_campaign > 0) {
+        loiRequest(409, "SEGMENT_DANG_DUNG", `Segment đang được ${kq.so_campaign} campaign dùng.`);
+      }
+      return ok({ da_xoa: true });
+    }),
+    route("GET", "/api/segment/:id/xem-truoc", (_req, p, c) => {
+      if (!laySegment(c.db, p.id!)) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy segment.");
+      const ds = thanhVienSegmentAll(c.db, p.id!);
+      return ok({ so_luong: ds.length, mau: ds.slice(0, 20) });
+    }),
+    route("PUT", "/api/khach/:id/tags", async (req, p, c) => {
+      if (!layKhach(c.db, p.id!)) {
+        loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy khách hàng.");
+      }
+      const body = await docBody(req);
+      const ds = datTagKhach(c.db, p.id!, {
+        them: body.them,
+        bo: body.bo,
+        nguon: body.nguon,
+      });
+      return ok({ ds_tag: ds });
+    }),
+    route("GET", "/api/khach/:id/tags", (_req, p, c) => {
+      if (!layKhach(c.db, p.id!)) {
+        loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy khách hàng.");
+      }
+      return ok({ ds_tag: layTagCuaKhach(c.db, p.id!) });
     }),
 
     // --- Job ---

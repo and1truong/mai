@@ -143,9 +143,13 @@ test("visitor cookie: /p/ đặt mai_v, person + event xem trên timeline", asyn
     headers: { "user-agent": "UA-test-1", cookie: `mai_v=${visitorId}` },
   });
   expect(r2.status).toBe(200);
-  const ds = await (await fetch(`${app.url}/api/khach`)).json();
-  const khach = ds.du_lieu.find((k: { id: string }) => k.id);
-  expect(khach).toBeTruthy();
+  // Tra person qua identity visitor (không đoán theo thứ tự list — seed
+  // #64 có person với lan_cuoi_thay mới hơn đứng trước).
+  const row = app.db
+    .query("SELECT khach_id FROM dinh_danh WHERE loai = 'visitor' AND gia_tri_chuan = ?")
+    .get(visitorId!) as { khach_id: string } | null;
+  expect(row).toBeTruthy();
+  const khach = { id: row!.khach_id };
   const dd = await (
     await fetch(`${app.url}/api/khach/${khach.id}/dinh-danh`)
   ).json();

@@ -45,6 +45,7 @@ import {
 } from "../modules/thuong_hieu/index.ts";
 import { enqueueJob } from "../modules/jobs/index.ts";
 import { huyDangKyNguoiNhan, layGiaoHang, themNguoiNhan } from "../modules/kenh/index.ts";
+import { napDonHangMau } from "../modules/khach/nap_fixture.ts";
 import {
   datMucTieu,
   ghiSnapshotProvider,
@@ -2525,6 +2526,18 @@ export function seed(
       );
       daSeed.push("story_do_ket_qua");
     }
+  }
+
+  // --- Story #64: đồ thị khách hàng — nạp đơn hàng mẫu qua adapter
+  // fixture (cùng contract như adapter commerce thật). Idempotent: chạy
+  // lại seed không nhân person/event/conversion.
+  if (
+    !db.query(
+      "SELECT id FROM chuyen_doi WHERE khoa_idem = 'nd:pos-tiem-banh:DH-5001'",
+    ).get()
+  ) {
+    const kqNap = napDonHangMau(db, tacGia);
+    if (kqNap.so_don_moi > 0) daSeed.push("story_khach_hang");
   }
 
   return { da_seed: daSeed };
