@@ -2676,7 +2676,30 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
     // resolve (tìm-hoặc-tạo theo identity đầu tiên đã tồn tại); không
     // `dinh_danh` là tạo person trống. Đụng unique của person khác →
     // 409 XUNG_DOT_DINH_DANH, không auto-merge theo heuristic.
-    route("GET", "/api/khach", (_req, _p, c) => ok(danhSachKhach(c.db))),
+    // Ticket #70: filter q/tag/segment/trang_thai_doi/nguon-identity-đầu/
+    // da_mua + paginate offset/limit; tong = tổng khớp không phân trang.
+    route("GET", "/api/khach", (req, _p, c) => {
+      const q = new URL(req.url).searchParams;
+      const segmentId = tuyChonChuoi(q.get("segment_id"));
+      let ids: string[] | undefined;
+      if (segmentId) {
+        if (!laySegment(c.db, segmentId)) {
+          loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy segment.");
+        }
+        ids = thanhVienSegmentAll(c.db, segmentId);
+      }
+      const { ds, tong } = danhSachKhach(c.db, {
+        q: tuyChonChuoi(q.get("q")) || undefined,
+        tag: tuyChonChuoi(q.get("tag"))?.toLowerCase() || undefined,
+        ids,
+        trang_thai_doi: tuyChonChuoi(q.get("trang_thai_doi")) || undefined,
+        nguon: tuyChonChuoi(q.get("nguon")) || undefined,
+        da_mua: tuyChonChuoi(q.get("da_mua")) || undefined,
+        offset: Math.max(0, Number(q.get("offset")) || 0),
+        limit: Math.min(500, Math.max(1, Number(q.get("limit")) || 200)),
+      });
+      return ok({ ds_khach: ds, tong });
+    }),
     route("POST", "/api/khach", async (req, _p, c) => {
       const body = await docBody(req);
       const dsLoi: string[] = [];

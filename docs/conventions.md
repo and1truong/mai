@@ -183,6 +183,13 @@ Chuyển sai → 409 `XUNG_DOT_TRANG_THAI`.
 - Thiếu `chuyen_doi_id` → conversion MỚI NHẤT của person (lựa chọn đã chốt); person chưa có conversion nào → 400. `chuyen_doi_id` của person khác / không tồn tại → 404. Nhiều conversion → mỗi conversion một journey riêng theo boundary của nó.
 - Giới hạn POC: không visualize đồ thị (UI ở #70), không journey cross-device ngoài identity graph.
 
+### Search + trang chi tiết khách (#70)
+
+- `GET /api/khach` trả `{ds_khach, tong}`: filter `q` (LIKE escaped trên `ten`/`email`/`sdt` + `gia_tri_chuan`/`gia_tri_goc` của identity), `tag` (lowercase như khach_tag), `segment_id` (member qua `thanhVienSegmentAll`; segment thiếu → 404), `trang_thai_doi`, `nguon` (nguon của identity ĐẦU — `rowid` nhỏ nhất), `da_mua=co|khong` (EXISTS `chuyen_doi`), `offset`/`limit` (mặc định 200, trần 500). `tong` = tổng khớp không phân trang. Person `da_gop` luôn loại khỏi danh sách.
+- Trang `#/khach`: bảng khách + ô tìm + filter cơ bản + phân trang; click → `#/khach?id=`. Chi tiết đủ section: lifecycle + giải thích, tags (add/remove inline qua `PUT /api/khach/:id/tags`), identities, consent hiện tại + lịch sử, chỉ số giá trị, `quy_ve` per conversion, hành trình tới conversion (dropdown đổi conversion đích), timeline phân trang. Deep-link: `ban_the_hien` → `#/ban-the-hien?id=`, `campaign` → `#/phat-hanh?id=`.
+- Seed `story_khach_hang`: KH-1042 (lan.nguyen@example.com) đủ chuỗi `xem`(web, bth) → `dang_ky`(campaign) → `mo`/`click_mail`(email) → đơn import → conversion có attribution. Touchpoint ghi TRƯỚC `napDonHangMau` vì `quy_ve` tính tại lúc ghi conversion; `xay_ra_luc` cố định → journey deterministic khi demo.
+- Giới hạn POC: timeline phân trang phía client trên tập tải về (tối đa 500 event); không bulk actions, không edit profile ngoài tags.
+
 ## Nạp nguồn & asset (#17)
 
 - Nguồn vào: dán text (`POST /api/nguon/nhap`, `POST /api/nguon/:id/nhap`) hoặc upload file (`POST /api/assets?ten=...`).

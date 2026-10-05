@@ -197,18 +197,75 @@ export function diTroKhachGop(db: Database, khachId: string): string {
   return cur;
 }
 
-export function danhSachKhach(db: Database, gioiHan = 200): Khach[] {
+// Lọc danh sách khách (#70): q khớp ten/email/sdt hoặc giá trị identity;
+// tag/segment/nguon-identity-đầu/da_mua; phân trang offset/limit.
+export type LocKhach = {
+  q?: string;
+  tag?: string;
+  ids?: string[]; // giới hạn tập id — route truyền member segment
+  trang_thai_doi?: string;
+  nguon?: string;
+  da_mua?: string; // 'co' | 'khong'
+  offset?: number;
+  limit?: number;
+};
+
+export function danhSachKhach(db: Database, loc: LocKhach = {}): { ds: Khach[]; tong: number } {
   // Person da_gop (#67) không liệt kê — bản ghi giữ lại để audit/redirect,
   // không phải person đang hoạt động.
-  const ds = db
+  const dk: string[] = ["khach.trang_thai = 'hoat_dong'"];
+  const ts: (string | number)[] = [];
+  const q = loc.q?.trim();
+  if (q) {
+    // Escape wildcard LIKE — q là chuỗi tìm literal, không phải pattern.
+    const like = `%${q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
+    dk.push(`(khach.ten LIKE ? ESCAPE '\\' OR khach.email LIKE ? ESCAPE '\\' OR khach.sdt LIKE ? ESCAPE '\\' OR EXISTS (
+      SELECT 1 FROM dinh_danh dd WHERE dd.khach_id = khach.id
+        AND (dd.gia_tri_chuan LIKE ? ESCAPE '\\' OR dd.gia_tri_goc LIKE ? ESCAPE '\\')))`);
+    ts.push(like, like, like, like, like);
+  }
+  if (loc.ids) {
+    if (loc.ids.length === 0) return { ds: [], tong: 0 };
+    dk.push(`khach.id IN (${loc.ids.map(() => "?").join(",")})`);
+    ts.push(...loc.ids);
+  }
+  if (loc.tag) {
+    dk.push("EXISTS (SELECT 1 FROM khach_tag kt WHERE kt.khach_id = khach.id AND kt.tag = ?)");
+    ts.push(loc.tag);
+  }
+  if (loc.trang_thai_doi) {
+    dk.push("khach.trang_thai_doi = ?");
+    ts.push(loc.trang_thai_doi);
+  }
+  // Acquisition source: nguon của identity ĐẦU TIÊN (rowid nhỏ nhất).
+  if (loc.nguon) {
+    dk.push(`EXISTS (
+      SELECT 1 FROM dinh_danh dn WHERE dn.khach_id = khach.id AND dn.nguon = ?
+        AND dn.rowid = (SELECT MIN(rowid) FROM dinh_danh d2 WHERE d2.khach_id = khach.id))`);
+    ts.push(loc.nguon);
+  }
+  if (loc.da_mua === "co") {
+    dk.push("EXISTS (SELECT 1 FROM chuyen_doi cv WHERE cv.khach_id = khach.id)");
+  } else if (loc.da_mua === "khong") {
+    dk.push("NOT EXISTS (SELECT 1 FROM chuyen_doi cv WHERE cv.khach_id = khach.id)");
+  }
+  const where = dk.length ? `WHERE ${dk.join(" AND ")}` : "";
+  const tong = (
+    db.query(`SELECT COUNT(*) AS c FROM khach ${where}`).get(...ts) as { c: number }
+  ).c;
+  const rows = db
     .query(
-      "SELECT * FROM khach WHERE trang_thai = 'hoat_dong' ORDER BY lan_cuoi_thay DESC LIMIT ?",
+      `SELECT * FROM khach ${where}
+       ORDER BY lan_cuoi_thay DESC, rowid LIMIT ? OFFSET ?`,
     )
-    .all(gioiHan) as (Omit<Khach, "giai_thich_doi"> & { giai_thich_doi: string })[];
-  return ds.map((row) => ({
-    ...row,
-    giai_thich_doi: docGiaiThichJson(row.giai_thich_doi),
-  }));
+    .all(...ts, loc.limit ?? 200, loc.offset ?? 0) as (Omit<
+    Khach,
+    "giai_thich_doi"
+  > & { giai_thich_doi: string })[];
+  return {
+    ds: rows.map((row) => ({ ...row, giai_thich_doi: docGiaiThichJson(row.giai_thich_doi) })),
+    tong,
+  };
 }
 
 export function danhSachDinhDanh(db: Database, khachId: string): DinhDanh[] {

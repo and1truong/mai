@@ -47,6 +47,11 @@ import { enqueueJob } from "../modules/jobs/index.ts";
 import { huyDangKyNguoiNhan, layGiaoHang, themNguoiNhan } from "../modules/kenh/index.ts";
 import { napDonHangMau } from "../modules/khach/nap_fixture.ts";
 import {
+  datDongY,
+  ghiTuongTac,
+  resolveKhach,
+} from "../modules/khach/index.ts";
+import {
   datMucTieu,
   ghiSnapshotProvider,
   nhapKetQua,
@@ -2528,14 +2533,64 @@ export function seed(
     }
   }
 
-  // --- Story #64: đồ thị khách hàng — nạp đơn hàng mẫu qua adapter
-  // fixture (cùng contract như adapter commerce thật). Idempotent: chạy
-  // lại seed không nhân person/event/conversion.
+  // --- Story #64 + #70: đồ thị khách hàng — hành trình đầy đủ cho một
+  // khách (KH-1042, lan.nguyen@example.com): visitor xem trang web →
+  // đăng ký email → mở/click mail → đơn hàng import → conversion có
+  // attribution. Touchpoint ghi TRƯỚC khi nạp đơn vì quy_ve tính tại
+  // lúc ghi conversion; xay_ra_luc cố định để demo deterministic.
+  // Idempotent: chạy lại seed không nhân person/event/conversion.
   if (
     !db.query(
       "SELECT id FROM chuyen_doi WHERE khoa_idem = 'nd:pos-tiem-banh:DH-5001'",
     ).get()
   ) {
+    const kqKh = resolveKhach(
+      db,
+      [{ loai: "email", gia_tri: "lan.nguyen@example.com", nguon: "web" }],
+      { ten: "Nguyễn Lan" },
+      tacGia,
+    );
+    const khId = kqKh.khach.id;
+    ghiTuongTac(db, {
+      khach_id: khId,
+      loai: "xem",
+      nguon: "web",
+      xay_ra_luc: "2026-10-08T10:00:00+07:00",
+      ban_the_hien_id: "seed-bth-tb-web",
+      khoa_idem: "sd:xem:tb-web:lan",
+      chi_tiet: { duong_dan: "/p/seed-bth-tb-web" },
+    });
+    ghiTuongTac(db, {
+      khach_id: khId,
+      loai: "dang_ky",
+      nguon: "web",
+      xay_ra_luc: "2026-10-09T20:00:00+07:00",
+      campaign_id: "seed-cp-so-002",
+      khoa_idem: "sd:dk:lan:cp-so-002",
+      chi_tiet: { kenh: "email" },
+    });
+    datDongY(db, khId, {
+      kenh: "email",
+      muc_dich: "marketing",
+      trang_thai: "cho",
+      nguon: "web",
+    });
+    ghiTuongTac(db, {
+      khach_id: khId,
+      loai: "mo",
+      nguon: "email",
+      xay_ra_luc: "2026-10-10T08:00:00+07:00",
+      campaign_id: "seed-cp-so-002",
+      khoa_idem: "sd:mo:lan:cp-so-002",
+    });
+    ghiTuongTac(db, {
+      khach_id: khId,
+      loai: "click_mail",
+      nguon: "email",
+      xay_ra_luc: "2026-10-10T08:30:00+07:00",
+      campaign_id: "seed-cp-so-002",
+      khoa_idem: "sd:click:lan:cp-so-002",
+    });
     const kqNap = napDonHangMau(db, tacGia);
     if (kqNap.so_don_moi > 0) daSeed.push("story_khach_hang");
   }

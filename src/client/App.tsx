@@ -10,6 +10,7 @@ import KeHoachPage from "./pages/KeHoach.tsx";
 import JobPage from "./pages/Job.tsx";
 import KenhPage from "./pages/Kenh.tsx";
 import KetQuaPage from "./pages/KetQua.tsx";
+import KhachPage from "./pages/Khach.tsx";
 import NguonPage from "./pages/Nguon.tsx";
 import PhatHanhPage from "./pages/PhatHanh.tsx";
 import SoBaoPage from "./pages/SoBao.tsx";
@@ -33,6 +34,7 @@ const NAV = [
   { path: "/job", nhan: "Job" },
   { path: "/kenh", nhan: "Kênh" },
   { path: "/ket-qua", nhan: "Kết quả" },
+  { path: "/khach", nhan: "Khách" },
   { path: "/ho-so", nhan: "Hồ sơ" },
 ];
 
@@ -129,6 +131,7 @@ export default function App() {
         {goc === "/job" && <JobPage />}
         {goc === "/kenh" && <KenhPage />}
         {goc === "/ket-qua" && <KetQuaPage />}
+        {goc === "/khach" && <KhachPage />}
         {goc === "/ho-so" && <HoSoPage />}
         {goc === "/tai-khoan" && <TaiKhoanPage me={me?.tai_khoan ?? null} laQuanTri={laQuanTri} />}
         {!hopLe && (

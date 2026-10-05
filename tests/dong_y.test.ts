@@ -138,7 +138,7 @@ test("bridge subscribe: nguoi_nhan mới → person + consent cho + event dang_k
   });
   expect(r.status).toBe(200);
   const ds = await (await fetch(`${app.url}/api/khach`)).json();
-  const khach = ds.du_lieu.find((k: { ten: string }) => k.ten === "Bà Sub");
+  const khach = ds.du_lieu.ds_khach.find((k: { ten: string }) => k.ten === "Bà Sub");
   expect(khach).toBeTruthy();
   const dd = await (
     await fetch(`${app.url}/api/khach/${khach.id}/dinh-danh`)
@@ -179,7 +179,7 @@ test("bridge hủy qua link email: consent tu_choi + event huy_dang_ky ngay lậ
   const res = await fetch(`${app.url}/huy-dang-ky?token=${token}`);
   expect(res.status).toBe(200);
   const ds = await (await fetch(`${app.url}/api/khach`)).json();
-  const khach = ds.du_lieu[0];
+  const khach = ds.du_lieu.ds_khach[0];
   const dy = await (
     await fetch(`${app.url}/api/khach/${khach.id}/dong-y`)
   ).json();
