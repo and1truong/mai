@@ -53,6 +53,7 @@ test("migration chạy được và idempotent", () => {
     "quy_ve",
     "segment",
     "khach_tag",
+    "khach_gop",
     "doi_tuong_giao",
     "schema_migrations",
   ]) {

@@ -32,7 +32,11 @@ export type Khach = {
   sdt: string;
   trang_thai: TrangThaiKhach;
   trang_thai_doi: TrangThaiDoi;
-  giai_thich_doi: string;
+  // Cột lưu TEXT JSON; đọc qua layKhach/danhSachKhach trả OBJECT parse sẵn
+  // để mọi endpoint trả cùng một kiểu (khớp derive live ở GET :id).
+  giai_thich_doi: Record<string, unknown>;
+  // #67: person đã gộp → id đích (chuỗi redirect); '' = chưa gộp.
+  gop_vao_id: string;
   lan_dau_thay: string;
   lan_cuoi_thay: string;
   tao_luc: string;
@@ -164,14 +168,47 @@ function dedupeDinhDanh(ds: (DinhDanh | null)[]): DinhDanh[] {
 
 // --- Truy vấn ---
 
+function docGiaiThichJson(s: string): Record<string, unknown> {
+  try {
+    const p = JSON.parse(s || "{}");
+    if (p && typeof p === "object" && !Array.isArray(p)) return p;
+  } catch { /* fallback '{}' */ }
+  return {};
+}
+
 export function layKhach(db: Database, id: string): Khach | null {
-  return db.query("SELECT * FROM khach WHERE id = ?").get(id) as Khach | null;
+  const row = db.query("SELECT * FROM khach WHERE id = ?").get(id) as
+    | (Omit<Khach, "giai_thich_doi"> & { giai_thich_doi: string })
+    | null;
+  if (!row) return null;
+  return { ...row, giai_thich_doi: docGiaiThichJson(row.giai_thich_doi) };
+}
+
+// Theo chuỗi gop_vao_id (#67) tới person cuối còn hoat_dong — mọi điểm
+// vào (resolve, đọc) về đích thật sau merge. Person chưa gộp trả chính
+// id của nó; chuỗi lỗi/vòng >20 dừng an toàn ở điểm cuối.
+export function diTroKhachGop(db: Database, khachId: string): string {
+  let cur = khachId;
+  for (let i = 0; i < 20; i++) {
+    const k = layKhach(db, cur);
+    if (!k || k.trang_thai !== "da_gop" || !k.gop_vao_id) return cur;
+    cur = k.gop_vao_id;
+  }
+  return cur;
 }
 
 export function danhSachKhach(db: Database, gioiHan = 200): Khach[] {
-  return db
-    .query("SELECT * FROM khach ORDER BY lan_cuoi_thay DESC LIMIT ?")
-    .all(gioiHan) as Khach[];
+  // Person da_gop (#67) không liệt kê — bản ghi giữ lại để audit/redirect,
+  // không phải person đang hoạt động.
+  const ds = db
+    .query(
+      "SELECT * FROM khach WHERE trang_thai = 'hoat_dong' ORDER BY lan_cuoi_thay DESC LIMIT ?",
+    )
+    .all(gioiHan) as (Omit<Khach, "giai_thich_doi"> & { giai_thich_doi: string })[];
+  return ds.map((row) => ({
+    ...row,
+    giai_thich_doi: docGiaiThichJson(row.giai_thich_doi),
+  }));
 }
 
 export function danhSachDinhDanh(db: Database, khachId: string): DinhDanh[] {
@@ -251,15 +288,16 @@ function chenKhach(db: Database, nhap: NhapKhach, actor: string): Khach {
     sdt: tuyChonChuoi(nhap.sdt),
     trang_thai: "hoat_dong",
     trang_thai_doi: "khach_vang_lai",
-    giai_thich_doi: "{}",
+    giai_thich_doi: {},
+    gop_vao_id: "",
     lan_dau_thay: luc,
     lan_cuoi_thay: luc,
     tao_luc: luc,
     tao_boi: actor,
   };
   db.query(
-    `INSERT INTO khach (id, ten, email, sdt, trang_thai, trang_thai_doi, giai_thich_doi, lan_dau_thay, lan_cuoi_thay, tao_luc, tao_boi)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO khach (id, ten, email, sdt, trang_thai, trang_thai_doi, giai_thich_doi, gop_vao_id, lan_dau_thay, lan_cuoi_thay, tao_luc, tao_boi)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     row.id,
     row.ten,
@@ -267,7 +305,8 @@ function chenKhach(db: Database, nhap: NhapKhach, actor: string): Khach {
     row.sdt,
     row.trang_thai,
     row.trang_thai_doi,
-    row.giai_thich_doi,
+    JSON.stringify(row.giai_thich_doi),
+    row.gop_vao_id,
     row.lan_dau_thay,
     row.lan_cuoi_thay,
     row.tao_luc,
@@ -276,7 +315,8 @@ function chenKhach(db: Database, nhap: NhapKhach, actor: string): Khach {
   ghiSuKien(db, "khach", row.id, "tao", { ten: row.ten, email: row.email }, actor);
   // Điền giai_thich_doi ngay từ lúc tạo — person mới không được để '{}'.
   capNhatDoiKhach(db, row.id, luc);
-  return row;
+  // Trả bản ghi đã persist (giai_thich thật, object) — khớp layKhach.
+  return layKhach(db, row.id)!;
 }
 
 // Tạo person mới kèm các identity đầu tiên. Đụng unique của person khác
@@ -317,8 +357,10 @@ export function resolveKhach(
       .filter((d): d is DinhDanh => d !== null);
     if (daCo.length > 0) {
       // Gom toàn bộ chủ sở hữu — identity rải trên ≥2 person → xung đột
-      // kèm khach_ids đủ để client quyết merge.
-      const ids = [...new Set(daCo.map((d) => d.khach_id))];
+      // kèm khach_ids đủ để client quyết merge. Person da_gop (#67)
+      // redirect theo gop_vao_id tới đích cuối — dữ liệu mới luôn đi vào
+      // person đang hoạt động, không vào bản ghi đã gộp.
+      const ids = [...new Set(daCo.map((d) => diTroKhachGop(db, d.khach_id)))];
       if (ids.length > 1) xungDotNhieuKhach(ids);
       const khachId = ids[0]!;
       const moi = dsDd.filter(
