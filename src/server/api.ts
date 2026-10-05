@@ -300,6 +300,7 @@ import {
   thanhVienSegmentAll,
   xoaSegment,
 } from "../modules/khach/segment.ts";
+import { danhSachGop, gopKhach } from "../modules/khach/gop.ts";
 import {
   taoKhach,
   timelineKhach,
@@ -2702,7 +2703,41 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
     route("GET", "/api/khach/:id", (_req, p, c) => {
       const khach = layKhach(c.db, p.id!);
       if (!khach) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy khách hàng.");
-      return ok({ ...khach, dinh_danh: danhSachDinhDanh(c.db, khach.id) });
+      // Person đã gộp (#67): trả redirect da_gop_vao — client follow tới
+      // đích. Person hoạt động field này rỗng.
+      return ok({
+        ...khach,
+        da_gop_vao: khach.trang_thai === "da_gop" ? khach.gop_vao_id : "",
+        dinh_danh: danhSachDinhDanh(c.db, khach.id),
+      });
+    }),
+    // Merge person trùng (#67): ?xem_truoc=1 trả conflict mà không ghi.
+    route("POST", "/api/khach/:id/gop", async (req, p, c) => {
+      const body = await docBody(req);
+      const dichId = batBuocChuoi(body.vao_khach_id, "vao_khach_id", []);
+      const xemTruoc = new URL(req.url).searchParams.get("xem_truoc") === "1";
+      const kq = gopKhach(
+        c.db,
+        p.id!,
+        dichId,
+        { xemTruoc, duaTren: tuyChonChuoi(body.dua_tren) || undefined },
+        c.actor,
+      );
+      return ok(
+        {
+          khach_nguon: kq.khach_nguon,
+          khach_dich: kq.khach_dich,
+          xung_dot: kq.xung_dot,
+          xem_truoc: kq.xem_truoc,
+        },
+        kq.xem_truoc ? 200 : 201,
+      );
+    }),
+    route("GET", "/api/khach/:id/gop", (_req, p, c) => {
+      if (!layKhach(c.db, p.id!)) {
+        loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy khách hàng.");
+      }
+      return ok(danhSachGop(c.db, p.id!));
     }),
     route("GET", "/api/khach/:id/dinh-danh", (_req, p, c) => {
       if (!layKhach(c.db, p.id!)) {

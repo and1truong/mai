@@ -33,6 +33,8 @@ export type Khach = {
   trang_thai: TrangThaiKhach;
   trang_thai_doi: TrangThaiDoi;
   giai_thich_doi: string;
+  // #67: person đã gộp → id đích (chuỗi redirect); '' = chưa gộp.
+  gop_vao_id: string;
   lan_dau_thay: string;
   lan_cuoi_thay: string;
   tao_luc: string;
@@ -168,9 +170,26 @@ export function layKhach(db: Database, id: string): Khach | null {
   return db.query("SELECT * FROM khach WHERE id = ?").get(id) as Khach | null;
 }
 
+// Theo chuỗi gop_vao_id (#67) tới person cuối còn hoat_dong — mọi điểm
+// vào (resolve, đọc) về đích thật sau merge. Person chưa gộp trả chính
+// id của nó; chuỗi lỗi/vòng >20 dừng an toàn ở điểm cuối.
+export function diTroKhachGop(db: Database, khachId: string): string {
+  let cur = khachId;
+  for (let i = 0; i < 20; i++) {
+    const k = layKhach(db, cur);
+    if (!k || k.trang_thai !== "da_gop" || !k.gop_vao_id) return cur;
+    cur = k.gop_vao_id;
+  }
+  return cur;
+}
+
 export function danhSachKhach(db: Database, gioiHan = 200): Khach[] {
+  // Person da_gop (#67) không liệt kê — bản ghi giữ lại để audit/redirect,
+  // không phải person đang hoạt động.
   return db
-    .query("SELECT * FROM khach ORDER BY lan_cuoi_thay DESC LIMIT ?")
+    .query(
+      "SELECT * FROM khach WHERE trang_thai = 'hoat_dong' ORDER BY lan_cuoi_thay DESC LIMIT ?",
+    )
     .all(gioiHan) as Khach[];
 }
 
@@ -252,14 +271,15 @@ function chenKhach(db: Database, nhap: NhapKhach, actor: string): Khach {
     trang_thai: "hoat_dong",
     trang_thai_doi: "khach_vang_lai",
     giai_thich_doi: "{}",
+    gop_vao_id: "",
     lan_dau_thay: luc,
     lan_cuoi_thay: luc,
     tao_luc: luc,
     tao_boi: actor,
   };
   db.query(
-    `INSERT INTO khach (id, ten, email, sdt, trang_thai, trang_thai_doi, giai_thich_doi, lan_dau_thay, lan_cuoi_thay, tao_luc, tao_boi)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO khach (id, ten, email, sdt, trang_thai, trang_thai_doi, giai_thich_doi, gop_vao_id, lan_dau_thay, lan_cuoi_thay, tao_luc, tao_boi)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     row.id,
     row.ten,
@@ -268,6 +288,7 @@ function chenKhach(db: Database, nhap: NhapKhach, actor: string): Khach {
     row.trang_thai,
     row.trang_thai_doi,
     row.giai_thich_doi,
+    row.gop_vao_id,
     row.lan_dau_thay,
     row.lan_cuoi_thay,
     row.tao_luc,
@@ -315,8 +336,10 @@ export function resolveKhach(
       .filter((d): d is DinhDanh => d !== null);
     if (daCo.length > 0) {
       // Gom toàn bộ chủ sở hữu — identity rải trên ≥2 person → xung đột
-      // kèm khach_ids đủ để client quyết merge.
-      const ids = [...new Set(daCo.map((d) => d.khach_id))];
+      // kèm khach_ids đủ để client quyết merge. Person da_gop (#67)
+      // redirect theo gop_vao_id tới đích cuối — dữ liệu mới luôn đi vào
+      // person đang hoạt động, không vào bản ghi đã gộp.
+      const ids = [...new Set(daCo.map((d) => diTroKhachGop(db, d.khach_id)))];
       if (ids.length > 1) xungDotNhieuKhach(ids);
       const khachId = ids[0]!;
       const moi = dsDd.filter(
