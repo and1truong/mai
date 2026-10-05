@@ -38,6 +38,7 @@ test("migration chạy được và idempotent", () => {
     "job_log",
     "thay_doi_nguon",
     "task_sua",
+    "thi_truong",
     "schema_migrations",
   ]) {
     expect(bang).toContain(t);
