@@ -38,6 +38,21 @@ import { enqueueJob, huyJob, layJob, LoiVinhVien, type JobHandler } from "../job
 
 const bayGio = () => new Date().toISOString();
 
+// Bọc một gói ghi trong transaction; gọi lồng nhau được — giống helper txn
+// trong content/luong (local theo convention module).
+function txn<T>(db: Database, fn: () => T): T {
+  if (db.inTransaction) return fn();
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const r = fn();
+    db.exec("COMMIT");
+    return r;
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  }
+}
+
 // --- Kiểu public ---
 
 export type NangLucKenh = "xem_truoc" | "dang" | "cap_nhat" | "len_lich" | "xuat" | "metric";
@@ -174,7 +189,7 @@ export function chuanHoaCauHinhKenh(raw?: CauHinhKenh): Required<CauHinhKenh> {
   };
 }
 
-function escHtml(s: string): string {
+export function escHtml(s: string): string {
   return s
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -508,7 +523,7 @@ function adapterXuatTay(): AdapterKenh {
     nhan: "Xuất tay",
     mo_ta:
       "Đích chưa có tích hợp API (social, Google Business, script YouTube/TikTok) — ghi nhận xuất bản + link tải bundle để đăng thủ công.",
-    nang_luc: ["xuat"],
+    nang_luc: ["xem_truoc", "xuat"],
     dong_bo: true,
     san_sang: true,
     xemTruoc: (yc) => {
@@ -715,6 +730,7 @@ function capNhatGiao(
     revision_thanh_cong?: string;
     xong_luc?: string | null;
   },
+  chiKhiChoGiao = false,
 ): void {
   const cot: string[] = [];
   const giaTri: (string | number | null)[] = [];
@@ -723,7 +739,12 @@ function capNhatGiao(
     giaTri.push(k === "chi_tiet" ? JSON.stringify(v ?? {}) : (v as string | number | null));
   }
   if (cot.length === 0) return;
-  db.query(`UPDATE giao_hang SET ${cot.join(", ")} WHERE id = ?`).run(...giaTri, id);
+  // chiKhiChoGiao: không đè trạng thái khi user đã hủy giữa chừng —
+  // job/catch đến sau lần hủy tay thì ghi này thành no-op.
+  db.query(
+    `UPDATE giao_hang SET ${cot.join(", ")} WHERE id = ?` +
+      (chiKhiChoGiao ? ` AND trang_thai = 'cho_giao'` : ""),
+  ).run(...giaTri, id);
 }
 
 // Merge vào chi_tiet JSON của lần giao — checkpoint giữa các người nhận.
@@ -797,32 +818,50 @@ export async function taoGiaoHang(
 
   const id = crypto.randomUUID();
   const ts = bayGio();
-  db.query(
-    `INSERT INTO giao_hang
-       (id, ban_the_hien_id, revision_id, kenh, dich_den, trang_thai, khoa_idem,
-        len_lich_luc, mui_gio, la_test, tao_luc, tao_boi)
-     VALUES (?, ?, ?, ?, ?, 'cho_giao', ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    id,
-    bth.id,
-    revision.id,
-    input.kenh,
-    dichDen,
-    `giao:${id}`,
-    lenLich,
-    (input.mui_gio ?? "").trim(),
-    input.la_test ? 1 : 0,
-    ts,
-    tacGia,
-  );
-  ghiSuKien(
-    db,
-    "giao_hang",
-    id,
-    "tao",
-    { ban_the_hien_id: bth.id, kenh: input.kenh, len_lich_luc: lenLich, la_test: !!input.la_test },
-    tacGia,
-  );
+  // Một transaction cho toàn bộ ghi: giao_hang + sự kiện + job + job_id.
+  // Crash giữa các bước không để lại dòng 'cho_giao' mồ côi không job.
+  txn(db, () => {
+    db.query(
+      `INSERT INTO giao_hang
+         (id, ban_the_hien_id, revision_id, kenh, dich_den, trang_thai, khoa_idem,
+          len_lich_luc, mui_gio, la_test, tao_luc, tao_boi)
+       VALUES (?, ?, ?, ?, ?, 'cho_giao', ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      id,
+      bth.id,
+      revision.id,
+      input.kenh,
+      dichDen,
+      `giao:${id}`,
+      lenLich,
+      (input.mui_gio ?? "").trim(),
+      input.la_test ? 1 : 0,
+      ts,
+      tacGia,
+    );
+    ghiSuKien(
+      db,
+      "giao_hang",
+      id,
+      "tao",
+      { ban_the_hien_id: bth.id, kenh: input.kenh, len_lich_luc: lenLich, la_test: !!input.la_test },
+      tacGia,
+    );
+    if (!adapter!.dong_bo) {
+      // Job bền: tồn tại qua restart, theo lịch hẹn + timezone nếu có.
+      const { job } = enqueueJob(db, {
+        loai: "giao_kenh",
+        payload: { giao_hang_id: id },
+        khoaIdem: `giao_kenh:${id}`,
+        entityLoai: "giao_hang",
+        entityId: id,
+        revisionId: revision.id,
+        chaySomNhat: lenLich,
+        muiGio: (input.mui_gio ?? "").trim() || undefined,
+      });
+      capNhatGiao(db, id, { job_id: job.id });
+    }
+  });
   const giao = docGiaoRaw(db, id)!;
 
   if (adapter!.dong_bo) {
@@ -842,39 +881,37 @@ export async function taoGiaoHang(
     };
     try {
       const kq = await adapter!.gui!(yc);
-      capNhatGiao(db, giao.id, {
-        trang_thai: kq.trang_thai,
-        url: kq.url ?? "",
-        ma_bien_nhan: kq.ma_bien_nhan ?? "",
-        so_nguoi_nhan: kq.so_nguoi_nhan ?? 0,
-        so_bo_qua: kq.so_bo_qua ?? 0,
-        chi_tiet: { ...giao.chi_tiet, ...(kq.chi_tiet ?? {}) },
-        revision_thanh_cong: revision.id,
-        xong_luc: bayGio(),
-      });
+      capNhatGiao(
+        db,
+        giao.id,
+        {
+          trang_thai: kq.trang_thai,
+          url: kq.url ?? "",
+          ma_bien_nhan: kq.ma_bien_nhan ?? "",
+          so_nguoi_nhan: kq.so_nguoi_nhan ?? 0,
+          so_bo_qua: kq.so_bo_qua ?? 0,
+          chi_tiet: { ...giao.chi_tiet, ...(kq.chi_tiet ?? {}) },
+          revision_thanh_cong: revision.id,
+          xong_luc: bayGio(),
+        },
+        true,
+      );
       ghiSuKien(db, "giao_hang", giao.id, "giao_xong", { kenh: input.kenh, trang_thai: kq.trang_thai }, tacGia);
     } catch (e) {
-      capNhatGiao(db, giao.id, {
-        trang_thai: "loi",
-        loi: e instanceof Error ? e.message : String(e),
-        xong_luc: bayGio(),
-      });
+      capNhatGiao(
+        db,
+        giao.id,
+        {
+          trang_thai: "loi",
+          loi: e instanceof Error ? e.message : String(e),
+          xong_luc: bayGio(),
+        },
+        true,
+      );
     }
     return { giao: docGiaoRaw(db, id)!, da_tao: true };
   }
 
-  // Job bền: tồn tại qua restart, theo lịch hẹn + timezone nếu có.
-  const { job } = enqueueJob(db, {
-    loai: "giao_kenh",
-    payload: { giao_hang_id: id },
-    khoaIdem: `giao_kenh:${id}`,
-    entityLoai: "giao_hang",
-    entityId: id,
-    revisionId: revision.id,
-    chaySomNhat: lenLich,
-    muiGio: (input.mui_gio ?? "").trim() || undefined,
-  });
-  capNhatGiao(db, id, { job_id: job.id });
   return { giao: docGiaoRaw(db, id)!, da_tao: true };
 }
 
@@ -916,21 +953,24 @@ export function thuLaiGiaoHang(
     voHieuGiao(db, giao, lyDo);
     throw new LoiApi(409, "XUNG_DOT_TRANG_THAI", `Lần giao đã vô hiệu: ${lyDo}.`, { ly_do: lyDo });
   }
-  const { job } = enqueueJob(db, {
-    loai: "giao_kenh",
-    payload: { giao_hang_id: giao.id },
-    khoaIdem: `giao_kenh:${giao.id}`,
-    entityLoai: "giao_hang",
-    entityId: giao.id,
-    revisionId: giao.revision_id,
+  // Một transaction cho enqueue + patch + sự kiện — cùng lý do taoGiaoHang.
+  txn(db, () => {
+    const { job } = enqueueJob(db, {
+      loai: "giao_kenh",
+      payload: { giao_hang_id: giao.id },
+      khoaIdem: `giao_kenh:${giao.id}`,
+      entityLoai: "giao_hang",
+      entityId: giao.id,
+      revisionId: giao.revision_id,
+    });
+    capNhatGiao(db, giao.id, {
+      trang_thai: "cho_giao",
+      job_id: job.id,
+      loi: "",
+      xong_luc: null,
+    });
+    ghiSuKien(db, "giao_hang", giao.id, "thu_lai", {}, "he_thong");
   });
-  capNhatGiao(db, giao.id, {
-    trang_thai: "cho_giao",
-    job_id: job.id,
-    loi: "",
-    xong_luc: null,
-  });
-  ghiSuKien(db, "giao_hang", giao.id, "thu_lai", {}, "he_thong");
   return docGiaoRaw(db, giao.id)!;
 }
 
@@ -1103,17 +1143,22 @@ export function taoHandlerGiaoKenh(cauHinhRaw: CauHinhKenh | undefined): JobHand
         assertConHan: ctx.assertConHan,
       });
       ctx.assertConHan();
-      capNhatGiao(ctx.db, giaoId, {
-        trang_thai: kq.trang_thai,
-        url: kq.url ?? "",
-        ma_bien_nhan: kq.ma_bien_nhan ?? "",
-        so_nguoi_nhan: kq.so_nguoi_nhan ?? 0,
-        so_bo_qua: kq.so_bo_qua ?? 0,
-        chi_tiet: { ...giao.chi_tiet, ...(kq.chi_tiet ?? {}) },
-        revision_thanh_cong: revision.id,
-        loi: "",
-        xong_luc: bayGio(),
-      });
+      capNhatGiao(
+        ctx.db,
+        giaoId,
+        {
+          trang_thai: kq.trang_thai,
+          url: kq.url ?? "",
+          ma_bien_nhan: kq.ma_bien_nhan ?? "",
+          so_nguoi_nhan: kq.so_nguoi_nhan ?? 0,
+          so_bo_qua: kq.so_bo_qua ?? 0,
+          chi_tiet: { ...giao.chi_tiet, ...(kq.chi_tiet ?? {}) },
+          revision_thanh_cong: revision.id,
+          loi: "",
+          xong_luc: bayGio(),
+        },
+        true,
+      );
       ghiSuKien(ctx.db, "giao_hang", giaoId, "giao_xong", { kenh: giao.kenh, trang_thai: kq.trang_thai }, "job");
       return {
         giao_hang_id: giaoId,
@@ -1126,26 +1171,38 @@ export function taoHandlerGiaoKenh(cauHinhRaw: CauHinhKenh | undefined): JobHand
     } catch (e) {
       if (e instanceof LoiGiaoMoHo) {
         // Provider có thể đã nhận — đưa ra cho người kiểm, không retry mù.
-        capNhatGiao(ctx.db, giaoId, {
-          trang_thai: "khong_chac",
-          loi: e.message,
-          xong_luc: bayGio(),
-        });
+        // chiKhiChoGiao: user hủy giữa lúc fetch chờ → không lật 'huy' lại.
+        capNhatGiao(
+          ctx.db,
+          giaoId,
+          { trang_thai: "khong_chac", loi: e.message, xong_luc: bayGio() },
+          true,
+        );
         ghiSuKien(ctx.db, "giao_hang", giaoId, "khong_chac", { loi: e.message }, "job");
         throw new LoiVinhVien(e.message);
       }
       if (e instanceof LoiVinhVien) {
-        capNhatGiao(ctx.db, giaoId, { trang_thai: "loi", loi: e.message, xong_luc: bayGio() });
+        capNhatGiao(
+          ctx.db,
+          giaoId,
+          { trang_thai: "loi", loi: e.message, xong_luc: bayGio() },
+          true,
+        );
         throw e;
       }
       if (e instanceof LoiApi) {
-        capNhatGiao(ctx.db, giaoId, { trang_thai: "loi", loi: e.message, xong_luc: bayGio() });
+        capNhatGiao(
+          ctx.db,
+          giaoId,
+          { trang_thai: "loi", loi: e.message, xong_luc: bayGio() },
+          true,
+        );
         throw new LoiVinhVien(e.message);
       }
       // Lỗi tạm thời (429, lỗi bên mình): job retry theo backoff. Ghi 'loi'
       // mềm ngay — job còn sống thì lần đọc sau vẫn 'cho_giao' qua job status;
       // job chết hẳn mới hiển thị 'loi' (docGiaoHieuLuc đồng bộ theo job).
-      capNhatGiao(ctx.db, giaoId, { loi: e instanceof Error ? e.message : String(e) });
+      capNhatGiao(ctx.db, giaoId, { loi: e instanceof Error ? e.message : String(e) }, true);
       throw e;
     }
   };

@@ -172,7 +172,7 @@ function TheGiaoHang({
             </Button>
           )}
           <Button size="1" variant="soft" asChild>
-            <a href={`#/thong-diep?id=${g.ban_the_hien_id}`}>Đầu ra</a>
+            <a href={`#/ban-the-hien?id=${g.ban_the_hien_id}`}>Đầu ra</a>
           </Button>
         </Flex>
       </Table.Cell>

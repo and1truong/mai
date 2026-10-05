@@ -69,7 +69,7 @@ describe("kênh sở hữu — catalog + xem trước + giao trang nội bộ", 
       expect(theoId.email.san_sang).toBe(false);
       expect(theoId.email.nang_luc).toContain("metric");
       expect(theoId.dry_run.san_sang).toBe(true);
-      expect(theoId.xuat_tay.nang_luc).toEqual(["xuat"]);
+      expect(theoId.xuat_tay.nang_luc).toEqual(["xem_truoc", "xuat"]);
       // Không có credential nào trong response.
       expect(JSON.stringify(json)).not.toContain("MAI_EMAIL_API_KEY");
     } finally {

@@ -460,7 +460,12 @@ function PanelGiao({ b }: { b: DauRa }) {
         )}
 
         <Flex gap="2" wrap="wrap" align="center">
-          <Button size="1" variant="soft" disabled={!kenh} onClick={() => void xemTruocGiao()}>
+          <Button
+            size="1"
+            variant="soft"
+            disabled={!kenh || !kenh.nang_luc.includes("xem_truoc")}
+            onClick={() => void xemTruocGiao()}
+          >
             Xem trước
           </Button>
           <Button

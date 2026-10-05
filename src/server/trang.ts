@@ -8,7 +8,7 @@ import {
 import { layDinhDang } from "../modules/formats/index.ts";
 import { renderHtml } from "../modules/formats/render.ts";
 import { docHtmlDayDu } from "../modules/formats/xuat.ts";
-import { huyDangKyTheoToken } from "../modules/kenh/index.ts";
+import { escHtml, huyDangKyTheoToken } from "../modules/kenh/index.ts";
 
 // Trang cơ bản do MAI tự phục vụ (#6): GET /p/<ban_the_hien_id> → render
 // đúng revision đã ghim trong record xuat_ban mới nhất của bản đó — chỉ
@@ -63,9 +63,11 @@ export function phucVuHuyDangKy(db: Database, token: string | null): Response {
       { status: 404, headers: { "content-type": "text/html; charset=utf-8" } },
     );
   }
+  // Email là input người dùng qua API — escape trước khi chèn vào HTML.
+  const email = escHtml(ketQua.email);
   const thongDiep = ketQua.da_huy
-    ? `Đã hủy đăng ký cho ${ketQua.email}. Bạn sẽ không nhận email nữa.`
-    : `${ketQua.email} đã hủy đăng ký trước đó.`;
+    ? `Đã hủy đăng ký cho ${email}. Bạn sẽ không nhận email nữa.`
+    : `${email} đã hủy đăng ký trước đó.`;
   return new Response(
     `<!doctype html><html><body><p>${thongDiep}</p></body></html>`,
     { headers: { "content-type": "text/html; charset=utf-8" } },
