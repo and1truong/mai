@@ -372,10 +372,11 @@ describe("API job", () => {
     try {
       seed(app.db);
       // Lên lịch xa để job ở 'cho' — tránh race với runner trong test.
+      const lichXa = new Date(Date.now() + 60_000).toISOString();
       const res = await post(app, "/api/job", {
         loai: "sinh_ban_the_hien",
         payload: { thong_diep_id: "seed-td-1", dinh_dang: "caption" },
-        chay_som_nhat: new Date(Date.now() + 60_000).toISOString(),
+        chay_som_nhat: lichXa,
       });
       expect(res.status).toBe(201);
       const { du_lieu: job } = await res.json();
@@ -387,9 +388,12 @@ describe("API job", () => {
       expect(bth.du_lieu.id).toBe(job.entity_id);
 
       // Enqueue lặp trong khi job còn sống → cùng job logic, không tạo thêm.
+      // Giữ nguyên chay_som_nhat: request để trống lịch sẽ kéo lịch job về
+      // sớm (dedupe) → job có thể chạy xong trước lệnh hủy → flake.
       const res2 = await post(app, "/api/job", {
         loai: "sinh_ban_the_hien",
         payload: { thong_diep_id: "seed-td-1", dinh_dang: "caption" },
+        chay_som_nhat: lichXa,
       });
       expect(res2.status).toBe(200);
       const job2 = (await res2.json()).du_lieu;
