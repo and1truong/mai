@@ -141,13 +141,33 @@ describe("merge person (#67)", () => {
     const g0 = await get(app.url, `/api/khach/${a}/gop`);
     expect(g0.body.du_lieu.length).toBe(0);
 
-    // Merge thật: consent đích giữ 'tu_choi' (mới hơn).
+    // Tag trùng ở đích với metadata khác → conflict loai 'tag' (không
+    // nuốt lặng nguon/tao_luc của nguồn).
+    await fetch(`${app.url}/api/khach/${a}/tags`, {
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ them: ["vip"], nguon: "tay" }),
+    });
+    await fetch(`${app.url}/api/khach/${b}/tags`, {
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ them: ["vip"], nguon: "import" }),
+    });
+    const pre2 = await gop(app.url, a, b, true);
+    const tagXd = pre2.body.du_lieu.xung_dot.find((x: { loai: string }) => x.loai === "tag");
+    expect(tagXd.chi_tiet.tag).toBe("vip");
+    expect(tagXd.chi_tiet.nguon.nguon).toBe("tay");
+    expect(tagXd.chi_tiet.dich.nguon).toBe("import");
+
+    // Merge thật: consent đích giữ 'tu_choi' (mới hơn); tag giữ metadata đích.
     const r = await gop(app.url, a, b);
     expect(r.status).toBe(201);
     const dyB = await get(app.url, `/api/khach/${b}/dong-y`);
     expect(dyB.body.du_lieu.hien_tai[0].trang_thai).toBe("tu_choi");
     // Log consent cả hai giữ lại (re-point sang đích).
     expect(dyB.body.du_lieu.lich_su.length).toBeGreaterThanOrEqual(2);
+    const tagB = app.db
+      .query("SELECT nguon FROM khach_tag WHERE khach_id = ? AND tag = 'vip'")
+      .get(b) as { nguon: string };
+    expect(tagB.nguon).toBe("import");
     await app.dong();
   });
 
@@ -181,8 +201,9 @@ describe("merge person (#67)", () => {
       .get(b) as { xay_ra_luc: string };
     expect(row.xay_ra_luc).toBe(som);
 
-    // Edge: merge vào person không tồn tại / chính nó / đã gộp → 400.
-    expect((await gop(app.url, a, "khong-co")).status).toBe(400);
+    // Edge: đích/nguồn không tồn tại → 404; chính nó / đã gộp → 400.
+    expect((await gop(app.url, a, "khong-co")).status).toBe(404);
+    expect((await gop(app.url, "khong-co", b)).status).toBe(404);
     expect((await gop(app.url, a, a)).status).toBe(400);
     // nguồn a đã gộp → gộp tiếp a vào ai đó → 400.
     const c = await taoKhach(app.url, "ft3@x.com");
@@ -191,13 +212,29 @@ describe("merge person (#67)", () => {
     const r2 = await gop(app.url, b, c);
     expect(r2.status).toBe(201);
     const ka = await get(app.url, `/api/khach/${a}`);
-    expect(ka.body.du_lieu.da_gop_vao).toBe(b); // nguồn giữ redirect trực tiếp
+    expect(ka.body.du_lieu.da_gop_vao).toBe(c); // da_gop_vao = đích CUỐI chuỗi a→b→c
     // resolve theo identity của a phải rơi về c (chuỗi).
     const rs = await post(app.url, "/api/khach/su-kien", {
       dinh_danh: { loai: "email", gia_tri: "ft1@x.com" },
       loai: "xem", nguon: "web", khoa_idem: "chain-1",
     });
     expect(rs.body.du_lieu.khach.id).toBe(c);
+
+    // Ghi trực tiếp theo khach_id của person đã gộp → redirect tới đích
+    // cuối (invariant: dữ liệu mới luôn vào person đang hoạt động).
+    const rsA = await post(app.url, "/api/khach/su-kien", {
+      khach_id: a, loai: "xem", nguon: "web", khoa_idem: "chain-2",
+    });
+    expect(rsA.status).toBe(201);
+    expect(rsA.body.du_lieu.khach.id).toBe(c);
+    const rTag = await fetch(`${app.url}/api/khach/${a}/tags`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ them: ["sau-gop"], nguon: "tay" }),
+    });
+    expect(rTag.status).toBe(200);
+    const tagC = await get(app.url, `/api/khach/${c}/tags`);
+    expect(tagC.body.du_lieu.ds_tag.map((t: { tag: string }) => t.tag)).toContain("sau-gop");
     await app.dong();
   });
 

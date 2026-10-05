@@ -21,7 +21,7 @@ import {
 const bayGio = () => new Date().toISOString();
 
 export type XungDotGop = {
-  loai: "dinh_danh" | "dong_y" | "dau_cham_dau" | "truong_ho_so";
+  loai: "dinh_danh" | "dong_y" | "dau_cham_dau" | "truong_ho_so" | "tag";
   mo_ta: string;
   chi_tiet?: Record<string, unknown>;
 };
@@ -44,11 +44,17 @@ function batBuocNguonDich(
   nguonId: string,
   dichId: string,
 ): { nguon: Khach; dich: Khach } {
-  const dsLoi: string[] = [];
   const nguon = layKhach(db, nguonId);
   const dich = layKhach(db, dichId);
-  if (!nguon) dsLoi.push(`khách nguồn '${nguonId}' không tồn tại.`);
-  if (!dich) dsLoi.push(`vao_khach_id '${dichId}' không tồn tại.`);
+  // Không tồn tại → 404 (house style của các route khách khác);
+  // lỗi nghiệp vụ (tự gộp, đã gộp) → 400.
+  if (!nguon) {
+    throw new LoiApi(404, "KHONG_TIM_THAY", `Không tìm thấy khách nguồn '${nguonId}'.`);
+  }
+  if (!dich) {
+    throw new LoiApi(404, "KHONG_TIM_THAY", `Không tìm thấy vao_khach_id '${dichId}'.`);
+  }
+  const dsLoi: string[] = [];
   if (nguonId === dichId) dsLoi.push("không thể gộp person vào chính nó.");
   if (nguon && nguon.trang_thai === "da_gop") {
     dsLoi.push(`khách nguồn đã gộp vào '${nguon.gop_vao_id}'.`);
@@ -94,35 +100,41 @@ export function phatHienXungDotGop(
   // Consent cùng (kenh, muc_dich) khác trang_thai → mới hơn thắng.
   const dyNguon = db
     .query(
-      "SELECT kenh, muc_dich, trang_thai, cap_nhat_luc FROM dong_y WHERE khach_id = ?",
+      "SELECT kenh, muc_dich, trang_thai, nguon, cap_nhat_luc FROM dong_y WHERE khach_id = ?",
     )
     .all(nguon.id) as {
     kenh: string;
     muc_dich: string;
     trang_thai: string;
+    nguon: string;
     cap_nhat_luc: string;
   }[];
   for (const y of dyNguon) {
     const dyDich = db
       .query(
-        "SELECT trang_thai, cap_nhat_luc FROM dong_y WHERE khach_id = ? AND kenh = ? AND muc_dich = ?",
+        "SELECT trang_thai, nguon, cap_nhat_luc FROM dong_y WHERE khach_id = ? AND kenh = ? AND muc_dich = ?",
       )
       .get(dich.id, y.kenh, y.muc_dich) as
-      | { trang_thai: string; cap_nhat_luc: string }
+      | { trang_thai: string; nguon: string; cap_nhat_luc: string }
       | null;
-    if (dyDich && dyDich.trang_thai !== y.trang_thai) {
-      const giu = y.cap_nhat_luc > dyDich.cap_nhat_luc ? "nguon" : "dich";
-      xd.push({
-        loai: "dong_y",
-        mo_ta: `consent ${y.kenh}/${y.muc_dich}: nguồn '${y.trang_thai}' (${y.cap_nhat_luc}) vs đích '${dyDich.trang_thai}' (${dyDich.cap_nhat_luc}) — giữ bản mới hơn (${giu}).`,
-        chi_tiet: {
-          kenh: y.kenh,
-          muc_dich: y.muc_dich,
-          nguon: { trang_thai: y.trang_thai, cap_nhat_luc: y.cap_nhat_luc },
-          dich: dyDich,
-          giu,
-        },
-      });
+    if (dyDich) {
+      const nguonMoiHon = y.cap_nhat_luc > dyDich.cap_nhat_luc;
+      // Conflict khi đích bị thay đổi: trạng thái khác (một chiều nào đó
+      // thắng), hoặc nguồn mới hơn và ghi đè provenance `nguon` khác.
+      if (dyDich.trang_thai !== y.trang_thai || (nguonMoiHon && dyDich.nguon !== y.nguon)) {
+        const giu = nguonMoiHon ? "nguon" : "dich";
+        xd.push({
+          loai: "dong_y",
+          mo_ta: `consent ${y.kenh}/${y.muc_dich}: nguồn '${y.trang_thai}' (${y.cap_nhat_luc}) vs đích '${dyDich.trang_thai}' (${dyDich.cap_nhat_luc}) — giữ bản mới hơn (${giu}).`,
+          chi_tiet: {
+            kenh: y.kenh,
+            muc_dich: y.muc_dich,
+            nguon: { trang_thai: y.trang_thai, nguon: y.nguon, cap_nhat_luc: y.cap_nhat_luc },
+            dich: dyDich,
+            giu,
+          },
+        });
+      }
     }
   }
 
@@ -141,6 +153,24 @@ export function phatHienXungDotGop(
       mo_ta: `hai person đều có first_touch — giữ mốc sớm hơn (${giu}: ${giu === "nguon" ? dcNguon.xay_ra_luc : dcDich.xay_ra_luc}).`,
       chi_tiet: { nguon: dcNguon, dich: dcDich, giu },
     });
+  }
+
+  // Tag: đích đã có cùng tag → metadata (nguon, tao_luc) của nguồn bị
+  // bỏ — ghi conflict thay vì nuốt lặng.
+  const tagNguon = db
+    .query("SELECT tag, nguon, tao_luc FROM khach_tag WHERE khach_id = ?")
+    .all(nguon.id) as { tag: string; nguon: string; tao_luc: string }[];
+  for (const t of tagNguon) {
+    const tagDich = db
+      .query("SELECT nguon, tao_luc FROM khach_tag WHERE khach_id = ? AND tag = ?")
+      .get(dich.id, t.tag) as { nguon: string; tao_luc: string } | null;
+    if (tagDich && (tagDich.nguon !== t.nguon || tagDich.tao_luc !== t.tao_luc)) {
+      xd.push({
+        loai: "tag",
+        mo_ta: `tag '${t.tag}' đã có ở đích — giữ metadata đích (nguon='${tagDich.nguon}'), bỏ bản nguồn (nguon='${t.nguon}').`,
+        chi_tiet: { tag: t.tag, nguon: { nguon: t.nguon, tao_luc: t.tao_luc }, dich: tagDich },
+      });
+    }
   }
 
   // Field profile: đích giữ giá trị của mình; nguồn có giá trị khác đích
@@ -232,9 +262,25 @@ export function gopKhach(
         db.query("UPDATE dong_y SET khach_id = ? WHERE id = ?").run(dich.id, y.id);
       } else if (y.cap_nhat_luc > dyDich.cap_nhat_luc) {
         // Nguồn mới hơn → đích nhận state nguồn, xóa bản nguồn thừa.
+        // Log transition của ĐÍCH lúc merge (nguon='gop') — lich_su đích
+        // tự đủ audit, không chỉ log re-point của nguồn.
         db.query(
           "UPDATE dong_y SET trang_thai = ?, nguon = ?, cap_nhat_luc = ? WHERE khach_id = ? AND kenh = ? AND muc_dich = ?",
         ).run(y.trang_thai, y.nguon, y.cap_nhat_luc, dich.id, y.kenh, y.muc_dich);
+        if (dyDich.trang_thai !== y.trang_thai) {
+          db.query(
+            `INSERT INTO dong_y_log (id, khach_id, kenh, muc_dich, tu_trang_thai, sang_trang_thai, nguon, luc)
+             VALUES (?, ?, ?, ?, ?, ?, 'gop', ?)`,
+          ).run(
+            crypto.randomUUID(),
+            dich.id,
+            y.kenh,
+            y.muc_dich,
+            dyDich.trang_thai,
+            y.trang_thai,
+            luc,
+          );
+        }
         db.query("DELETE FROM dong_y WHERE id = ?").run(y.id);
       } else {
         db.query("DELETE FROM dong_y WHERE id = ?").run(y.id);
