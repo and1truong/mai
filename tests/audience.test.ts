@@ -2,6 +2,7 @@
 // gate consent + suppression, snapshot doi_tuong_giao cho audit.
 import { describe, expect, test } from "bun:test";
 import { duyetBth, taoServerTam } from "./helpers.ts";
+import { damBaoAudienceGiao } from "../src/modules/kenh/audience.ts";
 
 type App = Awaited<ReturnType<typeof taoServerTam>>;
 
@@ -231,6 +232,56 @@ describe("resolve audience từ segment (#68)", () => {
         .all(giaoId) as { quyet_dinh: string; ly_do: string }[];
       expect(rows.length).toBe(1);
       expect(rows[0]).toEqual({ quyet_dinh: "bo_qua", ly_do: "khong_consent" });
+      // Lỗi toàn-gate vẫn báo counter đúng (resolve đã ghi), không để 0.
+      const g = await get(app, `/api/giao-hang/${giaoId}`);
+      expect(g.body.du_lieu.so_nguoi_nhan).toBe(0);
+      expect(g.body.du_lieu.so_bo_qua).toBe(1);
+    } finally {
+      provider.dung();
+      await app.dong();
+    }
+  });
+
+  test("snapshot 'gui' nhưng hủy đăng ký sau resolve → chặn ngay trước gửi", async () => {
+    donBienEmail();
+    const provider = cauHinhEmail();
+    const app = await taoServerTam();
+    Bun.env.MAI_KENH_URL_GOC = app.url;
+    try {
+      const { bthId } = await chuanBiCampaign(app);
+      const g = await taoKhachTag(app, "g68@x.com", "cho");
+      // nguoi_nhan đang đăng ký → resolve sẽ quyết định 'gui'.
+      const nn = await post(app, "/api/nguoi-nhan", { email: "g68@x.com" });
+      const nnId = nn.body.du_lieu.nguoi_nhan.id;
+
+      // Lên lịch trễ để kịp ghi snapshot rồi mới hủy đăng ký.
+      const lenLich = new Date(Date.now() + 200).toISOString();
+      const tao = await post(app, `/api/ban-the-hien/${bthId}/giao`, {
+        kenh: "email", len_lich_luc: lenLich, mui_gio: "UTC",
+      });
+      const giaoId = tao.body.du_lieu.giao.id as string;
+      const segId = (
+        app.db.query("SELECT segment_id FROM campaign ORDER BY rowid DESC LIMIT 1").get() as {
+          segment_id: string;
+        }
+      ).segment_id;
+      const aud = damBaoAudienceGiao(app.db, giaoId, segId, "email", app.url);
+      expect(aud!.ds_gui.length).toBe(1);
+
+      // Suppression xảy ra SAU snapshot → delivery boundary vẫn chặn.
+      await post(app, `/api/nguoi-nhan/${nnId}/huy-dang-ky`, {});
+      expect(await choGiaoKetThuc(app, giaoId)).toBe("chap_nhan");
+      expect(provider.dsReq.length).toBe(0);
+
+      const giao = await get(app, `/api/giao-hang/${giaoId}`);
+      const dl = giao.body.du_lieu;
+      // Snapshot audit giữ nguyên quyết định resolve-time 'gui'.
+      expect(dl.doi_tuong.length).toBe(1);
+      expect(dl.doi_tuong[0].quyet_dinh).toBe("gui");
+      // Lần giao đếm skip thực tế; chi_tiet ghi lý do chặn lúc gửi.
+      expect(dl.so_nguoi_nhan).toBe(0);
+      expect(dl.so_bo_qua).toBe(1);
+      expect(dl.chi_tiet.bo_qua_gui[g]).toBe("huy_dang_ky");
     } finally {
       provider.dung();
       await app.dong();

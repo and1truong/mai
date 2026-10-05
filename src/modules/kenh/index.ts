@@ -28,7 +28,7 @@ import {
   type Revision,
   type ThongDiep,
 } from "../content/index.ts";
-import { damBaoAudienceGiao } from "./audience.ts";
+import { damBaoAudienceGiao, lyDoChanLucGiao } from "./audience.ts";
 import {
   docNoiDung,
   layDinhDang,
@@ -339,9 +339,26 @@ function adapterEmail(cauHinh: Required<CauHinhKenh>): AdapterKenh {
         typeof yc.giao.chi_tiet.bien_nhan === "object" && yc.giao.chi_tiet.bien_nhan !== null
           ? { ...(yc.giao.chi_tiet.bien_nhan as Record<string, string>) }
           : {};
+      // #68: người nhận audience bị chặn NGAY TRƯỚC GỬI (hủy đăng ký/
+      // rút consent giữa hai attempt) — snapshot không sửa, lý do ghi
+      // vào chi_tiet.bo_qua_gui (khach_id → ly_do), đếm vào so_bo_qua.
+      const boQuaGui: Record<string, string> =
+        typeof yc.giao.chi_tiet.bo_qua_gui === "object" && yc.giao.chi_tiet.bo_qua_gui !== null
+          ? { ...(yc.giao.chi_tiet.bo_qua_gui as Record<string, string>) }
+          : {};
+      const laAudience = Array.isArray(yc.giao.chi_tiet.audience);
       for (const den of dsDen) {
         if (den.id && daGui.has(den.id)) continue;
+        if (den.id && den.id in boQuaGui) continue;
         yc.assertConHan();
+        if (laAudience) {
+          const chan = lyDoChanLucGiao(yc.db, den.id, den.email, "email");
+          if (chan) {
+            boQuaGui[den.id] = chan;
+            ghiChiTietGiao(yc.db, yc.giao.id, { bo_qua_gui: { ...boQuaGui } });
+            continue;
+          }
+        }
         const email = dungEmail(yc, den.urlHuy || undefined);
         // Khóa idempotency per (lần giao, người nhận) — retry cùng khóa:
         // provider dedupe thay vì gửi kép.
@@ -368,9 +385,9 @@ function adapterEmail(cauHinh: Required<CauHinhKenh>): AdapterKenh {
       return {
         trang_thai: "chap_nhan",
         ma_bien_nhan: Object.values(bienNhan).join(", "),
-        so_nguoi_nhan: dsDen.length,
-        so_bo_qua: soBoQua,
-        chi_tiet: { da_gui: [...daGui], bien_nhan: bienNhan },
+        so_nguoi_nhan: dsDen.length - Object.keys(boQuaGui).length,
+        so_bo_qua: soBoQua + Object.keys(boQuaGui).length,
+        chi_tiet: { da_gui: [...daGui], bien_nhan: bienNhan, bo_qua_gui: { ...boQuaGui } },
       };
     },
     // Metric có sẵn của provider: GET /emails/{id} trả sự kiện cuối
@@ -902,7 +919,7 @@ export async function taoGiaoHang(
           ma_bien_nhan: kq.ma_bien_nhan ?? "",
           so_nguoi_nhan: kq.so_nguoi_nhan ?? 0,
           so_bo_qua: kq.so_bo_qua ?? 0,
-          chi_tiet: { ...giao.chi_tiet, ...(kq.chi_tiet ?? {}) },
+          chi_tiet: { ...docGiaoRaw(db, giao.id)!.chi_tiet, ...(kq.chi_tiet ?? {}) },
           revision_thanh_cong: revision.id,
           xong_luc: bayGio(),
         },
@@ -1160,6 +1177,12 @@ export function taoHandlerGiaoKenh(cauHinhRaw: CauHinhKenh | undefined): JobHand
           audience_bo_qua: audience.so_bo_qua,
           audience_segment_id: audience.segment_id,
         });
+        // Counter trên giao_hang phản ánh resolve ngay — lần giao lỗi
+        // (vd toàn bộ bị gate) vẫn báo đúng so_bo_qua thay vì 0.
+        capNhatGiao(ctx.db, giaoId, {
+          so_nguoi_nhan: audience.ds_gui.length,
+          so_bo_qua: audience.so_bo_qua,
+        });
       }
     }
 
@@ -1187,7 +1210,9 @@ export function taoHandlerGiaoKenh(cauHinhRaw: CauHinhKenh | undefined): JobHand
           ma_bien_nhan: kq.ma_bien_nhan ?? "",
           so_nguoi_nhan: kq.so_nguoi_nhan ?? 0,
           so_bo_qua: kq.so_bo_qua ?? 0,
-          chi_tiet: { ...giao.chi_tiet, ...(kq.chi_tiet ?? {}) },
+          // Merge trên chi_tiet đọc lại từ DB — giao in-memory đọc trước
+          // resolve audience/checkpoint nên stale, đè mất audience_*.
+          chi_tiet: { ...docGiaoRaw(ctx.db, giaoId)!.chi_tiet, ...(kq.chi_tiet ?? {}) },
           revision_thanh_cong: revision.id,
           loi: "",
           xong_luc: bayGio(),

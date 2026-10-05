@@ -2,8 +2,8 @@
 // Job giao_kenh gọi SAU kiểm tra quyền duyệt — campaign chưa qua duyệt
 // không tới đây. Snapshot `doi_tuong_giao` ghi đúng một lần per lần giao:
 // retry đọc lại snapshot (quyết định đóng băng ở lần gửi đầu), không
-// resolve lại — consent rút sau snapshot chỉ chặn qua suppression
-// nguoi_nhan ở adapter, không đổi snapshot audit.
+// resolve lại — suppression/consent rút sau snapshot chặn ở delivery
+// boundary trong adapter (`lyDoChanLucGiao`), không đổi snapshot audit.
 //
 // Lọc trước khi giao, theo thứ tự:
 //   1. không có identity phù hợp kênh → bo_qua 'khong_dinh_danh'
@@ -11,7 +11,7 @@
 //   3. consentChoGui(khach, kenh, 'marketing') = false → 'khong_consent'
 
 import type { Database } from "bun:sqlite";
-import { ghiSuKien } from "../content/index.ts";
+import { ghiSuKien, txn } from "../content/index.ts";
 import { consentChoGui, danhSachDinhDanh } from "../khach/index.ts";
 import { thanhVienSegmentAll } from "../khach/segment.ts";
 
@@ -76,7 +76,10 @@ export function damBaoAudienceGiao(
   const thanhVien = thanhVienSegmentAll(db, segmentId);
   const dsGui: NguoiNhanAudience[] = [];
   let soBoQua = 0;
-  for (const khachId of thanhVien) {
+  // Snapshot là audit trail — ghi nguyên khối trong một transaction:
+  // crash giữa chừng không để lại snapshot cụt để retry tái dùng nhầm.
+  txn(db, () => {
+    for (const khachId of thanhVien) {
     const dd = danhSachDinhDanh(db, khachId).find((d) => d.loai === loaiDd);
     let quyetDinh = "gui";
     let lyDo = "";
@@ -104,21 +107,36 @@ export function damBaoAudienceGiao(
       lyDo,
       luc,
     );
-    if (quyetDinh === "gui" && dd) {
-      dsGui.push({ id: khachId, email: dd.gia_tri_chuan, urlHuy: urlHuyNguoiNhan(db, dd.gia_tri_chuan, urlGoc) });
-    } else {
-      soBoQua++;
+      if (quyetDinh === "gui" && dd) {
+        dsGui.push({ id: khachId, email: dd.gia_tri_chuan, urlHuy: urlHuyNguoiNhan(db, dd.gia_tri_chuan, urlGoc) });
+      } else {
+        soBoQua++;
+      }
     }
-  }
-  ghiSuKien(
-    db,
-    "giao_hang",
-    giaoId,
-    "resolve_audience",
-    { segment_id: segmentId, so_thanh_vien: thanhVien.length, so_gui: dsGui.length, so_bo_qua: soBoQua },
-    "job",
-  );
+    ghiSuKien(
+      db,
+      "giao_hang",
+      giaoId,
+      "resolve_audience",
+      { segment_id: segmentId, so_thanh_vien: thanhVien.length, so_gui: dsGui.length, so_bo_qua: soBoQua },
+      "job",
+    );
+  });
   return { ds_gui: dsGui, so_bo_qua: soBoQua, segment_id: segmentId };
+}
+
+// Gate lúc GỬI (delivery boundary, #13): snapshot `doi_tuong_giao` đóng
+// băng quyết định lúc resolve, nhưng hủy đăng ký hoặc rút consent giữa
+// hai attempt vẫn phải chặn — adapter gọi hàm này trước mỗi lần gửi.
+export function lyDoChanLucGiao(
+  db: Database,
+  khachId: string,
+  email: string,
+  kenh: string,
+): string | null {
+  if (daHuyDangKy(db, email)) return "huy_dang_ky";
+  if (!consentChoGui(db, khachId, kenh, "marketing")) return "khong_consent";
+  return null;
 }
 
 // Suppression nguoi_nhan (#13): huy_dang_ky là chặn vĩnh viễn — consent

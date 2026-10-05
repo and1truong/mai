@@ -302,6 +302,7 @@ import {
   thanhVienSegmentAll,
   xoaSegment,
 } from "../modules/khach/segment.ts";
+import { danhSachGop, diTroKhachGop, gopKhach } from "../modules/khach/gop.ts";
 import {
   taoKhach,
   hanhTrinhChuyenDoi,
@@ -2707,6 +2708,16 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
     route("GET", "/api/khach/:id", (_req, p, c) => {
       const khach = layKhach(c.db, p.id!);
       if (!khach) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy khách hàng.");
+      // Person đã gộp (#67): trả redirect da_gop_vao = ĐÍCH CUỐI chuỗi
+      // merge (a→b→c trả c) — client follow tới person đang hoạt động;
+      // không derive lifecycle cho hồ sơ đã gộp.
+      if (khach.trang_thai === "da_gop") {
+        return ok({
+          ...khach,
+          da_gop_vao: diTroKhachGop(c.db, khach.id),
+          dinh_danh: danhSachDinhDanh(c.db, khach.id),
+        });
+      }
       // trang_thai_doi/giai_thich_doi derive live (dormant phụ thuộc
       // thời gian) — khớp /gia-tri; cột lưu chỉ phục vụ liệt kê/segment.
       const { trang_thai, giai_thich } = tinhDoiKhach(c.db, khach.id);
@@ -2714,8 +2725,39 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
         ...khach,
         trang_thai_doi: trang_thai,
         giai_thich_doi: giai_thich,
+        da_gop_vao: "",
         dinh_danh: danhSachDinhDanh(c.db, khach.id),
       });
+    }),
+    // Merge person trùng (#67): ?xem_truoc=1 trả conflict mà không ghi.
+    route("POST", "/api/khach/:id/gop", async (req, p, c) => {
+      const body = await docBody(req);
+      const dsLoi: string[] = [];
+      const dichId = batBuocChuoi(body.vao_khach_id, "vao_khach_id", dsLoi);
+      nemLoiValidation(dsLoi);
+      const xemTruoc = new URL(req.url).searchParams.get("xem_truoc") === "1";
+      const kq = gopKhach(
+        c.db,
+        p.id!,
+        dichId,
+        { xemTruoc, duaTren: tuyChonChuoi(body.dua_tren) || undefined },
+        c.actor,
+      );
+      return ok(
+        {
+          khach_nguon: kq.khach_nguon,
+          khach_dich: kq.khach_dich,
+          xung_dot: kq.xung_dot,
+          xem_truoc: kq.xem_truoc,
+        },
+        kq.xem_truoc ? 200 : 201,
+      );
+    }),
+    route("GET", "/api/khach/:id/gop", (_req, p, c) => {
+      if (!layKhach(c.db, p.id!)) {
+        loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy khách hàng.");
+      }
+      return ok(danhSachGop(c.db, p.id!));
     }),
     route("GET", "/api/khach/:id/dinh-danh", (_req, p, c) => {
       if (!layKhach(c.db, p.id!)) {
@@ -2725,13 +2767,16 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
     }),
     route("POST", "/api/khach/:id/dinh-danh", async (req, p, c) => {
       const body = await docBody(req);
+      // Person đã gộp (#67): ghi redirect về đích cuối — dữ liệu mới
+      // luôn vào person đang hoạt động.
+      const khachId = diTroKhachGop(c.db, p.id!);
       const nhap: NhapDinhDanh = {
         loai: tuyChonChuoi(body.loai),
         gia_tri: tuyChonChuoi(body.gia_tri),
         nguon: tuyChonChuoi(body.nguon) || undefined,
         external_id: tuyChonChuoi(body.external_id) || undefined,
       };
-      return ok(ganDinhDanh(c.db, p.id!, nhap, c.actor), 201);
+      return ok(ganDinhDanh(c.db, khachId, nhap, c.actor), 201);
     }),
 
     // Ticket #61: ingestion sự kiện theo person. Contract: identity (hoặc
@@ -2775,7 +2820,8 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
         let khach;
         let daTaoKhach = false;
         if (khachId) {
-          khach = layKhach(c.db, khachId);
+          // khach_id trỏ person đã gộp → redirect đích cuối (#67).
+          khach = layKhach(c.db, diTroKhachGop(c.db, khachId));
           if (!khach) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy khách hàng.");
         } else {
           const kq = resolveKhach(c.db, [ddRaw as NhapDinhDanh], {}, c.actor);
@@ -2853,11 +2899,13 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
     // dòng log trong một txn (khẳng định lại cùng trạng thái = no-op);
     // GET trả trạng thái hiện tại + toàn bộ lịch sử.
     route("PUT", "/api/khach/:id/dong-y", async (req, p, c) => {
-      if (!layKhach(c.db, p.id!)) {
+      // Person đã gộp → ghi vào đích cuối chuỗi merge (#67).
+      const khachId = diTroKhachGop(c.db, p.id!);
+      if (!layKhach(c.db, khachId)) {
         loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy khách hàng.");
       }
       const body = await docBody(req);
-      const kq = datDongY(c.db, p.id!, {
+      const kq = datDongY(c.db, khachId, {
         kenh: tuyChonChuoi(body.kenh),
         muc_dich: tuyChonChuoi(body.muc_dich),
         trang_thai: tuyChonChuoi(body.trang_thai),
@@ -2918,13 +2966,15 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
     route("POST", "/api/khach/chuyen-doi", async (req, _p, c) => {
       const body = await docBody(req);
       const dsLoi: string[] = [];
-      const khachId = tuyChonChuoi(body.khach_id);
+      let khachId = tuyChonChuoi(body.khach_id);
       const ddRaw = body.dinh_danh;
       const coDinhDanh =
         typeof ddRaw === "object" && ddRaw !== null && !Array.isArray(ddRaw);
       if (ddRaw != null && !coDinhDanh) {
         dsLoi.push("dinh_danh phải là object {loai, gia_tri, nguon?, external_id?}.");
       }
+      // khach_id trỏ person đã gộp → redirect đích cuối (#67).
+      if (khachId) khachId = diTroKhachGop(c.db, khachId);
       if (khachId && !layKhach(c.db, khachId)) {
         loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy khách hàng.");
       }
@@ -3077,11 +3127,13 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       return ok({ so_luong: ds.length, mau: ds.slice(0, 20) });
     }),
     route("PUT", "/api/khach/:id/tags", async (req, p, c) => {
-      if (!layKhach(c.db, p.id!)) {
+      // Person đã gộp → ghi vào đích cuối chuỗi merge (#67).
+      const khachId = diTroKhachGop(c.db, p.id!);
+      if (!layKhach(c.db, khachId)) {
         loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy khách hàng.");
       }
       const body = await docBody(req);
-      const ds = datTagKhach(c.db, p.id!, {
+      const ds = datTagKhach(c.db, khachId, {
         them: body.them,
         bo: body.bo,
         nguon: body.nguon,
