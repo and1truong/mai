@@ -305,6 +305,7 @@ import {
 import { danhSachGop, diTroKhachGop, gopKhach } from "../modules/khach/gop.ts";
 import {
   taoKhach,
+  hanhTrinhChuyenDoi,
   timelineKhach,
   type Khach,
   type NhapDinhDanh,
@@ -2865,6 +2866,32 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       return ok({
         ds_su_kien: ds.map((s) => ({ ...s, chi_tiet: JSON.parse(s.chi_tiet) as unknown })),
         tong: ds.length,
+      });
+    }),
+
+    // Ticket #69: hành trình tới conversion — projection của tuong_tac,
+    // tính lại khi đọc (không lưu narrative). Thiếu chuyen_doi_id →
+    // conversion mới nhất; person chưa có conversion nào → 400.
+    route("GET", "/api/khach/:id/hanh-trinh", (req, p, c) => {
+      if (!layKhach(c.db, p.id!)) {
+        loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy khách hàng.");
+      }
+      const q = new URL(req.url).searchParams;
+      const kq = hanhTrinhChuyenDoi(
+        c.db,
+        p.id!,
+        tuyChonChuoi(q.get("chuyen_doi_id")) || undefined,
+      );
+      return ok({
+        chuyen_doi: {
+          ...kq.chuyen_doi,
+          chi_tiet: JSON.parse(kq.chuyen_doi.chi_tiet) as unknown,
+        },
+        quy_ve: kq.quy_ve,
+        hanh_trinh: kq.hanh_trinh.map((s) => ({
+          ...s,
+          chi_tiet: JSON.parse(s.chi_tiet) as unknown,
+        })),
       });
     }),
 
