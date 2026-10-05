@@ -22,10 +22,11 @@ export function napDonHangMau(
   actor: string,
   duongDan = TEP_DON_HANG_MAU,
 ): { so_don: number; so_don_moi: number } {
+  const ds = docDonHangMau(duongDan);
   let soMoi = 0;
-  for (const don of docDonHangMau(duongDan)) {
+  for (const don of ds) {
     const kq = napDonHang(db, don, actor);
     if (kq.da_tao) soMoi++;
   }
-  return { so_don: docDonHangMau(duongDan).length, so_don_moi: soMoi };
+  return { so_don: ds.length, so_don_moi: soMoi };
 }
