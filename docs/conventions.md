@@ -126,9 +126,17 @@ Chuyển sai → 409 `XUNG_DOT_TRANG_THAI`.
 
 - `chuyen_doi`: `khach_id` **nullable** — conversion không resolve được person vẫn INSERT, giữ nguyên để backfill; `nguon` + `khoa_idem` bắt buộc (idempotency); `tien_te` (ISO 3 ký tự) bắt buộc khi có `gia_tri`, không trộn tiền tệ (không FX).
 - `dau_cham_dau` = first-touch: interaction ĐẦU TIÊN của person mang ref attribution (`campaign_id`/`link_dich_id`/`ban_the_hien_id`/`giao_hang_id` khác rỗng). `INSERT OR IGNORE` một lần — event sau không ghi đè. Giới hạn POC: chỉ tính lại khi sửa tay dữ liệu gốc.
-- `quy_ve`: 2 row mỗi conversion, `mo_hinh` `first_touch|last_touch` lưu CÙNG kết quả. Ưu tiên đích: `campaign` → `link_dich` → `ban_the_hien` → `giao_hang`. `last_touch` ưu tiên ref trên chính conversion, không thì interaction gần nhất có ref trước `xay_ra_luc`, không thì `nguon` của interaction đó (`khong_chac`). Không touch nào → `loai_dich='khong_ro'` + `do_tin='khong_chac'`, không bịa.
+- `quy_ve`: 2 row mỗi conversion, `mo_hinh` `first_touch|last_touch` lưu CÙNG kết quả. Ưu tiên đích: `campaign` → `link_dich` → `ban_the_hien` → `giao_hang`. `last_touch` ưu tiên ref trên chính conversion, không thì interaction gần nhất CÓ ref trước `xay_ra_luc` (event không ref — vd chính event `mua` — không phải touch), không thì `nguon` của interaction gần nhất (`khong_chac`). Không touch nào → `loai_dich='khong_ro'` + `do_tin='khong_chac'`, không bịa.
 - `POST /api/khach/chuyen-doi` (khach_id | dinh_danh | trống → unattributed); `GET /api/khach/:id/quy-ve`; `GET /api/chuyen-doi?chua_gan=1`.
 - Report chỉ nói "quy về theo model X" — không biến correlation thành causation.
+
+### Nạp đơn hàng commerce (#64)
+
+- `POST /api/khach/nap-don-hang`: `{he_thong, khach_ngoai_id, don_hang_ngoai_id, dinh_danh?, email?, ten?, items[], gia_tri, tien_te, mua_luc?, khoa_idem?, chi_tiet?}` — một txn tạo person + event `mua` + conversion `mua`.
+- Identity matching có kiểm soát: luôn gắn `external` khóa `<he_thong>:<khach_ngoai_id>`; email/`dinh_danh[]` chỉ khi payload khai báo — không fuzzy. Đụng identity của person khác → 409 `XUNG_DOT_DINH_DANH` kèm `khach_ids`.
+- Idempotent: `khoa_idem`, dự phòng `he_thong:don_hang_ngoai_id` (key `nd:<khoa>` trên `chuyen_doi`) — replay trả bản ghi cũ, không nhân person/event/conversion.
+- Adapter fixture: `modules/khach/nap_fixture.ts` đọc `server/seed-assets/don-hang-mau.json` → cùng contract; seed `story_khach_hang`.
+- Giới hạn POC: không refund/cancel, không sync hai chiều, không adapter Shopify/Woo thật.
 
 ## Nạp nguồn & asset (#17)
 

@@ -74,10 +74,15 @@ test("#63 ghi conversion: validation + idempotent + quy_ve hai model", async () 
   });
   expect(rep.status).toBe(200);
   expect(rep.body.du_lieu.chuyen_doi.id).toBe(cv.body.du_lieu.chuyen_doi.id);
+  // seed() nạp thêm đơn fixture (#64) → đếm theo khoa_idem của test.
   const ds = await api(app.url, "/api/chuyen-doi");
-  expect(ds.body.du_lieu.tong).toBe(2);
+  const cuaTest = (ds.body.du_lieu.ds_chuyen_doi as { khoa_idem: string }[])
+    .filter((d) => d.khoa_idem.startsWith("ord-"));
+  expect(cuaTest.length).toBe(2);
   const chuaGan = await api(app.url, "/api/chuyen-doi?chua_gan=1");
-  expect(chuaGan.body.du_lieu.tong).toBe(1);
+  const chuaGanCuaTest = (chuaGan.body.du_lieu.ds_chuyen_doi as { khoa_idem: string }[])
+    .filter((d) => d.khoa_idem === "ord-0");
+  expect(chuaGanCuaTest.length).toBe(1);
   await app.dong();
 });
 

@@ -285,6 +285,7 @@ import {
   ghiChuyenDoi,
   ghiTuongTac,
   layKhach,
+  napDonHang,
   quyVeCuaKhach,
   resolveKhach,
   taoKhach,
@@ -2806,6 +2807,46 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
         loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy khách hàng.");
       }
       return ok(docDongY(c.db, p.id!));
+    }),
+
+    // Ticket #64: contract nạp đơn hàng từ commerce (idempotent theo
+    // khoa_idem hoặc he_thong:don_hang_ngoai_id; identity có kiểm soát).
+    route("POST", "/api/khach/nap-don-hang", async (req, _p, c) => {
+      const body = await docBody(req);
+      const kq = napDonHang(
+        c.db,
+        {
+          he_thong: tuyChonChuoi(body.he_thong),
+          khach_ngoai_id: tuyChonChuoi(body.khach_ngoai_id),
+          don_hang_ngoai_id: tuyChonChuoi(body.don_hang_ngoai_id),
+          dinh_danh: Array.isArray(body.dinh_danh)
+            ? (body.dinh_danh as NhapDinhDanh[])
+            : undefined,
+          email: tuyChonChuoi(body.email) || undefined,
+          ten: tuyChonChuoi(body.ten) || undefined,
+          items: Array.isArray(body.items)
+            ? (body.items as { ma?: string; ten: string; so_luong: number; gia: number }[])
+            : undefined,
+          gia_tri: typeof body.gia_tri === "number" ? body.gia_tri : NaN,
+          tien_te: tuyChonChuoi(body.tien_te),
+          mua_luc: tuyChonChuoi(body.mua_luc) || undefined,
+          khoa_idem: tuyChonChuoi(body.khoa_idem) || undefined,
+          chi_tiet: tuyChonObject(body.chi_tiet),
+        },
+        c.actor,
+      );
+      return ok(
+        {
+          khach: kq.khach,
+          su_kien: kq.su_kien,
+          chuyen_doi: kq.chuyen_doi
+            ? { ...kq.chuyen_doi, chi_tiet: JSON.parse(kq.chuyen_doi.chi_tiet) as unknown }
+            : null,
+          quy_ve: kq.quy_ve,
+          da_tao: kq.da_tao,
+        },
+        kq.da_tao ? 201 : 200,
+      );
     }),
 
     // Ticket #63: conversion + attribution. nguon + khoa_idem bắt buộc;
