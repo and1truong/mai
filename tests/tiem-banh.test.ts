@@ -69,7 +69,8 @@ describe("Story #7 — tiệm bánh: seed và bundle đề xuất", () => {
       const dsBth = db
         .query("SELECT * FROM ban_the_hien WHERE thong_diep_id = 'seed-td-tiem-banh'")
         .all() as { id: string; dinh_dang: string; dich_den: string; trang_thai: string }[];
-      expect(dsBth.length).toBe(5);
+      // 5 đầu ra kế hoạch đã chọn + newsletter demo kênh sở hữu (#13).
+      expect(dsBth.length).toBe(6);
       const theoDd = (dd: string) => dsBth.find((b) => b.dinh_dang === dd)!;
       expect(theoDd("bai-viet").trang_thai).toBe("da_duyet");
       expect(theoDd("caption").dich_den).toBe("instagram");

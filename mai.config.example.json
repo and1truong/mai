@@ -15,5 +15,15 @@
   "jobs": {
     "concurrency": 2,
     "chuKyMs": 500
+  },
+  "kenh": {
+    "url_goc": "http://localhost:3000",
+    "email": {
+      "base_url": "https://api.resend.com",
+      "api_key_env": "MAI_EMAIL_API_KEY",
+      "from": "Mai <bao@example.com>",
+      "nguoi_nhan_test": "chu@example.com",
+      "timeout_ms": 30000
+    }
   }
 }

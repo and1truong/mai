@@ -7,6 +7,7 @@ import GayQuyPage from "./pages/GayQuy.tsx";
 import { HoSoPage } from "./pages/HoSo.tsx";
 import KeHoachPage from "./pages/KeHoach.tsx";
 import JobPage from "./pages/Job.tsx";
+import KenhPage from "./pages/Kenh.tsx";
 import NguonPage from "./pages/Nguon.tsx";
 import PhatHanhPage from "./pages/PhatHanh.tsx";
 import SoBaoPage from "./pages/SoBao.tsx";
@@ -27,6 +28,7 @@ const NAV = [
   { path: "/cong-quyen", nhan: "Công quyền" },
   { path: "/thuong-hieu", nhan: "Thương hiệu" },
   { path: "/job", nhan: "Job" },
+  { path: "/kenh", nhan: "Kênh" },
   { path: "/ho-so", nhan: "Hồ sơ" },
 ];
 
@@ -69,6 +71,7 @@ export default function App() {
         {goc === "/thuong-hieu" && <ThuongHieuPage />}
         {goc === "/thong-diep" && <ThongDiepPage />}
         {goc === "/job" && <JobPage />}
+        {goc === "/kenh" && <KenhPage />}
         {goc === "/ho-so" && <HoSoPage />}
         {!hopLe && (
           <Flex justify="center" py="8">

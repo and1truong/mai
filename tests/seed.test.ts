@@ -42,18 +42,19 @@ test("seed idempotent: chạy 2 lần vẫn đúng 1 bộ dữ liệu demo", () 
   expect(dem("thong_diep_nguon")).toBe(25);
   expect(dem("thong_diep_revision")).toBe(10);
   // 14 cũ + 5 số 002 + 3 đầu ra phát hành + 7 đầu ra gây quỹ + 5 đầu ra công quyền
-  // + 2 biến thể thương hiệu (#12).
-  expect(dem("ban_the_hien")).toBe(36);
-  expect(dem("revision")).toBe(36);
+  // + 2 biến thể thương hiệu (#12) + newsletter kênh sở hữu (#13).
+  expect(dem("ban_the_hien")).toBe(37);
+  expect(dem("revision")).toBe(37);
   expect(dem("ke_hoach")).toBe(2);
   // 12 cũ + số 002 (5) + phát hành (dev 2, khách 1, sales 2) + gây quỹ (10)
   // + công quyền (faq 2, checklist 2, trường học 1)
   // + thương hiệu (bài viết US 2, caption VN 1).
-  expect(dem("duyet")).toBe(40);
+  // +1 newsletter #13 (cho_duyet + da_duyet = 2 record).
+  expect(dem("duyet")).toBe(42);
   // 4 cũ + bài chính số 002 + hướng dẫn dev + báo cáo + trang campaign gây quỹ
   // + FAQ + checklist công quyền.
   expect(dem("xuat_ban")).toBe(10);
   expect(dem("campaign")).toBe(6); // số 001 + số 002 + phát hành 4.0 + gây quỹ + công quyền + thương hiệu
-  expect(dem("su_kien")).toBe(184); // 54 cũ + 23 story #8 + 21 story #9 + 34 story #10 + 25 story #11 + 27 story #12
+  expect(dem("su_kien")).toBe(192); // 54 cũ + 23 story #8 + 21 story #9 + 34 story #10 + 25 story #11 + 27 story #12 + 8 story #13
   db.close();
 });
