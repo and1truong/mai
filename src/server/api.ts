@@ -286,6 +286,7 @@ import {
   ghiTuongTac,
   layKhach,
   giaTriKhach,
+  tinhDoiKhach,
   napDonHang,
   quyVeCuaKhach,
   resolveKhach,
@@ -2966,9 +2967,13 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       if (!khach) {
         loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy khách hàng.");
       }
+      // Derive live thay vì đọc cột lưu: rule ngu_dong phụ thuộc thời
+      // gian nên state theo thời điểm đọc mới đúng (#65); cột lưu vẫn
+      // cập nhật eager để liệt kê/segment dùng.
+      const { trang_thai, giai_thich } = tinhDoiKhach(c.db, khach.id);
       return ok({
-        trang_thai_doi: khach.trang_thai_doi,
-        giai_thich: JSON.parse(khach.giai_thich_doi) as unknown,
+        trang_thai_doi: trang_thai,
+        giai_thich,
         gia_tri: giaTriKhach(c.db, khach.id),
       });
     }),
