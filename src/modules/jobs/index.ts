@@ -144,6 +144,9 @@ function ghiNhatKy(db: Database, jobId: string, suKien: string, duLieu: unknown 
 
 // Enqueue nguyên tử theo khoa_idem: INSERT OR IGNORE rồi đọc lại.
 // - Job cùng khóa đang 'cho'/'dang_chay' → dedupe: da_tao=false, trả dòng cũ.
+//   Riêng job 'cho' đã lên lịch mà yêu cầu mới muốn chạy sớm hơn
+//   (chay_som_nhat rỗng hoặc trước lịch cũ) → kéo lịch về sớm và ghi đè
+//   revision_id/payload/mui_gio theo yêu cầu mới — vẫn một job logic.
 // - Job cùng khóa đã kết thúc ('xong'/'loi'/'huy') → reset về 'cho' với tham
 //   số mới và chạy lại đúng một job logic (khoa_idem unique → không tạo dòng
 //   thứ hai). Hủy/kết thúc một job KHÔNG khóa vĩnh viễn việc enqueue lại.
