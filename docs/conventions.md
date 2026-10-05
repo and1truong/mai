@@ -181,7 +181,7 @@ Chuyển sai → 409 `XUNG_DOT_TRANG_THAI`.
 - `GET /api/khach/:id/hanh-trinh?chuyen_doi_id=N` — journey là PROJECTION của `tuong_tac`, tính lại khi đọc, không lưu narrative. Boundary: mọi event `xay_ra_luc <=` conversion; cùng giây giữ thứ tự insert (tie-break `rowid`).
 - Mỗi bước = event đầy đủ (`loai`, `nguon` = provenance, refs `ban_the_hien_id`/`campaign_id`/`link_dich_id`/`giao_hang_id`) + `la_first_touch`/`la_last_touch` đánh dấu theo `quy_ve` đã ghi (bước khớp `dich_id` gần conversion nhất cho last_touch; `dau_cham_dau` cho first_touch — không bịa khi touch nằm ngoài journey).
 - Thiếu `chuyen_doi_id` → conversion MỚI NHẤT của person (lựa chọn đã chốt); person chưa có conversion nào → 400. `chuyen_doi_id` của person khác / không tồn tại → 404. Nhiều conversion → mỗi conversion một journey riêng theo boundary của nó.
-- Giới hạn POC: không visualize đồ thị (UI ở #70), không journey cross-device ngoài identity graph.
+- Giới hạn POC: không visualize đồ thị (UI ở #70), không journey cross-device ngoài identity graph. Journey >500 event bị cắt theo cap `timelineKhach` mặc định (response không chỉ truncate).
 
 ## Nạp nguồn & asset (#17)
 
