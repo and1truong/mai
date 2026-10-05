@@ -148,6 +148,15 @@ Chuyển sai → 409 `XUNG_DOT_TRANG_THAI`.
 - `GET /api/khach/:id/gia-tri` → `{trang_thai_doi, giai_thich, gia_tri}` — trả derive LIVE qua `tinhDoiKhach` (dormant phụ thuộc thời gian nên đọc cột lưu có thể stale); cột lưu phục vụ liệt kê/segment. Hàm derive export để segment (#66) dùng lại.
 - Giới hạn POC: segment trên cột lưu có thể trễ một nhịp giữa hai lần ghi, không lead scoring/churn/CLV, không generic state machine.
 
+### Segment động + tag (#66)
+
+- `segment` lưu `ten` + `quy_tac` JSON — DSL tối thiểu, deterministic: `{all:[dk...], any:[dk...]}`, mỗi điều kiện đúng một khóa trong `trang_thai_doi`, `co_truong|khong_co_truong` (`ten|email|sdt`), `co_su_kien|khong_co_su_kien` (`{loai, trong_ngay?}` trên `tuong_tac`), `co_tag`, `so_don_toi_thieu`, `tong_doanh_thu_toi_thieu` (`{tien_te, gia_tri}` — riêng theo currency), `don_cuoi_truoc_ngay` (ISO). `all` = mọi điều kiện đúng, `any` = ít nhất một; thiếu cả hai = tất cả person `hoat_dong`.
+- Membership **tính lại khi đọc** (`thanhVienSegment` per person, `thanhVienSegmentAll` quét) — không bảng materialize, không snapshot. Person `da_gop` (#67) không bao giờ thuộc segment.
+- CRUD: `POST|GET /api/segment`, `GET|PUT|DELETE /api/segment/:id`, `GET .../xem-truoc` (`{so_luong, mau[]}` — mẫu tối đa 20 id). DSL xấu → 400 liệt kê lỗi. DELETE khi có campaign gắn `segment_id` → 409 `SEGMENT_DANG_DUNG`.
+- `campaign.segment_id` (migration 0026): field nhận ở POST/PUT campaign, validate tồn tại — resolve audience thành người nhận là việc của #68.
+- `khach_tag` (khach_id+tag PK): tag chuẩn hóa trim+lowercase, `nguon` ∈ `tay|automation|import` ghi lúc thêm — audit nguồn tag. `PUT /api/khach/:id/tags {them[], bo[], nguon?}` idempotent (INSERT OR IGNORE + DELETE), `GET` cùng path đọc. Lọc `?tag=` là phần #70.
+- Giới hạn POC: không rule-builder UI (JSON tay), không nested segment, không streaming real-time.
+
 ## Nạp nguồn & asset (#17)
 
 - Nguồn vào: dán text (`POST /api/nguon/nhap`, `POST /api/nguon/:id/nhap`) hoặc upload file (`POST /api/assets?ten=...`).

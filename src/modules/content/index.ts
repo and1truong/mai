@@ -337,6 +337,9 @@ export type Campaign = {
   giong_van: string; // giọng văn thương hiệu — đi vào context sinh
   ds_asset_hinh: AssetHinh[]; // asset hình phân phối chung cho mọi thị trường
   nguon_thuong_hieu_id: string; // nguồn fact tự động chiếu từ field chung
+  // Audience (#59, #66-68): segment động mà campaign nhắm tới — resolve
+  // thành người nhận ở #68. '' = không gắn segment.
+  segment_id: string;
   tao_luc: string;
   tao_boi: string;
   cap_nhat_luc: string;
@@ -541,6 +544,7 @@ type DongCampaign = Omit<
   ds_nguoi_duyet: string;
   ds_claim: string;
   ds_asset_hinh: string;
+  segment_id: string;
 };
 // Hàng thi_truong trên đĩa: mảng/object JSON giữ dạng TEXT.
 type DongThiTruong = Omit<ThiTruong, "ds_chi_tiet" | "ghi_de" | "ds_nguoi_duyet"> & {
@@ -1179,6 +1183,8 @@ export type NhapCampaign = {
   giong_van?: string;
   ds_asset_hinh?: AssetHinh[];
   nguon_thuong_hieu_id?: string;
+  // Audience (#66): absent → giữ giá trị đã lưu.
+  segment_id?: string;
 };
 
 const COT_SO_BAO =
@@ -1200,8 +1206,8 @@ export function taoCampaign(
     const id = tuyChon.id ?? crypto.randomUUID();
     const ts = bayGio();
     db.query(
-      `INSERT INTO campaign (id, ten, mo_ta, ghi_de, loai, ${COT_SO_BAO}, ${COT_PHAT_HANH}, ${COT_GAY_QUY}, ${COT_CONG_QUYEN}, ${COT_THUONG_HIEU}, tao_luc, tao_boi, cap_nhat_luc, cap_nhat_boi)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,     
+      `INSERT INTO campaign (id, ten, mo_ta, ghi_de, loai, ${COT_SO_BAO}, ${COT_PHAT_HANH}, ${COT_GAY_QUY}, ${COT_CONG_QUYEN}, ${COT_THUONG_HIEU}, segment_id, tao_luc, tao_boi, cap_nhat_luc, cap_nhat_boi)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,     
     ).run(
       id,
       input.ten,
@@ -1243,6 +1249,7 @@ export function taoCampaign(
       JSON.stringify(input.ds_claim ?? []),
       input.giong_van ?? "",
       JSON.stringify(input.ds_asset_hinh ?? []),
+      input.segment_id ?? "",
       ts,
       tacGia,
       ts,
@@ -1275,7 +1282,7 @@ export function capNhatCampaign(
         .map((c) => `${c} = ?`)
         .join(", ")}, ${COT_THUONG_HIEU.split(", ")
         .map((c) => `${c} = ?`)
-        .join(", ")}, cap_nhat_luc = ?, cap_nhat_boi = ? WHERE id = ?`,
+        .join(", ")}, segment_id = ?, cap_nhat_luc = ?, cap_nhat_boi = ? WHERE id = ?`,
     ).run(
       input.ten,
       input.mo_ta ?? cu.mo_ta,
@@ -1316,6 +1323,7 @@ export function capNhatCampaign(
       JSON.stringify(input.ds_claim ?? cu.ds_claim),
       input.giong_van ?? cu.giong_van,
       JSON.stringify(input.ds_asset_hinh ?? cu.ds_asset_hinh),
+      input.segment_id !== undefined ? input.segment_id : cu.segment_id,
       bayGio(),
       tacGia,
       id,
