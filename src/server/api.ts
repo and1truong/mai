@@ -277,6 +277,9 @@ import {
   DANH_SACH_LOAI_TUONG_TAC,
   danhSachDinhDanh,
   danhSachKhach,
+  datDongY,
+  docDongY,
+  dongBoNguoiNhan,
   ganDinhDanh,
   ghiTuongTac,
   layKhach,
@@ -2585,19 +2588,52 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       const dsLoi: string[] = [];
       const email = batBuocChuoi(body.email, "email", dsLoi);
       nemLoiValidation(dsLoi);
+      const nhap = {
+        email,
+        ten: tuyChonChuoi(body.ten),
+        nguon: tuyChonChuoi(body.nguon),
+      };
+      // #62: subscribe mới → đồng bộ sang person graph: identity email +
+      // consent email/marketing=cho + event dang_ky (cùng một txn).
       return ok(
-        themNguoiNhan(
-          c.db,
-          { email, ten: tuyChonChuoi(body.ten), nguon: tuyChonChuoi(body.nguon) },
-          chuanHoaCauHinhKenh(c.kenh).url_goc,
-          c.actor,
-        ),
+        txn(c.db, () => {
+          const kq = themNguoiNhan(
+            c.db,
+            nhap,
+            chuanHoaCauHinhKenh(c.kenh).url_goc,
+            c.actor,
+          );
+          if (kq.da_tao) {
+            dongBoNguoiNhan(
+              c.db,
+              { email: kq.nguoi_nhan.email, ten: nhap.ten, huong: "dang_ky", nguon: nhap.nguon || "api" },
+              c.actor,
+            );
+          }
+          return kq;
+        }),
       );
     }),
     // Hủy đăng ký thủ công một địa chỉ — cùng đường suppression như link
     // trong email, không hồi sinh được bằng cách thêm lại.
     route("POST", "/api/nguoi-nhan/:id/huy-dang-ky", (_req, p, c) =>
-      ok(huyDangKyNguoiNhan(c.db, p.id!, chuanHoaCauHinhKenh(c.kenh).url_goc)),
+      ok(
+        txn(c.db, () => {
+          const truoc = c.db
+            .query("SELECT email, trang_thai FROM nguoi_nhan WHERE id = ?")
+            .get(p.id!) as { email: string; trang_thai: string } | null;
+          const kq = huyDangKyNguoiNhan(c.db, p.id!, chuanHoaCauHinhKenh(c.kenh).url_goc);
+          // #62: chỉ đồng bộ khi transition thật (đã hủy sẵn = no-op).
+          if (truoc?.trang_thai === "dang_ky") {
+            dongBoNguoiNhan(
+              c.db,
+              { email: kq.email, huong: "huy_dang_ky", nguon: "quan_tri" },
+              c.actor,
+            );
+          }
+          return kq;
+        }),
+      ),
     ),
 
     // --- Đồ thị khách hàng (#59) ---
@@ -2738,6 +2774,29 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
         ds_su_kien: ds.map((s) => ({ ...s, chi_tiet: JSON.parse(s.chi_tiet) as unknown })),
         tong: ds.length,
       });
+    }),
+
+    // Ticket #62: consent theo kênh + mục đích. PUT = state transition +
+    // dòng log trong một txn (khẳng định lại cùng trạng thái = no-op);
+    // GET trả trạng thái hiện tại + toàn bộ lịch sử.
+    route("PUT", "/api/khach/:id/dong-y", async (req, p, c) => {
+      if (!layKhach(c.db, p.id!)) {
+        loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy khách hàng.");
+      }
+      const body = await docBody(req);
+      const kq = datDongY(c.db, p.id!, {
+        kenh: tuyChonChuoi(body.kenh),
+        muc_dich: tuyChonChuoi(body.muc_dich),
+        trang_thai: tuyChonChuoi(body.trang_thai),
+        nguon: tuyChonChuoi(body.nguon),
+      });
+      return ok(kq);
+    }),
+    route("GET", "/api/khach/:id/dong-y", (_req, p, c) => {
+      if (!layKhach(c.db, p.id!)) {
+        loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy khách hàng.");
+      }
+      return ok(docDongY(c.db, p.id!));
     }),
 
     // --- Job ---

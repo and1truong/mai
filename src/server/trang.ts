@@ -4,6 +4,7 @@ import {
   layBanTheHien,
   layRevision,
   layThongDiep,
+  txn,
 } from "../modules/content/index.ts";
 import { layDinhDang } from "../modules/formats/index.ts";
 import { renderHtml } from "../modules/formats/render.ts";
@@ -13,6 +14,7 @@ import { ghiSuKienDo, layLinkDichTheoToken } from "../modules/ket_qua/index.ts";
 import {
   datCookieVisitor,
   docVisitorId,
+  dongBoNguoiNhan,
   ghiTuongTacVisitor,
 } from "../modules/khach/index.ts";
 
@@ -150,7 +152,21 @@ export function phucVuHuyDangKy(
   token: string | null,
   req?: Request,
 ): Response {
-  const ketQua = token ? huyDangKyTheoToken(db, token) : null;
+  // #62: suppression + đồng bộ consent/event về person cùng một txn —
+  // không trạng thái dở dàng (đã hủy nguoi_nhan mà person chưa tu_choi).
+  const ketQua = token
+    ? txn(db, () => {
+        const kq = huyDangKyTheoToken(db, token);
+        if (kq?.da_huy) {
+          dongBoNguoiNhan(
+            db,
+            { email: kq.email, huong: "huy_dang_ky", nguon: "link_email" },
+            "he_thong",
+          );
+        }
+        return kq;
+      })
+    : null;
   if (!ketQua) {
     return new Response(
       "<!doctype html><html><body><p>Link hủy đăng ký không hợp lệ hoặc đã hết hạn.</p></body></html>",
