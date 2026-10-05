@@ -2818,8 +2818,11 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       const ddRaw = body.dinh_danh;
       const coDinhDanh =
         typeof ddRaw === "object" && ddRaw !== null && !Array.isArray(ddRaw);
+      if (ddRaw != null && !coDinhDanh) {
+        dsLoi.push("dinh_danh phải là object {loai, gia_tri, nguon?, external_id?}.");
+      }
       if (khachId && !layKhach(c.db, khachId)) {
-        dsLoi.push(`khach_id '${khachId}' không tồn tại.`);
+        loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy khách hàng.");
       }
       const banTheHienId = tuyChonChuoi(body.ban_the_hien_id);
       if (banTheHienId && !layBanTheHien(c.db, banTheHienId)) {
@@ -2830,6 +2833,28 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
         dsLoi.push(`campaign_id '${campaignId}' không tồn tại.`);
       }
       nemLoiValidation(dsLoi);
+      // Short-circuit idempotency TRƯỚC resolve — replay kèm dinh_danh
+      // mới không được tạo person/identity mồ côi.
+      const khoaIdem = tuyChonChuoi(body.khoa_idem);
+      if (khoaIdem) {
+        const cu = c.db
+          .query("SELECT * FROM chuyen_doi WHERE khoa_idem = ?")
+          .get(khoaIdem) as { id: string; khach_id: string | null } | null;
+        if (cu) {
+          const record = c.db
+            .query("SELECT * FROM chuyen_doi WHERE id = ?")
+            .get(cu.id) as { chi_tiet: string };
+          const qvCu = c.db
+            .query("SELECT * FROM quy_ve WHERE chuyen_doi_id = ? ORDER BY mo_hinh")
+            .all(cu.id);
+          return ok({
+            chuyen_doi: { ...record, chi_tiet: JSON.parse(record.chi_tiet) },
+            quy_ve: qvCu,
+            khach: cu.khach_id ? layKhach(c.db, cu.khach_id) : null,
+            da_tao: false,
+          });
+        }
+      }
       return txn(c.db, () => {
         let personId: string | null = khachId || null;
         let khach: Khach | null = null;
@@ -2843,11 +2868,15 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
         const kq = ghiChuyenDoi(c.db, {
           khach_id: personId,
           loai: tuyChonChuoi(body.loai),
-          gia_tri: typeof body.gia_tri === "number" ? body.gia_tri : undefined,
+          // Truyền nguyên giá trị — ghiChuyenDoi validate non-number
+          // → 400 VALIDATION thay vì nuốt lặng thành null.
+          gia_tri: body.gia_tri === undefined || body.gia_tri === null
+            ? undefined
+            : (body.gia_tri as number),
           tien_te: tuyChonChuoi(body.tien_te) || undefined,
           nguon: tuyChonChuoi(body.nguon),
           xay_ra_luc: tuyChonChuoi(body.xay_ra_luc) || undefined,
-          khoa_idem: tuyChonChuoi(body.khoa_idem),
+          khoa_idem: khoaIdem,
           ban_the_hien_id: banTheHienId || undefined,
           campaign_id: campaignId || undefined,
           don_hang_ngoai_id: tuyChonChuoi(body.don_hang_ngoai_id) || undefined,
@@ -2867,7 +2896,11 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
     // Liệt kê conversion; ?chua_gan=1 → chỉ unattributed (không ép gán).
     route("GET", "/api/chuyen-doi", (req, _p, c) => {
       const q = new URL(req.url).searchParams;
-      const ds = danhSachChuyenDoi(c.db, { chua_gan: q.get("chua_gan") === "1" });
+      const gioiHan = Math.min(500, Math.max(1, Number(q.get("gioi_han")) || 200));
+      const ds = danhSachChuyenDoi(c.db, {
+        chua_gan: q.get("chua_gan") === "1",
+        gioi_han: gioiHan,
+      });
       return ok({
         ds_chuyen_doi: ds.map((d) => ({ ...d, chi_tiet: JSON.parse(d.chi_tiet) as unknown })),
         tong: ds.length,

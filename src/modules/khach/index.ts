@@ -857,7 +857,8 @@ function tinhQuyVe(
   const ds: { mo_hinh: MoHinhQuyVe; loai_dich: string; dich_id: string; do_tin: string }[] = [];
   // --- first_touch ---
   const dau = cd.khach_id ? layDauChamDau(db, cd.khach_id) : null;
-  if (dau) {
+  // Touch ở TƯƠNG LAI so với conversion (backdated) không phải touch.
+  if (dau && dau.xay_ra_luc <= cd.xay_ra_luc) {
     const dich = dichTuRefs(dau);
     ds.push({ mo_hinh: "first_touch", loai_dich: dich.loai_dich, dich_id: dich.dich_id, do_tin: "chac" });
   } else {
@@ -869,23 +870,32 @@ function tinhQuyVe(
     // Conversion tự mang ref (vd đơn hàng gắn campaign) → chắc chắn.
     ds.push({ mo_hinh: "last_touch", loai_dich: trucTiep.loai_dich, dich_id: trucTiep.dich_id, do_tin: "chac" });
   } else if (cd.khach_id) {
-    const gan = db
+    // Touch = interaction có ref; event không ref (vd chính event mua
+    // vừa ghi trong nạp đơn) không phải touch — tìm có ref trước nhất.
+    const coRef = db
       .query(
         `SELECT * FROM tuong_tac WHERE khach_id = ? AND xay_ra_luc <= ?
+         AND (campaign_id <> '' OR link_dich_id <> '' OR ban_the_hien_id <> '' OR giao_hang_id <> '')
          ORDER BY xay_ra_luc DESC, rowid DESC LIMIT 1`,
       )
       .get(cd.khach_id, cd.xay_ra_luc) as TuongTac | null;
-    if (gan) {
-      const dich = dichTuRefs(gan);
-      if (dich.loai_dich) {
-        ds.push({ mo_hinh: "last_touch", loai_dich: dich.loai_dich, dich_id: dich.dich_id, do_tin: "chac" });
-      } else {
-        // Event gần nhất không mang ref → quy về nguồn của nó, mức
-        // tin cậy thấp hơn (nguon chỉ là provenance, không phải ref).
-        ds.push({ mo_hinh: "last_touch", loai_dich: "nguon", dich_id: gan.nguon, do_tin: "khong_chac" });
-      }
+    if (coRef) {
+      const dich = dichTuRefs(coRef);
+      ds.push({ mo_hinh: "last_touch", loai_dich: dich.loai_dich, dich_id: dich.dich_id, do_tin: "chac" });
     } else {
-      ds.push({ mo_hinh: "last_touch", loai_dich: "khong_ro", dich_id: "", do_tin: "khong_chac" });
+      // Không event nào có ref → rơi về nguồn của event gần nhất, mức
+      // tin cậy thấp (nguon chỉ là provenance, không phải ref).
+      const gan = db
+        .query(
+          `SELECT * FROM tuong_tac WHERE khach_id = ? AND xay_ra_luc <= ?
+           ORDER BY xay_ra_luc DESC, rowid DESC LIMIT 1`,
+        )
+        .get(cd.khach_id, cd.xay_ra_luc) as TuongTac | null;
+      if (gan) {
+        ds.push({ mo_hinh: "last_touch", loai_dich: "nguon", dich_id: gan.nguon, do_tin: "khong_chac" });
+      } else {
+        ds.push({ mo_hinh: "last_touch", loai_dich: "khong_ro", dich_id: "", do_tin: "khong_chac" });
+      }
     }
   } else {
     ds.push({ mo_hinh: "last_touch", loai_dich: "khong_ro", dich_id: "", do_tin: "khong_chac" });
@@ -1004,10 +1014,10 @@ export function quyVeCuaKhach(
 // (hàng chờ cho merge/backfill sau — không mất dữ liệu).
 export function danhSachChuyenDoi(
   db: Database,
-  loc: { chua_gan?: boolean } = {},
+  loc: { chua_gan?: boolean; gioi_han?: number } = {},
 ): ChuyenDoi[] {
   const where = loc.chua_gan ? "WHERE khach_id IS NULL" : "";
   return db
-    .query(`SELECT * FROM chuyen_doi ${where} ORDER BY xay_ra_luc, rowid`)
-    .all() as ChuyenDoi[];
+    .query(`SELECT * FROM chuyen_doi ${where} ORDER BY xay_ra_luc, rowid LIMIT ?`)
+    .all(loc.gioi_han ?? 200) as ChuyenDoi[];
 }

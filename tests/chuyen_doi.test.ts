@@ -156,6 +156,53 @@ test("#63 last_touch ưu tiên ref trên conversion; event không ref → nguon/
   await app.dong();
 });
 
+test("#63 review: gia_tri non-number → 400; dinh_danh malformed → 400; backdated → first_touch khong_ro; replay không person mồ côi", async () => {
+  const app = await taoServerTam();
+  seed(app.db);
+  // gia_tri là string → route truyền nguyên, module reject 400 (không nuốt null).
+  const gt = await post(app.url, "/api/khach/chuyen-doi", {
+    loai: "mua", nguon: "s", khoa_idem: "gt-s", gia_tri: "100", tien_te: "USD",
+  });
+  expect(gt.status).toBe(400);
+  // dinh_danh malformed → 400, không im lặng unattributed.
+  const dd = await post(app.url, "/api/khach/chuyen-doi", {
+    loai: "mua", nguon: "s", khoa_idem: "dd-s", dinh_danh: "khong-phai-object",
+  });
+  expect(dd.status).toBe(400);
+  // khach_id phantom → 404.
+  const nf = await post(app.url, "/api/khach/chuyen-doi", {
+    loai: "mua", nguon: "s", khoa_idem: "nf-s", khach_id: "k-gia",
+  });
+  expect(nf.status).toBe(404);
+
+  // Backdated conversion trước touch đầu → first_touch khong_ro.
+  await post(app.url, "/api/khach", {
+    dinh_danh: [{ loai: "email", gia_tri: "bd@x.com" }],
+  });
+  await post(app.url, "/api/khach/su-kien", {
+    dinh_danh: { loai: "email", gia_tri: "bd@x.com" },
+    loai: "click", nguon: "web", khoa_idem: "bd-1",
+    ban_the_hien_id: "seed-bth-tb-web", xay_ra_luc: "2026-06-01T00:00:00Z",
+  });
+  const cv = await post(app.url, "/api/khach/chuyen-doi", {
+    dinh_danh: { loai: "email", gia_tri: "bd@x.com" },
+    loai: "mua", nguon: "s", khoa_idem: "ord-bd", xay_ra_luc: "2026-01-01T00:00:00Z",
+  });
+  expect(cv.body.du_lieu.quy_ve[0]).toMatchObject({ mo_hinh: "first_touch", loai_dich: "khong_ro", do_tin: "khong_chac" });
+
+  // Replay kèm dinh_danh MỚI → không tạo person/identity mồ côi.
+  const n0 = (app.db.query("SELECT COUNT(*) AS c FROM khach").get() as { c: number }).c;
+  const rep = await post(app.url, "/api/khach/chuyen-doi", {
+    dinh_danh: { loai: "email", gia_tri: "moi@x.com" },
+    loai: "mua", nguon: "s", khoa_idem: "ord-bd",
+  });
+  expect(rep.status).toBe(200);
+  expect(rep.body.du_lieu.da_tao).toBe(false);
+  const n1 = (app.db.query("SELECT COUNT(*) AS c FROM khach").get() as { c: number }).c;
+  expect(n1).toBe(n0); // person moi@x.com KHÔNG được tạo
+  await app.dong();
+});
+
 test("#63 refs phantom → 400; GET quy-ve của person", async () => {
   const app = await taoServerTam();
   seed(app.db);
@@ -167,7 +214,7 @@ test("#63 refs phantom → 400; GET quy-ve của person", async () => {
   const cvK = await post(app.url, "/api/khach/chuyen-doi", {
     loai: "mua", nguon: "s", khoa_idem: "k2", khach_id: "k-gia",
   });
-  expect(cvK.status).toBe(400);
+  expect(cvK.status).toBe(404); // resource không tồn tại → 404 theo convention
 
   const khachId = await taoKhach(app.url, "qv@x.com");
   await post(app.url, "/api/khach/chuyen-doi", {
