@@ -150,7 +150,9 @@ function TheGoiY({ g, reload }: { g: GoiYKetQua; reload: () => void }) {
               ? "Mới"
               : g.trang_thai === "chap_nhan"
                 ? "Đã chấp nhận"
-                : "Đã từ chối"}
+                : g.trang_thai === "het_han"
+                  ? "Hết hạn"
+                  : "Đã từ chối"}
           </Badge>
         </Flex>
         <Text size="1" color="gray" as="p">
@@ -341,10 +343,14 @@ export default function KetQuaPage() {
 
   async function thuMetric() {
     await chay(async () => {
-      const r = await api<{ da_thu: number; bo_qua: number }>("/api/metric/thu-thap", {
-        method: "POST",
-      });
-      setGhiChu(`Đã thu ${r.da_thu} snapshot metric (bỏ qua ${r.bo_qua} lần giao).`);
+      const r = await api<{ da_thu: number; bo_qua: number; loi: number }>(
+        "/api/metric/thu-thap",
+        { method: "POST" },
+      );
+      setGhiChu(
+        `Đã thu ${r.da_thu} snapshot metric (bỏ qua ${r.bo_qua} lần giao` +
+          `${r.loi > 0 ? `, lỗi ${r.loi}` : ""}).`,
+      );
     }, "");
   }
 
@@ -607,6 +613,41 @@ export default function KetQuaPage() {
                           <Text size="1" color="gray">
                             {r.ghi_chu !== undefined ? String(r.ghi_chu) : ""}
                           </Text>
+                        </Table.Cell>
+                      </Table.Row>
+                    ))}
+                  </Table.Body>
+                </Table.Root>
+              </Flex>
+            </Card>
+
+            {/* Theo đối tượng — gom xem/click/giao theo nhãn đối tượng
+                tự do trên đầu ra. Số đếm là sự kiện, không phải người
+                duy nhất giữa các nhóm. */}
+            <Card>
+              <Flex direction="column" gap="2">
+                <Heading size="3">Theo đối tượng</Heading>
+                <Table.Root size="1">
+                  <Table.Header>
+                    <Table.Row>
+                      <Table.ColumnHeaderCell>Đối tượng</Table.ColumnHeaderCell>
+                      <Table.ColumnHeaderCell>Đầu ra</Table.ColumnHeaderCell>
+                      <Table.ColumnHeaderCell>Xem</Table.ColumnHeaderCell>
+                      <Table.ColumnHeaderCell>Click</Table.ColumnHeaderCell>
+                      <Table.ColumnHeaderCell>Giao ok</Table.ColumnHeaderCell>
+                    </Table.Row>
+                  </Table.Header>
+                  <Table.Body>
+                    {bc.theo_doi_tuong.map((r) => (
+                      <Table.Row key={String(r.doi_tuong)}>
+                        <Table.Cell>
+                          <Text size="1">{String(r.doi_tuong)}</Text>
+                        </Table.Cell>
+                        <Table.Cell>{String(r.so_dau_ra)}</Table.Cell>
+                        <Table.Cell>{String(r.xem_trang)}</Table.Cell>
+                        <Table.Cell>{String(r.click_link)}</Table.Cell>
+                        <Table.Cell>
+                          {String(r.lan_giao_thanh_cong)}/{String(r.lan_giao)}
                         </Table.Cell>
                       </Table.Row>
                     ))}

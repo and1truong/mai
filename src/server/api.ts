@@ -2194,8 +2194,15 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       if (!adapter?.layMetric) {
         loiRequest(400, "VALIDATION", `Kênh '${giao.kenh}' không có metric giao hàng.`);
       }
+      if (!adapter.san_sang) {
+        loiRequest(500, "LOI_CAU_HINH", `Kênh '${giao.kenh}' chưa cấu hình đủ để lấy metric.`);
+      }
       const duLieu = await adapter!.layMetric!(giao);
-      return ok({ ...duLieu, snapshot_id: ghiSnapshotProvider(c.db, giao, duLieu).id });
+      if (typeof duLieu.loi === "string") {
+        loiRequest(500, "LOI_CAU_HINH", duLieu.loi);
+      }
+      const snapshot = ghiSnapshotProvider(c.db, giao, duLieu);
+      return ok({ ...duLieu, snapshot_id: snapshot?.id ?? null });
     }),
 
     // --- Đo kết quả kênh sở hữu (#15) ---

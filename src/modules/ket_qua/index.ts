@@ -24,6 +24,7 @@ import { log } from "../../log.ts";
 import {
   danhSachBanTheHien,
   danhSachThongDiep,
+  danhSachXuatBan,
   ghiSuKien,
   layBanTheHien,
   layCampaign,
@@ -34,6 +35,7 @@ import {
   type ThongDiep,
 } from "../content/index.ts";
 import { layDinhDang } from "../formats/index.ts";
+import { danhSachDoiTuong } from "../context/index.ts";
 import { enqueueJob } from "../jobs/index.ts";
 import {
   danhSachTatCaGiao,
@@ -216,10 +218,22 @@ export function taoLinkDich(
   if (!token) throw new LoiApi(500, "LOI_NOI_BO", "Không tạo được token link.");
   const id = crypto.randomUUID();
   const ts = bayGio();
-  db.query(
-    `INSERT INTO link_dich (id, token, url_dich, thong_diep_id, ban_the_hien_id, nhan, tao_luc, tao_boi)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(id, token, url!.toString(), tdId, bthId, (input.nhan ?? "").trim(), ts, tacGia);
+  try {
+    db.query(
+      `INSERT INTO link_dich (id, token, url_dich, thong_diep_id, ban_the_hien_id, nhan, tao_luc, tao_boi)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(id, token, url!.toString(), tdId, bthId, (input.nhan ?? "").trim(), ts, tacGia);
+  } catch (e) {
+    // Race: request khác đã tạo cùng (đích, chủ) giữa SELECT và INSERT
+    // → trả link đó thay vì ném UNIQUE constraint.
+    const trung = db
+      .query(
+        `SELECT * FROM link_dich WHERE url_dich = ? AND thong_diep_id = ? AND ban_the_hien_id = ?`,
+      )
+      .get(url!.toString(), tdId, bthId) as DongLink | null;
+    if (trung) return { link: docLink(trung, urlGoc), da_tao: false };
+    throw e;
+  }
   ghiSuKien(db, "link_dich", id, "tao", { url_dich: url!.toString() }, tacGia);
   return {
     link: docLink(
@@ -330,22 +344,24 @@ export async function ghiSuKienDo(
   const khung = Math.floor(Date.now() / KHUNG_DEDUPE_MS);
   const vt = await vanTay(ua, input.ip ?? "");
   const khoa = `${input.loai}:${input.doiTuongId}:${vt}:${khung}`;
-  const tonTai = db.query("SELECT id FROM su_kien_do WHERE khoa_dedupe = ?").get(khoa);
-  if (tonTai) return { da_ghi: false, la_bot: bot };
-  db.query(
-    `INSERT INTO su_kien_do (id, loai, doi_tuong_loai, doi_tuong_id, khoa_dedupe, la_bot, chi_tiet, tao_luc)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    crypto.randomUUID(),
-    input.loai,
-    input.doiTuongLoai,
-    input.doiTuongId,
-    khoa,
-    bot ? 1 : 0,
-    JSON.stringify(input.chiTiet ?? {}),
-    bayGio(),
-  );
-  return { da_ghi: true, la_bot: bot };
+  // INSERT OR IGNORE thay check-then-insert: hai request cùng fingerprint
+  // đồng thời không ném UNIQUE constraint — request sau là no-op dedupe.
+  const kq = db
+    .query(
+      `INSERT OR IGNORE INTO su_kien_do (id, loai, doi_tuong_loai, doi_tuong_id, khoa_dedupe, la_bot, chi_tiet, tao_luc)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      crypto.randomUUID(),
+      input.loai,
+      input.doiTuongLoai,
+      input.doiTuongId,
+      khoa,
+      bot ? 1 : 0,
+      JSON.stringify(input.chiTiet ?? {}),
+      bayGio(),
+    );
+  return { da_ghi: kq.changes > 0, la_bot: bot };
 }
 
 // Đếm sự kiện theo đối tượng — tách bot ra khỏi số chính.
@@ -484,11 +500,14 @@ export function danhSachSoLieu(
 // per người nhận. Khử trùng: nội dung y hệt snapshot trước → chỉ làm
 // tươi thu_luc, không thêm dòng (metric là trạng thái cuối, không phải
 // chuỗi sự kiện cộng dồn).
+// Trả null khi duLieu là shape lỗi ({loi: "..."} — vd kênh chưa cấu
+// hình): không ghi snapshot rác soán snapshot hợp lệ trước đó.
 export function ghiSnapshotProvider(
   db: Database,
   giao: GiaoHang,
   duLieu: Record<string, unknown>,
-): SoLieu {
+): SoLieu | null {
+  if (typeof duLieu.loi === "string") return null;
   const theoSuKien: Record<string, number> = {};
   const theoNguoiNhan: Record<string, string> = {};
   for (const [email, v] of Object.entries(duLieu)) {
@@ -556,10 +575,17 @@ export async function thuThapMetricGiao(
       bo_qua++;
       continue;
     }
+    if (!adapter.san_sang) {
+      loi++;
+      continue;
+    }
     try {
       const duLieu = await adapter.layMetric(g);
-      ghiSnapshotProvider(db, g, duLieu);
-      da_thu++;
+      if (ghiSnapshotProvider(db, g, duLieu)) {
+        da_thu++;
+      } else {
+        loi++;
+      }
     } catch (e) {
       loi++;
       log.warn("ket_qua.thu_metric_loi", { giao_hang_id: g.id, loi: String(e) });
@@ -607,6 +633,7 @@ export type BaoCaoKetQua = {
   theo_thong_diep: Record<string, unknown>[];
   theo_kenh: Record<string, unknown>[];
   theo_ban_the_hien: Record<string, unknown>[];
+  theo_doi_tuong: Record<string, unknown>[];
   nhap_tay: SoLieu[];
 };
 
@@ -719,6 +746,13 @@ export function baoCaoKetQua(
     return dong;
   });
 
+  // /p/<id> phục vụ theo record xuat_ban mới nhất — mọi đường tạo
+  // xuat_ban (trang_noi_bo, xuat_tay, POST /xuat-ban trực tiếp) đều
+  // làm trang sống, không riêng giao trang_noi_bo.
+  const bthCoTrang = new Set(
+    dsBth.filter((b) => danhSachXuatBan(db, b.id).length > 0).map((b) => b.id),
+  );
+
   const theoBth = dsBth.map((b) => {
     const xem = demSuKienDo(db, "ban_the_hien", [b.id], "xem_trang");
     const linkB = dsLink.filter((l) => l.ban_the_hien_id === b.id);
@@ -737,11 +771,46 @@ export function baoCaoKetQua(
         ["da_giao", "chap_nhan", "xuat_tay"].includes(g.trang_thai),
       ).length,
       lan_giao: giaoB.length,
-      url_trang: giaoB.some((g) => g.kenh === "trang_noi_bo" && g.trang_thai === "da_giao")
-        ? `/p/${b.id}`
-        : null,
+      url_trang: bthCoTrang.has(b.id) ? `/p/${b.id}` : null,
     };
   });
+
+  // Gom theo đối tượng: b.doi_tuong là chuỗi tự do → group theo giá trị
+  // hiện có; rỗng gom về "(không ghi)". Số đếm là sự kiện, không phải
+  // người duy nhất giữa các nhóm.
+  const theoDoiTuong = Object.values(
+    theoBth.reduce(
+      (acc, b) => {
+        const k = b.doi_tuong || "(không ghi)";
+        const d = acc[k] ?? {
+          doi_tuong: k,
+          so_dau_ra: 0,
+          xem_trang: 0,
+          click_link: 0,
+          lan_giao_thanh_cong: 0,
+          lan_giao: 0,
+        };
+        d.so_dau_ra += 1;
+        d.xem_trang += b.xem_trang;
+        d.click_link += b.click_link;
+        d.lan_giao_thanh_cong += b.lan_giao_thanh_cong;
+        d.lan_giao += b.lan_giao;
+        acc[k] = d;
+        return acc;
+      },
+      {} as Record<
+        string,
+        {
+          doi_tuong: string;
+          so_dau_ra: number;
+          xem_trang: number;
+          click_link: number;
+          lan_giao_thanh_cong: number;
+          lan_giao: number;
+        }
+      >,
+    ),
+  ).sort((a, z) => z.xem_trang - a.xem_trang || z.click_link - a.click_link);
 
   // Cửa sổ + độ tươi toàn cục của phạm vi.
   const mocSuKien = [demXem.moi_nhat, demClick.moi_nhat].filter(Boolean).sort();
@@ -792,6 +861,7 @@ export function baoCaoKetQua(
     theo_thong_diep: theoThongDiep,
     theo_kenh: theoKenh,
     theo_ban_the_hien: theoBth,
+    theo_doi_tuong: theoDoiTuong,
     nhap_tay: nhapTay,
   };
 }
@@ -914,7 +984,9 @@ function ungVienTheoThongDiep(db: Database, td: ThongDiep): UngVien[] {
           loai_tao: "ban_the_hien",
           thong_diep_id: td.id,
           dinh_dang: dinhDangMoi,
-          dich_den: kenhMoi,
+          // dich_den nằm trong safe list của goiYKenh — 'trang_noi_bo'
+          // không được nhận diện → rơi về xuat_tay, ngược mục đích.
+          dich_den: kenhMoi === "trang_noi_bo" ? "web" : "email",
           doi_tuong: b.doi_tuong,
         },
       });
@@ -1059,14 +1131,24 @@ function ungVienTheoThongDiep(db: Database, td: ThongDiep): UngVien[] {
 }
 
 // Đồng bộ ứng viên vào bảng goi_y_ket_qua: khoa ổn định → đọc lặp không
-// tạo trùng; gợi ý đã quyết (chap_nhan/tu_choi) không bị reset.
+// tạo trùng; gợi ý đã quyết (chap_nhan/tu_choi) không bị reset. Dòng
+// 'moi' không còn trong tập ứng viên → đóng 'het_han' để không chấp nhận
+// được trên quan sát lỗi thời (vd link đã có click).
 export function dongBoGoiY(db: Database, phamVi: { thongDiepId?: string } = {}): void {
   const dsTd = phamVi.thongDiepId
     ? ([layThongDiep(db, phamVi.thongDiepId)].filter(Boolean) as ThongDiep[])
     : danhSachThongDiep(db);
   txn(db, () => {
     for (const td of dsTd) {
-      for (const uv of ungVienTheoThongDiep(db, td)) {
+      const uvMoi = ungVienTheoThongDiep(db, td);
+      const dsKhoa = [...new Set(uvMoi.map((u) => u.khoa))];
+      const ph = dsKhoa.length > 0 ? dsKhoa.map(() => "?").join(",") : "''";
+      db.query(
+        `UPDATE goi_y_ket_qua SET trang_thai = 'het_han'
+         WHERE trang_thai = 'moi' AND chu_loai = 'thong_diep' AND chu_id = ?
+           AND khoa NOT IN (${ph})`,
+      ).run(td.id, ...dsKhoa);
+      for (const uv of uvMoi) {
         const cu = db
           .query("SELECT id FROM goi_y_ket_qua WHERE khoa = ?")
           .get(uv.khoa) as { id: string } | null;
@@ -1171,6 +1253,19 @@ export async function chapNhanGoiY(
     };
     const ketQua = txn(db, () => {
       const bth = timBanTheHien(db, khoa) ?? taoBanTheHien(db, khoa, tacGia);
+      // Context hồ sơ giống route /api/job: resolve doi_tuong_id từ tên
+      // hiển thị, thuong_hieu_id từ campaign của thông điệp, thi_truong_id
+      // từ link ngược thi_truong.thong_diep_id — payload thiếu thì
+      // lapContextSinh mất overlay hồ sơ đối tượng/fact local.
+      const tdJob = layThongDiep(db, khoa.thong_diep_id);
+      const dtId =
+        danhSachDoiTuong(db).find((d) => d.ten === khoa.doi_tuong)?.id ?? undefined;
+      const cpJob = tdJob?.campaign_id ? layCampaign(db, tdJob.campaign_id) : null;
+      const ttId = (
+        db
+          .query("SELECT id FROM thi_truong WHERE thong_diep_id = ?")
+          .get(khoa.thong_diep_id) as { id: string } | null
+      )?.id;
       const { job, da_tao } = enqueueJob(db, {
         loai: "sinh_ban_the_hien",
         payload: {
@@ -1178,6 +1273,9 @@ export async function chapNhanGoiY(
           dinh_dang: khoa.dinh_dang,
           ngon_ngu: khoa.ngon_ngu,
           doi_tuong: khoa.doi_tuong,
+          doi_tuong_id: dtId,
+          thuong_hieu_id: cpJob?.thuong_hieu_id ?? undefined,
+          thi_truong_id: ttId,
           dich_den: khoa.dich_den,
           ban_the_hien_id: bth.id,
           goi_y_id: id,

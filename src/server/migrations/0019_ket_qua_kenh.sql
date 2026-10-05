@@ -34,6 +34,8 @@ CREATE TABLE link_dich (
 );
 CREATE INDEX idx_link_dich_td ON link_dich (thong_diep_id);
 CREATE INDEX idx_link_dich_bth ON link_dich (ban_the_hien_id);
+-- Dedupe link: một (đích, chủ) một link — chặn race tạo trùng.
+CREATE UNIQUE INDEX ux_link_dich_chu ON link_dich (url_dich, thong_diep_id, ban_the_hien_id);
 
 -- Sự kiện do MAI tự đo (first-party): request GET hợp lệ tới /p/<bth> hay
 -- /l/<token>. khoa_dedupe gộp hit lặp cùng fingerprint client trong một
