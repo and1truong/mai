@@ -112,6 +112,14 @@ Chuyển sai → 409 `XUNG_DOT_TRANG_THAI`.
 - Timeline: `GET /api/khach/:id/timeline?tu=&den=&loai=` — sắp `xay_ra_luc, id` tăng dần, mỗi event gọi `chamKhach`.
 - Bridge visitor: cookie `mai_v` (1 năm, HttpOnly, SameSite=Lax) mint ở `/p/`, `/l/`, `/huy-dang-ky`. Visitor làm thành identity loại `visitor` → event xem/click đi vào đúng person. Khóa dedupe deterministic `vt:<loai>:<ref>:<visitor>:<khung30p>` — event cùng khung 30 phút chỉ ghi một lần, lớp thứ hai sau fingerprint `su_kien_do`. `la_bot` không ghi tuong_tac.
 
+### Consent theo kênh (#62)
+
+- `dong_y` = trạng thái hiện tại, unique `(khach_id, kenh, muc_dich)`: kenh `email|sms|web|zalo`, muc_dich `marketing|giao_dich` (hai ô riêng — rút marketing không đụng transactional), trang_thai `cho|tu_choi`, `nguon` bắt buộc.
+- `dong_y_log` = mọi chuyển trạng thái một dòng (`tu`→`sang`, nguon, luc); `tu=''` là lần khẳng định đầu. Khẳng định lại cùng trạng thái = no-op, không log.
+- `PUT /api/khach/:id/dong-y` transition + log trong một txn; `GET /api/khach/:id/dong-y` trả `{hien_tai, lich_su}`.
+- `consentChoGui(db, khachId, kenh, muc_dich)` là điểm kiểm duy nhất trước khi gửi — consent mới nhất có hiệu lực ngay với campaign tương lai.
+- Bridge `nguoi_nhan` (#13): subscribe mới → person (identity email) + consent `email/marketing=cho` + event `dang_ky`; hủy (link hoặc tay) → `tu_choi` + event `huy_dang_ky`. Chỉ khi transition `nguoi_nhan` thật (da_tao/da_huy); khoa_idem `nb:<huong>:<email>`. Suppression `nguoi_nhan` vẫn là chặn cứng ở delivery boundary — consent là lớp audit phía person, không thay nó.
+
 ## Nạp nguồn & asset (#17)
 
 - Nguồn vào: dán text (`POST /api/nguon/nhap`, `POST /api/nguon/:id/nhap`) hoặc upload file (`POST /api/assets?ten=...`).

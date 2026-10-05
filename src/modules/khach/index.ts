@@ -462,8 +462,8 @@ export function ghiTuongTac(
   };
 }
 
-// Timeline theo person: sắp xếp thời gian tăng dần (id làm tie-break),
-// lọc theo khung tu/den và loai. chi_tiet trả JSON đã parse cho client.
+// Timeline theo person: sắp xếp thời gian tăng dần (rowid làm tie-break
+// giữ thứ tự insert khi timestamp trùng), lọc theo khung tu/den và loai.
 export function timelineKhach(
   db: Database,
   khachId: string,
@@ -486,7 +486,7 @@ export function timelineKhach(
   return db
     .query(
       `SELECT * FROM tuong_tac WHERE ${dieuKien.join(" AND ")}
-       ORDER BY xay_ra_luc, id LIMIT ?`,
+       ORDER BY xay_ra_luc, rowid LIMIT ?`,
     )
     .all(...thamSo, loc.gioiHan ?? 500) as TuongTac[];
 }
@@ -545,4 +545,186 @@ export function ghiTuongTacVisitor(
     chi_tiet: nhap.chi_tiet,
   });
   return { khach_id: kq.khach.id, da_tao: sk.da_tao };
+}
+
+// --- Consent theo kênh + mục đích (ticket #62) ---
+// dong_y = trạng thái hiện tại (unique khach/kenh/muc_dich — upsert);
+// dong_y_log = mọi chuyển trạng thái một dòng, không ghi đè → lịch sử
+// auditable. marketing/giao_dich là hai muc_dich riêng: rút marketing
+// không ảnh hưởng transactional.
+
+export const DANH_SACH_KENH_DONG_Y = ["email", "sms", "web", "zalo"] as const;
+export type KenhDongY = (typeof DANH_SACH_KENH_DONG_Y)[number];
+export const DANH_SACH_MUC_DICH = ["marketing", "giao_dich"] as const;
+export type MucDich = (typeof DANH_SACH_MUC_DICH)[number];
+export const DANH_SACH_TRANG_THAI_DONG_Y = ["cho", "tu_choi"] as const;
+export type TrangThaiDongY = (typeof DANH_SACH_TRANG_THAI_DONG_Y)[number];
+
+export type DongY = {
+  id: string;
+  khach_id: string;
+  kenh: KenhDongY;
+  muc_dich: MucDich;
+  trang_thai: TrangThaiDongY;
+  nguon: string;
+  cap_nhat_luc: string;
+};
+
+export type DongYLog = {
+  id: string;
+  khach_id: string;
+  kenh: KenhDongY;
+  muc_dich: MucDich;
+  tu_trang_thai: string; // '' = lần khẳng định đầu tiên
+  sang_trang_thai: TrangThaiDongY;
+  nguon: string;
+  luc: string;
+};
+
+export type NhapDongY = {
+  kenh: string;
+  muc_dich: string;
+  trang_thai: string;
+  nguon: string;
+};
+
+export function layDongY(
+  db: Database,
+  khachId: string,
+  kenh: string,
+  mucDich: string,
+): DongY | null {
+  return db
+    .query("SELECT * FROM dong_y WHERE khach_id = ? AND kenh = ? AND muc_dich = ?")
+    .get(khachId, kenh, mucDich) as DongY | null;
+}
+
+// Đặt trạng thái consent một ô (kenh, muc_dich). Ghi log chỉ khi có
+// chuyển trạng thái thật (lần đầu, hoặc sang != từ) — khẳng định lại
+// cùng trạng thái là no-op idempotent, không đẩy rác vào lịch sử.
+export function datDongY(
+  db: Database,
+  khachId: string,
+  nhap: NhapDongY,
+  luc = bayGio(),
+): { dong_y: DongY; da_ghi_log: boolean } {
+  const dsLoi: string[] = [];
+  if (!(DANH_SACH_KENH_DONG_Y as readonly string[]).includes(nhap.kenh)) {
+    dsLoi.push(`kenh không hợp lệ. Cho phép: ${DANH_SACH_KENH_DONG_Y.join(", ")}.`);
+  }
+  if (!(DANH_SACH_MUC_DICH as readonly string[]).includes(nhap.muc_dich)) {
+    dsLoi.push(`muc_dich không hợp lệ. Cho phép: ${DANH_SACH_MUC_DICH.join(", ")}.`);
+  }
+  if (!(DANH_SACH_TRANG_THAI_DONG_Y as readonly string[]).includes(nhap.trang_thai)) {
+    dsLoi.push(`trang_thai không hợp lệ. Cho phép: ${DANH_SACH_TRANG_THAI_DONG_Y.join(", ")}.`);
+  }
+  const nguon = tuyChonChuoi(nhap.nguon);
+  if (!nguon) dsLoi.push("nguon là bắt buộc (provenance của consent).");
+  nemLoiValidation(dsLoi);
+  return txn(db, () => {
+    const cu = layDongY(db, khachId, nhap.kenh, nhap.muc_dich);
+    const daDoi = !cu || cu.trang_thai !== nhap.trang_thai;
+    if (!daDoi && cu) return { dong_y: cu, da_ghi_log: false };
+    db.query(
+      `INSERT INTO dong_y (id, khach_id, kenh, muc_dich, trang_thai, nguon, cap_nhat_luc)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (khach_id, kenh, muc_dich)
+       DO UPDATE SET trang_thai = excluded.trang_thai, nguon = excluded.nguon,
+                     cap_nhat_luc = excluded.cap_nhat_luc`,
+    ).run(
+      cu?.id ?? crypto.randomUUID(),
+      khachId,
+      nhap.kenh,
+      nhap.muc_dich,
+      nhap.trang_thai,
+      nguon,
+      luc,
+    );
+    db.query(
+      `INSERT INTO dong_y_log (id, khach_id, kenh, muc_dich, tu_trang_thai, sang_trang_thai, nguon, luc)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      crypto.randomUUID(),
+      khachId,
+      nhap.kenh,
+      nhap.muc_dich,
+      cu?.trang_thai ?? "",
+      nhap.trang_thai,
+      nguon,
+      luc,
+    );
+    ghiSuKien(db, "khach", khachId, "dat_dong_y", {
+      kenh: nhap.kenh,
+      muc_dich: nhap.muc_dich,
+      sang: nhap.trang_thai,
+      nguon,
+    }, nguon);
+    const moi = layDongY(db, khachId, nhap.kenh, nhap.muc_dich)!;
+    return { dong_y: moi, da_ghi_log: true };
+  });
+}
+
+// Consent hiện tại + toàn bộ lịch sử của một person.
+export function docDongY(
+  db: Database,
+  khachId: string,
+): { hien_tai: DongY[]; lich_su: DongYLog[] } {
+  return {
+    hien_tai: db
+      .query("SELECT * FROM dong_y WHERE khach_id = ? ORDER BY kenh, muc_dich")
+      .all(khachId) as DongY[],
+    lich_su: db
+      .query("SELECT * FROM dong_y_log WHERE khach_id = ? ORDER BY luc, rowid")
+      .all(khachId) as DongYLog[],
+  };
+}
+
+// Điểm kiểm duy nhất trước khi gửi communication — #68 resolve audience
+// đọc qua đây; consent mới nhất có hiệu lực ngay.
+export function consentChoGui(
+  db: Database,
+  khachId: string,
+  kenh: string,
+  mucDich: MucDich,
+): boolean {
+  return layDongY(db, khachId, kenh, mucDich)?.trang_thai === "cho";
+}
+
+// Bridge với danh bạ nguoi_nhan (#13): subscribe → person (identity
+// email) + consent email/marketing=cho + event dang_ky; hủy → tu_choi +
+// event huy_dang_ky. Suppression nguoi_nhan vẫn là chặn cứng ở delivery
+// boundary — consent là lớp audit phía person, không thay nó. Gọi trong
+// txn của caller, chỉ khi transition nguoi_nhan xảy ra thật (da_tao /
+// da_huy) — khoa_idem theo email nên retry/double-call không nhân event.
+export function dongBoNguoiNhan(
+  db: Database,
+  nhap: {
+    email: string;
+    ten?: string;
+    huong: "dang_ky" | "huy_dang_ky";
+    nguon: string;
+  },
+  actor: string,
+): { khach_id: string; da_tao_su_kien: boolean } {
+  const kq = resolveKhach(
+    db,
+    [{ loai: "email", gia_tri: nhap.email, nguon: nhap.nguon }],
+    { ten: nhap.ten },
+    actor,
+  );
+  const cho = nhap.huong === "dang_ky";
+  datDongY(db, kq.khach.id, {
+    kenh: "email",
+    muc_dich: "marketing",
+    trang_thai: cho ? "cho" : "tu_choi",
+    nguon: nhap.nguon,
+  });
+  const emailChuan = nhap.email.trim().toLowerCase();
+  const sk = ghiTuongTac(db, {
+    khach_id: kq.khach.id,
+    loai: nhap.huong,
+    nguon: nhap.nguon,
+    khoa_idem: `nb:${nhap.huong}:${emailChuan}`,
+  });
+  return { khach_id: kq.khach.id, da_tao_su_kien: sk.da_tao };
 }
