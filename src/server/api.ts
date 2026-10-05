@@ -272,6 +272,15 @@ import {
   xoaCookiePhien,
   type TaiKhoan,
 } from "../modules/xac_thuc/index.ts";
+import {
+  danhSachDinhDanh,
+  danhSachKhach,
+  ganDinhDanh,
+  layKhach,
+  resolveKhach,
+  taoKhach,
+  type NhapDinhDanh,
+} from "../modules/khach/index.ts";
 import type { CauHinhAi, CauHinhBaoMat, CauHinhKenh } from "../config.ts";
 import { docBody, kiemTraByteDaDoc, kiemTraGioiHanBody, loi, ok } from "./http.ts";
 
@@ -2586,6 +2595,57 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
     route("POST", "/api/nguoi-nhan/:id/huy-dang-ky", (_req, p, c) =>
       ok(huyDangKyNguoiNhan(c.db, p.id!, chuanHoaCauHinhKenh(c.kenh).url_goc)),
     ),
+
+    // --- Đồ thị khách hàng (#59) ---
+    // Ticket #60: person + identity. POST /api/khach có `dinh_danh` là
+    // resolve (tìm-hoặc-tạo theo identity đầu tiên đã tồn tại); không
+    // `dinh_danh` là tạo person trống. Đụng unique của person khác →
+    // 409 XUNG_DOT_DINH_DANH, không auto-merge theo heuristic.
+    route("GET", "/api/khach", (_req, _p, c) => ok(danhSachKhach(c.db))),
+    route("POST", "/api/khach", async (req, _p, c) => {
+      const body = await docBody(req);
+      const dsLoi: string[] = [];
+      const dsDdRaw = body.dinh_danh;
+      if (
+        dsDdRaw !== undefined &&
+        (!Array.isArray(dsDdRaw) || dsDdRaw.some((d) => typeof d !== "object" || d === null))
+      ) {
+        dsLoi.push("dinh_danh phải là mảng object {loai, gia_tri, nguon?, external_id?}.");
+      }
+      nemLoiValidation(dsLoi);
+      const nhap = {
+        ten: tuyChonChuoi(body.ten),
+        email: tuyChonChuoi(body.email),
+        sdt: tuyChonChuoi(body.sdt),
+      };
+      const dsDd = (dsDdRaw ?? []) as NhapDinhDanh[];
+      if (dsDd.length === 0) {
+        return ok(taoKhach(c.db, nhap, c.actor), 201);
+      }
+      const kq = resolveKhach(c.db, dsDd, nhap, c.actor);
+      return ok(kq, kq.da_tao ? 201 : 200);
+    }),
+    route("GET", "/api/khach/:id", (_req, p, c) => {
+      const khach = layKhach(c.db, p.id!);
+      if (!khach) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy khách hàng.");
+      return ok({ ...khach, dinh_danh: danhSachDinhDanh(c.db, khach.id) });
+    }),
+    route("GET", "/api/khach/:id/dinh-danh", (_req, p, c) => {
+      if (!layKhach(c.db, p.id!)) {
+        loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy khách hàng.");
+      }
+      return ok(danhSachDinhDanh(c.db, p.id!));
+    }),
+    route("POST", "/api/khach/:id/dinh-danh", async (req, p, c) => {
+      const body = await docBody(req);
+      const nhap: NhapDinhDanh = {
+        loai: tuyChonChuoi(body.loai),
+        gia_tri: tuyChonChuoi(body.gia_tri),
+        nguon: tuyChonChuoi(body.nguon) || undefined,
+        external_id: tuyChonChuoi(body.external_id) || undefined,
+      };
+      return ok(ganDinhDanh(c.db, p.id!, nhap, c.actor), 201);
+    }),
 
     // --- Job ---
     route("GET", "/api/job", (req, _p, c) => {
