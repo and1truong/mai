@@ -69,9 +69,16 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // Chuẩn hóa giá trị identity theo loại — cùng người nhập khác dạng phải
 // ra cùng gia_tri_chuan. external/social khóa theo '<nguon>:<external_id>'
-// để hai hệ thống ngoài trùng số id không đụng nhau. Trả "" khi không
-// hợp lệ — lỗi cụ thể đã được chuanBiDinhDanh gom trước đó.
-export function chuanHoaGiaTri(loai: LoaiDinhDanh, giaTri: string, nguon: string): string {
+// (thiếu external_id thì dùng gia_tri) để hai hệ thống ngoài trùng số id
+// không đụng nhau, còn cùng id ngoài thì dù gia_tri hiển thị khác vẫn về
+// một person. Trả "" khi không hợp lệ — lỗi cụ thể đã được
+// chuanBiDinhDanh gom trước đó.
+export function chuanHoaGiaTri(
+  loai: LoaiDinhDanh,
+  giaTri: string,
+  nguon: string,
+  externalId = "",
+): string {
   const v = giaTri.trim();
   switch (loai) {
     case "email":
@@ -82,7 +89,7 @@ export function chuanHoaGiaTri(loai: LoaiDinhDanh, giaTri: string, nguon: string
       return v;
     case "external":
     case "social":
-      return `${nguon.trim().toLowerCase()}:${v.toLowerCase()}`;
+      return `${nguon.trim().toLowerCase()}:${(externalId.trim() || v).toLowerCase()}`;
   }
 }
 
@@ -118,7 +125,7 @@ export function chuanBiDinhDanh(nhap: NhapDinhDanh, dsLoi: string[]): DinhDanh |
     dsLoi.push(`dinh_danh.nguon là bắt buộc với loai '${loai}'.`);
     return null;
   }
-  const giaTriChuan = chuanHoaGiaTri(loai as LoaiDinhDanh, giaTri, nguon);
+  const giaTriChuan = chuanHoaGiaTri(loai as LoaiDinhDanh, giaTri, nguon, externalId);
   if (!giaTriChuan) {
     dsLoi.push("dinh_danh.gia_tri không chuẩn hóa được.");
     return null;
@@ -133,6 +140,21 @@ export function chuanBiDinhDanh(nhap: NhapDinhDanh, dsLoi: string[]): DinhDanh |
     external_id: externalId || (loai === "external" || loai === "social" ? giaTri : ""),
     tao_luc: "",
   };
+}
+
+// Gộp identity trùng khóa trong cùng một request — trùng trong input là
+// một identity, không phải xung đột (tránh UNIQUE thô → 500).
+function dedupeDinhDanh(ds: (DinhDanh | null)[]): DinhDanh[] {
+  const seen = new Set<string>();
+  const ra: DinhDanh[] = [];
+  for (const d of ds) {
+    if (!d) continue;
+    const k = `${d.loai}:${d.gia_tri_chuan}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    ra.push(d);
+  }
+  return ra;
 }
 
 // --- Truy vấn ---
@@ -197,6 +219,15 @@ function xungDotDinhDanh(db: Database, dd: DinhDanh): never {
   });
 }
 
+// Nhiều identity trong một request rải trên nhiều person → 409 kèm
+// danh sách person liên quan (khach_ids — số nhiều, khác field
+// khach_id số ít của xungDotDinhDanh).
+function xungDotNhieuKhach(khachIds: string[]): never {
+  throw new LoiApi(409, "XUNG_DOT_DINH_DANH", "Các identity thuộc nhiều khách hàng khác nhau.", {
+    khach_ids: khachIds,
+  });
+}
+
 // Person được nhìn thấy (tạo, gắn identity, tương tác mới ở ticket sau):
 // chỉ kéo lan_cuoi_thay về gần nhất, không lùi.
 export function chamKhach(db: Database, khachId: string, luc = bayGio()): void {
@@ -245,11 +276,14 @@ export function taoKhach(
   actor: string,
 ): { khach: Khach; dinh_danh: DinhDanh[] } {
   const dsLoi: string[] = [];
-  const dsDd = (nhap.dinh_danh ?? []).map((d) => chuanBiDinhDanh(d, dsLoi));
+  const dsDd = dedupeDinhDanh((nhap.dinh_danh ?? []).map((d) => chuanBiDinhDanh(d, dsLoi)));
   nemLoiValidation(dsLoi);
   return txn(db, () => {
     const khach = chenKhach(db, nhap, actor);
-    const dinhDanh = dsDd.map((d) => chenDinhDanh(db, khach.id, d!));
+    const dinhDanh = dsDd.map((d) => {
+      if (timDinhDanh(db, d.loai, d.gia_tri_chuan)) xungDotDinhDanh(db, d);
+      return chenDinhDanh(db, khach.id, d);
+    });
     return { khach, dinh_danh: dinhDanh };
   });
 }
@@ -264,36 +298,33 @@ export function resolveKhach(
   actor: string,
 ): { khach: Khach; dinh_danh: DinhDanh[]; da_tao: boolean } {
   const dsLoi: string[] = [];
-  const dsDd = dinhDanh.map((d) => chuanBiDinhDanh(d, dsLoi));
+  const dsDd = dedupeDinhDanh(dinhDanh.map((d) => chuanBiDinhDanh(d, dsLoi)));
   nemLoiValidation(dsLoi);
   return txn(db, () => {
     const daCo = dsDd
-      .map((d) => timDinhDanh(db, d!.loai, d!.gia_tri_chuan))
+      .map((d) => timDinhDanh(db, d.loai, d.gia_tri_chuan))
       .filter((d): d is DinhDanh => d !== null);
     if (daCo.length > 0) {
       const khachId = daCo[0]!.khach_id;
       const trungKhac = daCo.find((d) => d.khach_id !== khachId);
-      if (trungKhac) {
-        // Hai identity thuộc hai person khác nhau → xung đột tường minh.
-        throw new LoiApi(409, "XUNG_DOT_DINH_DANH", "Các identity thuộc nhiều khách hàng khác nhau.", {
-          khach_id: [khachId, trungKhac.khach_id],
-        });
-      }
+      // Hai identity thuộc hai person khác nhau → xung đột tường minh.
+      if (trungKhac) xungDotNhieuKhach([khachId, trungKhac.khach_id]);
       const moi = dsDd.filter(
-        (d) => !timDinhDanh(db, d!.loai, d!.gia_tri_chuan),
+        (d) => !timDinhDanh(db, d.loai, d.gia_tri_chuan),
       );
-      for (const d of moi) chenDinhDanh(db, khachId, d!);
+      for (const d of moi) chenDinhDanh(db, khachId, d);
       chamKhach(db, khachId);
       const khach = layKhach(db, khachId)!;
       return { khach, dinh_danh: danhSachDinhDanh(db, khachId), da_tao: false };
     }
     const khach = chenKhach(db, nhap, actor);
-    const tao = dsDd.map((d) => chenDinhDanh(db, khach.id, d!));
+    const tao = dsDd.map((d) => chenDinhDanh(db, khach.id, d));
     return { khach, dinh_danh: tao, da_tao: true };
   });
 }
 
-// Gắn identity mới vào person đã có. Đụng unique của person khác → 409.
+// Gắn identity mới vào person đã có. Đụng unique của person khác → 409;
+// identity đã thuộc chính person đích → trả row cũ (idempotent no-op).
 export function ganDinhDanh(
   db: Database,
   khachId: string,
@@ -308,7 +339,11 @@ export function ganDinhDanh(
     if (!khach || khach.trang_thai !== "hoat_dong") {
       throw new LoiApi(404, "KHONG_TIM_THAY", "Không tìm thấy khách hàng.");
     }
-    if (timDinhDanh(db, dd!.loai, dd!.gia_tri_chuan)) xungDotDinhDanh(db, dd!);
+    const trung = timDinhDanh(db, dd!.loai, dd!.gia_tri_chuan);
+    if (trung) {
+      if (trung.khach_id === khachId) return trung;
+      xungDotDinhDanh(db, dd!);
+    }
     const row = chenDinhDanh(db, khachId, dd!);
     chamKhach(db, khachId);
     ghiSuKien(db, "khach", khachId, "gan_dinh_danh", { loai: row.loai }, actor);

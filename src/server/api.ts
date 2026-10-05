@@ -2620,7 +2620,7 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       };
       const dsDd = (dsDdRaw ?? []) as NhapDinhDanh[];
       if (dsDd.length === 0) {
-        return ok(taoKhach(c.db, nhap, c.actor), 201);
+        return ok({ ...taoKhach(c.db, nhap, c.actor), da_tao: true }, 201);
       }
       const kq = resolveKhach(c.db, dsDd, nhap, c.actor);
       return ok(kq, kq.da_tao ? 201 : 200);

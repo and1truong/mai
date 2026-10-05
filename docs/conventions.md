@@ -100,8 +100,8 @@ Chuyển sai → 409 `XUNG_DOT_TRANG_THAI`.
 ## Đồ thị khách hàng (#59)
 
 - `khach` = person nội bộ id ổn định; `ten`/`email`/`sdt` là property hiển thị tùy chọn — định danh thật nằm ở `dinh_danh`.
-- `dinh_danh` unique `(loai, gia_tri_chuan)`: `email` lowercase, `sdt` chỉ digit + dấu `+` đầu, `visitor` id nặc danh nguyên văn, `external`/`social` khóa `<nguon>:<id>` scoped hệ thống nguồn.
-- Đụng unique khi gắn identity → 409 `XUNG_DOT_DINH_DANH`. **Không auto-merge** theo heuristic — merge là hành động tường minh (ticket #67).
+- `dinh_danh` unique `(loai, gia_tri_chuan)`: `email` lowercase, `sdt` chỉ digit + dấu `+` đầu, `visitor` id nặc danh nguyên văn, `external`/`social` khóa `<nguon>:<external_id>` scoped hệ thống nguồn (thiếu `external_id` thì khóa theo `gia_tri`).
+- Đụng unique khi gắn identity → 409 `XUNG_DOT_DINH_DANH`. **Không auto-merge** theo heuristic — merge là hành động tường minh (ticket #67). `chi_tiet.khach_id` = person đang giữ identity trúng (một chủ); nhiều identity rải trên nhiều person → `chi_tiet.khach_ids` (mảng). Gắn lại identity đã thuộc chính person → trả row cũ, không lỗi.
 - `resolveKhach` = tìm-hoặc-tạo: identity đã có → trả person giữ; chưa có → tạo person + identity trong một transaction. `external`/`social` bắt buộc `nguon` (provenance).
 - `lan_dau_thay`/`lan_cuoi_thay` trên `khach`: tạo = lần đầu; mọi lần person được nhìn thấy sau (gắn identity, sự kiện) gọi `chamKhach` kéo `lan_cuoi_thay` về gần nhất, không lùi.
 

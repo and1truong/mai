@@ -127,8 +127,61 @@ test("resolve nhiều identity rải trên hai person → 409, không ghi nửa"
   });
   expect(r.status).toBe(409);
   expect(r.body.loi.ma).toBe("XUNG_DOT_DINH_DANH");
-  expect(r.body.loi.chi_tiet.khach_id).toContain(a.body.du_lieu.khach.id);
-  expect(r.body.loi.chi_tiet.khach_id).toContain(b.body.du_lieu.khach.id);
+  expect(r.body.loi.chi_tiet.khach_ids).toContain(a.body.du_lieu.khach.id);
+  expect(r.body.loi.chi_tiet.khach_ids).toContain(b.body.du_lieu.khach.id);
+  await app.dong();
+});
+
+test("external khóa theo external_id: cùng id ngoài khác gia_tri vẫn một person", async () => {
+  const app = await taoServerTam();
+  const a = await postKhach(app.url, {
+    dinh_danh: [
+      { loai: "external", gia_tri: "Tên hiển thị A", nguon: "shop", external_id: "123" },
+    ],
+  });
+  const b = await postKhach(app.url, {
+    dinh_danh: [
+      { loai: "external", gia_tri: "Tên hiển thị B", nguon: "shop", external_id: "123" },
+    ],
+  });
+  expect(a.status).toBe(201);
+  expect(b.status).toBe(200);
+  expect(b.body.du_lieu.khach.id).toBe(a.body.du_lieu.khach.id);
+  await app.dong();
+});
+
+test("identity trùng khóa trong cùng request: dedupe, không 500", async () => {
+  const app = await taoServerTam();
+  const r = await postKhach(app.url, {
+    dinh_danh: [
+      { loai: "email", gia_tri: "z@x.vn" },
+      { loai: "email", gia_tri: " z@x.vn " },
+    ],
+  });
+  expect(r.status).toBe(201);
+  expect(r.body.du_lieu.dinh_danh).toHaveLength(1);
+  await app.dong();
+});
+
+test("gắn lại identity đã thuộc chính person: trả row cũ, không 409", async () => {
+  const app = await taoServerTam();
+  const a = await postKhach(app.url, {
+    dinh_danh: [{ loai: "email", gia_tri: "goc@x.vn" }],
+  });
+  const idA = a.body.du_lieu.khach.id;
+  const ddGoc = a.body.du_lieu.dinh_danh[0];
+  const r = await fetch(`${app.url}/api/khach/${idA}/dinh-danh`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ loai: "email", gia_tri: "goc@x.vn" }),
+  });
+  expect(r.status).toBe(201);
+  const body = await r.json();
+  expect(body.du_lieu.id).toBe(ddGoc.id); // row cũ, không tạo bản mới
+  const ds = await (
+    await fetch(`${app.url}/api/khach/${idA}/dinh-danh`)
+  ).json();
+  expect(ds.du_lieu).toHaveLength(1);
   await app.dong();
 });
 
