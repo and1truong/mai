@@ -138,6 +138,15 @@ Chuyển sai → 409 `XUNG_DOT_TRANG_THAI`.
 - Adapter fixture: `modules/khach/nap_fixture.ts` đọc `server/seed-assets/don-hang-mau.json` → cùng contract; seed `story_khach_hang`.
 - Giới hạn POC: không refund/cancel, không sync hai chiều, không adapter Shopify/Woo thật.
 
+### Lifecycle + chỉ số giá trị (#65)
+
+- `khach.trang_thai_doi`: `khach_vang_lai → dang_ky → khach_mua → khach_quen → ngu_dong`. Rules deterministic: không `tuong_tac` ≥90 ngày → `ngu_dong` (override các state khác — event mới đánh thức); ≥2 conversion `mua` → `khach_quen`; ≥1 → `khach_mua`; có consent `cho` hoặc event/conversion `dang_ky` → `dang_ky`; còn lại `khach_vang_lai`.
+- Cập nhật EAGER trong cùng transaction khi ghi `tuong_tac`/`dong_y`/`chuyen_doi` (không lazy, không cron); `damBaoDoiKhach` backfill idempotent chạy một lần lúc boot sau `chayMigration`. Đổi state → `su_kien` `doi_trang_thai_doi` — transitions từ source events, không sửa tay.
+- `giai_thich_doi` JSON giải thích state hiện tại (`ly_do`, `so_don_mua`, `co_dong_y_cho`, `su_kien_cuoi_luc`, `tinh_luc`).
+- `giaTriKhach`: metrics từ `chuyen_doi` `mua` — `doanh_thu` tách THEO `tien_te` (mỗi currency một tổng + `gia_tri_tb` riêng, không trộn, không FX); `tan_suat` = `so_don / ceil(ngày kể từ đơn đầu / 90)` (tối thiểu 1 khung).
+- `GET /api/khach/:id/gia-tri` → `{trang_thai_doi, giai_thich, gia_tri}`; hàm derive export để segment (#66) dùng lại.
+- Giới hạn POC: dormant đếm theo `tuong_tac` (không tính conversion lẻ), không lead scoring/churn/CLV, không generic state machine.
+
 ## Nạp nguồn & asset (#17)
 
 - Nguồn vào: dán text (`POST /api/nguon/nhap`, `POST /api/nguon/:id/nhap`) hoặc upload file (`POST /api/assets?ten=...`).

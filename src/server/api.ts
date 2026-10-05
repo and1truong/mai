@@ -285,6 +285,7 @@ import {
   ghiChuyenDoi,
   ghiTuongTac,
   layKhach,
+  giaTriKhach,
   napDonHang,
   quyVeCuaKhach,
   resolveKhach,
@@ -2956,6 +2957,19 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
           chuyen_doi: { ...x.chuyen_doi, chi_tiet: JSON.parse(x.chuyen_doi.chi_tiet) as unknown },
           quy_ve: x.quy_ve,
         })),
+      });
+    }),
+    // Lifecycle + chỉ số giá trị (#65): trạng thái đời kèm giải thích
+    // deterministic + metrics derive từ chuyen_doi 'mua' theo currency.
+    route("GET", "/api/khach/:id/gia-tri", (_req, p, c) => {
+      const khach = layKhach(c.db, p.id!);
+      if (!khach) {
+        loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy khách hàng.");
+      }
+      return ok({
+        trang_thai_doi: khach.trang_thai_doi,
+        giai_thich: JSON.parse(khach.giai_thich_doi) as unknown,
+        gia_tri: giaTriKhach(c.db, khach.id),
       });
     }),
 
