@@ -420,5 +420,157 @@ export function kiemTraDauRa(ctx: ContextTask, kq: KetQuaTask): KetQuaKiemTra {
     }
   }
 
+  // Chiến dịch thương hiệu (#12): claim chưa xác nhận không được trình
+  // bày ngoài câu hỏi; giá/tiền tệ/khả dụng của thị trường giữ nguyên
+  // văn — không quy đổi tiền, không bịa giá hay tình trạng khả dụng;
+  // chi tiết đối tượng do đội local cung cấp giữ nguyên văn; CTA local
+  // thắng CTA mặc định khi thị trường ghi đè; marker bằng chứng [CL:id]
+  // phải trỏ claim có trong context — không bịa nguồn.
+  const th = ctx.thuong_hieu;
+  if (th) {
+    // Giá trị trường sau parse — giống khối gây quỹ/công quyền.
+    let giaTriTruong: string[] = [kq.noi_dung];
+    let fieldsTh: Record<string, unknown> = {};
+    try {
+      const j: unknown = JSON.parse(kq.noi_dung);
+      if (j !== null && typeof j === "object" && !Array.isArray(j)) {
+        fieldsTh = j as Record<string, unknown>;
+        const ds: string[] = [];
+        for (const v of Object.values(fieldsTh)) {
+          if (typeof v === "string") ds.push(v);
+          else if (Array.isArray(v)) {
+            for (const m of v) if (typeof m === "string") ds.push(m);
+          }
+        }
+        if (ds.length > 0) giaTriTruong = ds;
+      }
+    } catch {
+      // Không phải JSON — kiểm trên nguyên văn.
+    }
+    const giaTri = giaTriTruong.join("\n");
+    const dsDongTh = giaTri.split(/\n/);
+    const tt = th.thi_truong;
+
+    // Marker [CL:id] phải trỏ claim đã khai báo trong chiến dịch.
+    const idCl = new Set(th.ds_claim.map((c) => c.id));
+    for (const m of kq.noi_dung.matchAll(/\[CL:([a-z0-9_-]+)\]/gi)) {
+      if (!idCl.has(m[1]!)) {
+        canhBao.push(`Đầu ra tham chiếu claim '${m[1]}' không có trong chiến dịch.`);
+      }
+    }
+
+    // Claim chưa xác nhận không được trình bày ngoài dòng câu hỏi — khớp
+    // 40 ký tự đầu đủ phân biệt, giống khối công quyền.
+    const dongNhamNgoaiHoiTh = (doan: string): boolean => {
+      // Cắt 40 ký tự đầu rồi bỏ dấu câu/khoảng trắng cuối — claim hay
+      // được trích giữa câu, dấu '.' cuối claim không có trong đầu ra.
+      const mau = doan
+        .slice(0, 40)
+        .toLowerCase()
+        .replace(/[\s.,;:!?"'“”‘’…]+$/u, "");
+      if (mau.length < 12) return false;
+      return dsDongTh.some(
+        (d) => d.toLowerCase().includes(mau) && !/câu\s*hỏi/i.test(d),
+      );
+    };
+    for (const cl of th.ds_claim) {
+      if (cl.xac_nhan || !cl.noi_dung) continue;
+      if (dongNhamNgoaiHoiTh(cl.noi_dung)) {
+        canhBao.push(
+          `Claim ${cl.id} chưa có bằng chứng nguồn — đầu ra đang nhắc nó ngoài câu hỏi, cần đội brand xác nhận trước khi dùng.`,
+        );
+      }
+    }
+
+    if (tt) {
+      // Giá giữ nguyên văn + tiền tệ đi kèm: đầu ra nhắc số giá mà thiếu
+      // mã tiền tệ, hoặc nhắc mã tiền khác → quy đổi ngầm, cảnh báo.
+      if (tt.co_gia) {
+        const soGia = tt.gia.replace(/[.,\s]/g, "");
+        const giaTriBoDau = giaTri.replace(/[.,\s]/g, "");
+        const coGia = giaTriBoDau.includes(soGia);
+        if (coGia && tt.tien_te && !giaTri.includes(tt.tien_te)) {
+          canhBao.push(
+            `Đầu ra nhắc giá '${tt.gia}' của thị trường nhưng thiếu tiền tệ '${tt.tien_te}' — giá phải giữ nguyên văn kèm đơn vị.`,
+          );
+        }
+        // Mã tiền tệ khác trong đầu ra → dấu hiệu tự quy đổi.
+        const tienTeKhac = new Set<string>();
+        for (const m of giaTri.matchAll(/\b(USD|EUR|VND|GBP|JPY|AUD|SGD|CAD|CNY)\b/g)) {
+          if (m[1] !== tt.tien_te) tienTeKhac.add(m[1]!);
+        }
+        for (const m of giaTri.matchAll(/[$€£¥₫]/g)) {
+          const kyHieu = m[0] === "$" ? "USD" : m[0] === "€" ? "EUR" : "VND";
+          if (kyHieu !== tt.tien_te) tienTeKhac.add(m[0]);
+        }
+        if (tienTeKhac.size > 0) {
+          canhBao.push(
+            `Đầu ra nhắc tiền tệ khác (${[...tienTeKhac].join(", ")}) ngoài '${tt.tien_te}' được cung cấp — không được tự quy đổi giá.`,
+          );
+        }
+      } else {
+        // Thị trường chưa cung cấp giá → đầu ra không được chứa dạng giá
+        // ngoài dòng câu hỏi (không bịa giá, không quy đổi từ nơi khác).
+        const coGiaBia = dsDongTh.some(
+          (d) =>
+            /câu\s*hỏi/i.test(d) === false &&
+            (/\d[\d.,]*\s*(USD|EUR|VND|đ|₫|\$|€)/i.test(d) || /giá\s*[:]/i.test(d)),
+        );
+        if (coGiaBia) {
+          canhBao.push(
+            `Thị trường '${tt.ten}' chưa cung cấp giá nhưng đầu ra có dạng giá — không được bịa hoặc tự quy đổi giá.`,
+          );
+        }
+      }
+      // Khả dụng: thị trường chưa cung cấp → không được khẳng định tình
+      // trạng còn hàng/hết hàng ngoài câu hỏi.
+      if (!tt.co_kha_dung) {
+        const coKhaDungBia = dsDongTh.some(
+          (d) =>
+            /câu\s*hỏi/i.test(d) === false &&
+            /còn\s*hàng|hết\s*hàng|đặt\s*trước|in\s*stock|out\s*of\s*stock|pre-?order/i.test(d),
+        );
+        if (coKhaDungBia) {
+          canhBao.push(
+            `Thị trường '${tt.ten}' chưa cung cấp tình trạng khả dụng nhưng đầu ra khẳng định nó — phải để [CÂU HỎI].`,
+          );
+        }
+      }
+      // Chi tiết đối tượng do đội local cung cấp giữ nguyên văn — có
+      // trong đầu ra (lời thoại/ưu đãi đã duyệt riêng cho đối tượng).
+      if (tt.chi_tiet && !giaTri.includes(tt.chi_tiet)) {
+        canhBao.push(
+          `Đầu ra bỏ hoặc sửa chi tiết đối tượng đã cung cấp của thị trường '${tt.ten}' — phải giữ nguyên văn.`,
+        );
+      }
+      // CTA local ghi đè: định dạng có trường lien_ket/cta/landing thì
+      // phải dùng URL local, không rơi về CTA mặc định của chiến dịch.
+      if (tt.cta_url) {
+        const coTruongCta = ctx.dinh_dang?.truong.some(
+          (t) => t.ten === "lien_ket" || t.ten === "cta" || t.ten === "landing",
+        );
+        if (coTruongCta && !giaTri.includes(tt.cta_url)) {
+          canhBao.push(
+            `Đầu ra không dùng CTA local của thị trường (${tt.cta_url}) — CTA local ghi đè CTA mặc định.`,
+          );
+        }
+      }
+      // Ghi đè tự do: giá trị phải sống qua đầu ra khi định dạng có
+      // trường ghi_chu/gioi_han — ghi đè tường minh không được nuốt.
+      const coTruongGhiDe = ctx.dinh_dang?.truong.some(
+        (t) => t.ten === "ghi_chu" || t.ten === "gioi_han" || t.ten === "gioi_han_ap_dung",
+      );
+      if (coTruongGhiDe) {
+        for (const g of tt.ds_ghi_de) {
+          if (g.gia_tri && !giaTri.includes(g.gia_tri)) {
+            canhBao.push(
+              `Đầu ra không giữ ghi đè '${g.khoa}: ${g.gia_tri}' của thị trường '${tt.ten}'.`,
+            );
+          }
+        }
+      }
+    }
+  }
+
   return { hop_le: loiCung.length === 0, loi_cung: loiCung, canh_bao: canhBao };
 }

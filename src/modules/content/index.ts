@@ -89,8 +89,16 @@ export type MucLuc = {
 
 // Loại campaign: '' = campaign thường, 'so_bao' = số báo (#8),
 // 'phat_hanh' = bản phát hành phần mềm (#9), 'gay_quy' = chiến dịch gây
-// quỹ nonprofit (#10). Giá trị do api.ts validate.
-export const DANH_SACH_LOAI_CAMPAIGN = ["so_bao", "phat_hanh", "gay_quy", "cong_quyen"] as const;
+// quỹ nonprofit (#10), 'cong_quyen' = cơ quan giải thích chính sách
+// (#11), 'thuong_hieu' = chiến dịch thương hiệu đa thị trường (#12).
+// Giá trị do api.ts validate.
+export const DANH_SACH_LOAI_CAMPAIGN = [
+  "so_bao",
+  "phat_hanh",
+  "gay_quy",
+  "cong_quyen",
+  "thuong_hieu",
+] as const;
 
 // Giới hạn gói/vùng/khả dụng của bản phát hành (#9): tinh_nang = tên tính
 // năng bị giới hạn; mo_ta = câu phải hiển thị trên đầu ra bị ảnh hưởng.
@@ -199,10 +207,86 @@ export type FactVanHanh = {
 
 // Reviewer local được ghi trong POC (#11): người chấm thẩm quyền của
 // cơ quan — duyệt công quyền ghi ai trong danh sách này đã chấm.
+// #12 dùng lại shape này cho reviewer local của từng thị trường.
 export type NguoiDuyetCongQuyen = {
   id: string;
   ten: string;
   vai_tro: string;
+};
+
+// --- Chiến dịch thương hiệu toàn cầu (#12) ---
+
+// Claim sản phẩm đã duyệt dùng chung mọi thị trường: nguon_id + muc_id
+// trỏ mục nguồn đã nạp làm bằng chứng; null = chưa xác nhận → bộ sinh
+// để [CÂU HỎI], không bịa claim hiệu năng/sức khỏe.
+export type ClaimThuongHieu = {
+  id: string;
+  noi_dung: string;
+  nguon_id: string | null;
+  muc_id: string | null;
+};
+
+// Asset hình của chiến dịch được phân phối chung cho mọi thị trường:
+// asset_id trỏ asset trong kho; ghi_chu là phạm vi/cách dùng đã duyệt.
+export type AssetHinh = {
+  id: string;
+  asset_id: string;
+  ghi_chu: string;
+};
+
+// Chi tiết được đội local cung cấp riêng cho một đối tượng trên thị
+// trường (ưu đãi, lời thoại đã duyệt): đầu ra của đối tượng đó phải giữ
+// nguyên văn, không suy ra.
+export type ChiTietDoiTuong = {
+  doi_tuong_id: string;
+  chi_tiet: string;
+};
+
+// Một thị trường của chiến dịch thương hiệu (#12): mọi field là ghi đè
+// tường minh do đội local cung cấp — giá/tiền tệ chỉ lưu giá trị được
+// cung cấp (không quy đổi), ngôn ngữ đầu ra, khả dụng, landing page,
+// CTA local thay CTA mặc định, chi tiết theo đối tượng và ghi đè tự do.
+// nguon_id: nguồn fact tự động chiếu từ field thị trường. thong_diep_id:
+// thông điệp riêng của thị trường — biến thể pin thông điệp này nên đổi
+// fact local chỉ vô hiệu hóa đúng biến thể của thị trường đó (#14).
+export type ThiTruong = {
+  id: string;
+  campaign_id: string;
+  ma: string; // mã thị trường ngắn duy nhất trong campaign ('us', 'vn')
+  ten: string;
+  ngon_ngu: string;
+  gia: string; // giá đã cung cấp, giữ nguyên văn ('189', '4.590.000')
+  tien_te: string; // mã tiền tệ đi kèm gia ('USD', 'VND'); rỗng = chưa đặt
+  kha_dung: string; // 'co_hang' | 'het_hang' | 'dat_truoc' | '' (chưa có)
+  landing_page: string; // landing page local
+  cta_nhan: string; // nhãn CTA ghi đè CTA mặc định của chiến dịch
+  cta_url: string;
+  ds_chi_tiet: ChiTietDoiTuong[]; // chi tiết đã duyệt riêng theo đối tượng
+  ghi_de: Record<string, string>; // ghi đè tự do tường minh — liệt kê như ngoại lệ
+  ds_nguoi_duyet: NguoiDuyetCongQuyen[]; // reviewer local được ghi
+  bat_buoc_duyet: number; // 1 = duyệt bắt buộc ghi reviewer — móc nối #16
+  nguon_id: string; // nguồn fact tự động chiếu từ field thị trường
+  thong_diep_id: string; // thông điệp riêng của thị trường
+  tao_luc: string;
+  tao_boi: string;
+  cap_nhat_luc: string;
+  cap_nhat_boi: string;
+};
+
+export type NhapThiTruong = {
+  ma?: string;
+  ten?: string;
+  ngon_ngu?: string;
+  gia?: string;
+  tien_te?: string;
+  kha_dung?: string;
+  landing_page?: string;
+  cta_nhan?: string;
+  cta_url?: string;
+  ds_chi_tiet?: ChiTietDoiTuong[];
+  ghi_de?: Record<string, string>;
+  ds_nguoi_duyet?: NguoiDuyetCongQuyen[];
+  bat_buoc_duyet?: number;
 };
 
 export type Campaign = {
@@ -248,6 +332,11 @@ export type Campaign = {
   che_do_bao_ve: number; // 1 = duyệt bắt buộc ghi reviewer — móc nối #16
   nguon_chinh_sach_id: string; // nguồn văn bản chính sách chính thức
   nguon_cong_quyen_id: string; // nguồn fact tự động chiếu từ field
+  // Trường thương hiệu (#12): chỉ dùng khi loai = 'thuong_hieu'.
+  ds_claim: ClaimThuongHieu[]; // claim sản phẩm đã duyệt + bằng chứng nguồn
+  giong_van: string; // giọng văn thương hiệu — đi vào context sinh
+  ds_asset_hinh: AssetHinh[]; // asset hình phân phối chung cho mọi thị trường
+  nguon_thuong_hieu_id: string; // nguồn fact tự động chiếu từ field chung
   tao_luc: string;
   tao_boi: string;
   cap_nhat_luc: string;
@@ -434,6 +523,8 @@ type DongCampaign = Omit<
   | "ds_ngoai_le"
   | "ds_fact_van_hanh"
   | "ds_nguoi_duyet"
+  | "ds_claim"
+  | "ds_asset_hinh"
 > & {
   ghi_de: string;
   tham_chieu: string;
@@ -447,6 +538,14 @@ type DongCampaign = Omit<
   ds_yeu_cau: string;
   ds_ngoai_le: string;
   ds_fact_van_hanh: string;
+  ds_nguoi_duyet: string;
+  ds_claim: string;
+  ds_asset_hinh: string;
+};
+// Hàng thi_truong trên đĩa: mảng/object JSON giữ dạng TEXT.
+type DongThiTruong = Omit<ThiTruong, "ds_chi_tiet" | "ghi_de" | "ds_nguoi_duyet"> & {
+  ds_chi_tiet: string;
+  ghi_de: string;
   ds_nguoi_duyet: string;
 };
 type DongThongDiepRevision = Omit<ThongDiepRevision, "nguon_revision_ids"> & {
@@ -718,6 +817,89 @@ export function docDsNguoiDuyet(v: string): NguoiDuyetCongQuyen[] {
   }
 }
 
+// Parse JSON thương hiệu trên campaign (#12) — dung sai giống docDsFact.
+export function docDsClaim(v: string): ClaimThuongHieu[] {
+  try {
+    const j = JSON.parse(v) as unknown;
+    if (!Array.isArray(j)) return [];
+    return j
+      .filter((x) => typeof x === "object" && x !== null)
+      .map((x, i) => {
+        const r = x as Record<string, unknown>;
+        return {
+          id: typeof r.id === "string" && r.id ? r.id : `cl${i + 1}`,
+          noi_dung: typeof r.noi_dung === "string" ? r.noi_dung : "",
+          nguon_id: typeof r.nguon_id === "string" && r.nguon_id ? r.nguon_id : null,
+          muc_id: typeof r.muc_id === "string" && r.muc_id ? r.muc_id : null,
+        };
+      });
+  } catch {
+    return [];
+  }
+}
+
+export function docDsAssetHinh(v: string): AssetHinh[] {
+  try {
+    const j = JSON.parse(v) as unknown;
+    if (!Array.isArray(j)) return [];
+    return j
+      .filter((x) => typeof x === "object" && x !== null)
+      .map((x, i) => {
+        const r = x as Record<string, unknown>;
+        return {
+          id: typeof r.id === "string" && r.id ? r.id : `ah${i + 1}`,
+          asset_id: typeof r.asset_id === "string" ? r.asset_id : "",
+          ghi_chu: typeof r.ghi_chu === "string" ? r.ghi_chu : "",
+        };
+      });
+  } catch {
+    return [];
+  }
+}
+
+// Parse JSON chi tiết theo đối tượng trên hàng thi_truong — mục lạ/thiếu
+// doi_tuong_id bị rỗng thay vì ném lỗi khi đọc.
+export function docDsChiTiet(v: string): ChiTietDoiTuong[] {
+  try {
+    const j = JSON.parse(v) as unknown;
+    if (!Array.isArray(j)) return [];
+    return j
+      .filter((x) => typeof x === "object" && x !== null)
+      .map((x) => {
+        const r = x as Record<string, unknown>;
+        return {
+          doi_tuong_id: typeof r.doi_tuong_id === "string" ? r.doi_tuong_id : "",
+          chi_tiet: typeof r.chi_tiet === "string" ? r.chi_tiet : "",
+        };
+      });
+  } catch {
+    return [];
+  }
+}
+
+// Parse object ghi đè tự do trên hàng thi_truong: { khoa: chuoi } — giá
+// trị khác chuỗi bị ép chuỗi để không mất dữ liệu khi đọc.
+export function docGhiDeJson(v: string): Record<string, string> {
+  try {
+    const j = JSON.parse(v) as unknown;
+    if (typeof j !== "object" || j === null || Array.isArray(j)) return {};
+    const ra: Record<string, string> = {};
+    for (const [k, val] of Object.entries(j as Record<string, unknown>)) {
+      ra[k] = typeof val === "string" ? val : JSON.stringify(val);
+    }
+    return ra;
+  } catch {
+    return {};
+  }
+}
+
+const docThiTruong = (row: DongThiTruong): ThiTruong => ({
+  ...row,
+  ds_chi_tiet: docDsChiTiet(row.ds_chi_tiet),
+  ghi_de: docGhiDeJson(row.ghi_de),
+  ds_nguoi_duyet: docDsNguoiDuyet(row.ds_nguoi_duyet),
+});
+
 const docCampaign = (row: DongCampaign): Campaign => ({
   ...row,
   ghi_de: JSON.parse(row.ghi_de) as GhiDeCampaign,
@@ -733,6 +915,8 @@ const docCampaign = (row: DongCampaign): Campaign => ({
   ds_ngoai_le: docDsNgoaiLe(row.ds_ngoai_le),
   ds_fact_van_hanh: docDsFactVanHanh(row.ds_fact_van_hanh),
   ds_nguoi_duyet: docDsNguoiDuyet(row.ds_nguoi_duyet),
+  ds_claim: docDsClaim(row.ds_claim),
+  ds_asset_hinh: docDsAssetHinh(row.ds_asset_hinh),
 });
 const docThongDiepRevision = (row: DongThongDiepRevision): ThongDiepRevision => {
   let ids: string[] = [];
@@ -990,6 +1174,11 @@ export type NhapCampaign = {
   che_do_bao_ve?: number;
   nguon_chinh_sach_id?: string;
   nguon_cong_quyen_id?: string;
+  // Trường thương hiệu (#12).
+  ds_claim?: ClaimThuongHieu[];
+  giong_van?: string;
+  ds_asset_hinh?: AssetHinh[];
+  nguon_thuong_hieu_id?: string;
 };
 
 const COT_SO_BAO =
@@ -999,6 +1188,7 @@ const COT_GAY_QUY =
   "muc_tieu, so_tien_muc_tieu, tien_te, thong_diep_loi, ngon_ngu_phu, ds_tac_dong, ds_trich_dan, ghi_chu_quyen";
 const COT_CONG_QUYEN =
   "pham_vi_quyen_han, ngay_hieu_luc, ds_yeu_cau, ds_ngoai_le, ds_fact_van_hanh, ds_nguoi_duyet, che_do_bao_ve, nguon_chinh_sach_id";
+const COT_THUONG_HIEU = "ds_claim, giong_van, ds_asset_hinh";
 
 export function taoCampaign(
   db: Database,
@@ -1010,8 +1200,8 @@ export function taoCampaign(
     const id = tuyChon.id ?? crypto.randomUUID();
     const ts = bayGio();
     db.query(
-      `INSERT INTO campaign (id, ten, mo_ta, ghi_de, loai, ${COT_SO_BAO}, ${COT_PHAT_HANH}, ${COT_GAY_QUY}, ${COT_CONG_QUYEN}, tao_luc, tao_boi, cap_nhat_luc, cap_nhat_boi)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,     
+      `INSERT INTO campaign (id, ten, mo_ta, ghi_de, loai, ${COT_SO_BAO}, ${COT_PHAT_HANH}, ${COT_GAY_QUY}, ${COT_CONG_QUYEN}, ${COT_THUONG_HIEU}, tao_luc, tao_boi, cap_nhat_luc, cap_nhat_boi)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,     
     ).run(
       id,
       input.ten,
@@ -1048,6 +1238,11 @@ export function taoCampaign(
       JSON.stringify(input.ds_nguoi_duyet ?? []),
       input.che_do_bao_ve ?? 0,
       input.nguon_chinh_sach_id ?? "",
+      // Thương hiệu (#12): nguon_thuong_hieu_id gán riêng sau khi đồng bộ
+      // nguồn fact tự động — POST/PUT không nhận trực tiếp.
+      JSON.stringify(input.ds_claim ?? []),
+      input.giong_van ?? "",
+      JSON.stringify(input.ds_asset_hinh ?? []),
       ts,
       tacGia,
       ts,
@@ -1077,6 +1272,8 @@ export function capNhatCampaign(
         .join(", ")}, ${COT_GAY_QUY.split(", ")
         .map((c) => `${c} = ?`)
         .join(", ")}, ${COT_CONG_QUYEN.split(", ")
+        .map((c) => `${c} = ?`)
+        .join(", ")}, ${COT_THUONG_HIEU.split(", ")
         .map((c) => `${c} = ?`)
         .join(", ")}, cap_nhat_luc = ?, cap_nhat_boi = ? WHERE id = ?`,
     ).run(
@@ -1114,6 +1311,11 @@ export function capNhatCampaign(
       JSON.stringify(input.ds_nguoi_duyet ?? cu.ds_nguoi_duyet),
       input.che_do_bao_ve !== undefined ? input.che_do_bao_ve : cu.che_do_bao_ve,
       input.nguon_chinh_sach_id ?? cu.nguon_chinh_sach_id,
+      // Thương hiệu (#12): absent → giữ giá trị đã lưu; nguồn fact tự
+      // động gán riêng sau đồng bộ.
+      JSON.stringify(input.ds_claim ?? cu.ds_claim),
+      input.giong_van ?? cu.giong_van,
+      JSON.stringify(input.ds_asset_hinh ?? cu.ds_asset_hinh),
       bayGio(),
       tacGia,
       id,
@@ -1130,6 +1332,143 @@ export function xoaCampaign(db: Database, id: string): void {
     db.query("DELETE FROM campaign WHERE id = ?").run(id);
     ghiSuKien(db, "campaign", id, "xoa", {}, "demo");
   });
+}
+
+// --- Thị trường của chiến dịch thương hiệu (#12) ---
+
+export function layThiTruong(db: Database, id: string): ThiTruong | null {
+  const row = db.query("SELECT * FROM thi_truong WHERE id = ?").get(id) as DongThiTruong | null;
+  return row ? docThiTruong(row) : null;
+}
+
+export function danhSachThiTruong(db: Database, campaignId: string): ThiTruong[] {
+  return (
+    db
+      .query("SELECT * FROM thi_truong WHERE campaign_id = ? ORDER BY tao_luc")
+      .all(campaignId) as DongThiTruong[]
+  ).map(docThiTruong);
+}
+
+export function layThiTruongTheoMa(
+  db: Database,
+  campaignId: string,
+  ma: string,
+): ThiTruong | null {
+  const row = db
+    .query("SELECT * FROM thi_truong WHERE campaign_id = ? AND ma = ?")
+    .get(campaignId, ma) as DongThiTruong | null;
+  return row ? docThiTruong(row) : null;
+}
+
+// Tra thị trường chủ một thông điệp — mọi biến thể của thị trường pin
+// thông điệp riêng đó nên tra ngược qua thong_diep_id để áp ràng buộc
+// review local (người duyệt/bắt buộc) và lọc phạm vi ảnh hưởng.
+export function layThiTruongTheoThongDiep(
+  db: Database,
+  thongDiepId: string,
+): ThiTruong | null {
+  const row = db
+    .query("SELECT * FROM thi_truong WHERE thong_diep_id = ?")
+    .get(thongDiepId) as DongThiTruong | null;
+  return row ? docThiTruong(row) : null;
+}
+
+export function layThiTruongTheoNguon(db: Database, nguonId: string): ThiTruong | null {
+  const row = db
+    .query("SELECT * FROM thi_truong WHERE nguon_id = ?")
+    .get(nguonId) as DongThiTruong | null;
+  return row ? docThiTruong(row) : null;
+}
+
+export function taoThiTruong(
+  db: Database,
+  campaignId: string,
+  input: NhapThiTruong,
+  tacGia: string,
+  tuyChon: { id?: string } = {},
+): ThiTruong {
+  return txn(db, () => {
+    const id = tuyChon.id ?? crypto.randomUUID();
+    const ts = bayGio();
+    db.query(
+      `INSERT INTO thi_truong
+         (id, campaign_id, ma, ten, ngon_ngu, gia, tien_te, kha_dung,
+          landing_page, cta_nhan, cta_url, ds_chi_tiet, ghi_de,
+          ds_nguoi_duyet, bat_buoc_duyet, nguon_id, thong_diep_id,
+          tao_luc, tao_boi, cap_nhat_luc, cap_nhat_boi)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', ?, ?, ?, ?)`,
+    ).run(
+      id,
+      campaignId,
+      input.ma ?? "",
+      input.ten ?? "",
+      input.ngon_ngu ?? "vi",
+      input.gia ?? "",
+      input.tien_te ?? "",
+      input.kha_dung ?? "",
+      input.landing_page ?? "",
+      input.cta_nhan ?? "",
+      input.cta_url ?? "",
+      JSON.stringify(input.ds_chi_tiet ?? []),
+      JSON.stringify(input.ghi_de ?? {}),
+      JSON.stringify(input.ds_nguoi_duyet ?? []),
+      input.bat_buoc_duyet ?? 0,
+      ts,
+      tacGia,
+      ts,
+      tacGia,
+    );
+    ghiSuKien(db, "thi_truong", id, "tao", { campaign_id: campaignId, ma: input.ma }, tacGia);
+    return layThiTruong(db, id)!;
+  });
+}
+
+// Cập nhật thị trường: field absent trong input giữ giá trị đã lưu —
+// giống contract PUT partial của campaign. nguon_id/thong_diep_id gán
+// riêng qua ganNguonThiTruong/ganThongDiepThiTruong.
+export function capNhatThiTruong(
+  db: Database,
+  id: string,
+  input: NhapThiTruong,
+  tacGia: string,
+): ThiTruong {
+  return txn(db, () => {
+    const cu = layThiTruong(db, id);
+    if (!cu) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy thị trường.");
+    db.query(
+      `UPDATE thi_truong SET ten = ?, ngon_ngu = ?, gia = ?, tien_te = ?,
+         kha_dung = ?, landing_page = ?, cta_nhan = ?, cta_url = ?,
+         ds_chi_tiet = ?, ghi_de = ?, ds_nguoi_duyet = ?, bat_buoc_duyet = ?,
+         cap_nhat_luc = ?, cap_nhat_boi = ?
+       WHERE id = ?`,
+    ).run(
+      input.ten !== undefined ? input.ten : cu.ten,
+      input.ngon_ngu !== undefined ? input.ngon_ngu : cu.ngon_ngu,
+      input.gia !== undefined ? input.gia : cu.gia,
+      input.tien_te !== undefined ? input.tien_te : cu.tien_te,
+      input.kha_dung !== undefined ? input.kha_dung : cu.kha_dung,
+      input.landing_page !== undefined ? input.landing_page : cu.landing_page,
+      input.cta_nhan !== undefined ? input.cta_nhan : cu.cta_nhan,
+      input.cta_url !== undefined ? input.cta_url : cu.cta_url,
+      JSON.stringify(input.ds_chi_tiet ?? cu.ds_chi_tiet),
+      JSON.stringify(input.ghi_de ?? cu.ghi_de),
+      JSON.stringify(input.ds_nguoi_duyet ?? cu.ds_nguoi_duyet),
+      input.bat_buoc_duyet !== undefined ? input.bat_buoc_duyet : cu.bat_buoc_duyet,
+      bayGio(),
+      tacGia,
+      id,
+    );
+    ghiSuKien(db, "thi_truong", id, "cap_nhat", {}, tacGia);
+    return layThiTruong(db, id)!;
+  });
+}
+
+export function ganNguonThiTruong(db: Database, id: string, nguonId: string): void {
+  db.query("UPDATE thi_truong SET nguon_id = ? WHERE id = ?").run(nguonId, id);
+}
+
+export function ganThongDiepThiTruong(db: Database, id: string, thongDiepId: string): void {
+  db.query("UPDATE thi_truong SET thong_diep_id = ? WHERE id = ?").run(thongDiepId, id);
 }
 
 // --- Thông điệp ---

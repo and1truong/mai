@@ -12,6 +12,7 @@ import PhatHanhPage from "./pages/PhatHanh.tsx";
 import SoBaoPage from "./pages/SoBao.tsx";
 import ThayDoiPage from "./pages/ThayDoi.tsx";
 import ThongDiepPage from "./pages/ThongDiep.tsx";
+import ThuongHieuPage from "./pages/ThuongHieu.tsx";
 import TongQuanPage from "./pages/TongQuan.tsx";
 
 const NAV = [
@@ -24,6 +25,7 @@ const NAV = [
   { path: "/phat-hanh", nhan: "Phát hành" },
   { path: "/gay-quy", nhan: "Gây quỹ" },
   { path: "/cong-quyen", nhan: "Công quyền" },
+  { path: "/thuong-hieu", nhan: "Thương hiệu" },
   { path: "/job", nhan: "Job" },
   { path: "/ho-so", nhan: "Hồ sơ" },
 ];
@@ -64,6 +66,7 @@ export default function App() {
         {goc === "/phat-hanh" && <PhatHanhPage />}
         {goc === "/gay-quy" && <GayQuyPage />}
         {goc === "/cong-quyen" && <CongQuyenPage />}
+        {goc === "/thuong-hieu" && <ThuongHieuPage />}
         {goc === "/thong-diep" && <ThongDiepPage />}
         {goc === "/job" && <JobPage />}
         {goc === "/ho-so" && <HoSoPage />}

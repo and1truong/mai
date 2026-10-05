@@ -45,6 +45,12 @@ function dongThieuChungCu(ctx: ContextTask): string[] {
     ngoai_le_chua_xac_nhan: "bằng chứng nguồn cho một số ngoại lệ chính sách",
     fact_van_hanh_chua_nguon: "nguồn cho một số fact vận hành đã khai báo",
     dieu_khoan_mo_ho: "diễn giải của thẩm quyền cho một số điều khoản nguồn mơ hồ",
+    // Thương hiệu (#12): claim chưa trỏ bằng chứng → câu hỏi đội brand;
+    // thị trường thiếu giá/khả dụng → câu hỏi đội local — không bịa giá
+    // hay tự quy đổi tiền.
+    claim_chua_xac_nhan: "bằng chứng nguồn cho một số claim đã khai báo",
+    gia_chua_co: "giá đã cung cấp của thị trường",
+    kha_dung_chua_co: "tình trạng khả dụng của thị trường",
   };
   return ctx.thieu_chung_cu.map(
     (t) => `[CÂU HỎI: nguồn chưa có ${nhan[t] ?? t} — cần người viết bổ sung.]`,
@@ -441,6 +447,160 @@ function noiDungTruongCongQuyen(
   return undefined;
 }
 
+// Field theo tên cho ngữ cảnh thương hiệu (#12) — trả undefined để rơi
+// về luồng chung khi field không thuộc từ điển chiến dịch đa thị trường.
+// Nguyên tắc: giá/tiền tệ/khả dụng/CTA/chi tiết giữ NGUYÊN VĂN giá trị
+// được cung cấp; claim chưa xác nhận thành [CÂU HỎI]; không quy đổi
+// tiền, không bịa claim hiệu năng/sức khỏe hay yêu cầu pháp lý.
+function noiDungTruongThuongHieu(
+  t: DinhNghiaTruong,
+  ctx: ContextTask,
+): string | string[] | undefined {
+  const th = ctx.thuong_hieu;
+  if (!th) return undefined;
+  const tt = th.thi_truong;
+  // CTA dùng: thị trường ghi đè → CTA local; không → CTA mặc định đầu
+  // tiên của chiến dịch. Link thị trường ưu tiên landing page local.
+  const ctaMacDinh = th.cta[0];
+  const ctaDung = tt?.cta_url
+    ? { nhan: tt.cta_nhan || ctaMacDinh?.nhan || "", url: tt.cta_url }
+    : ctaMacDinh
+      ? { nhan: ctaMacDinh.nhan, url: ctaMacDinh.url }
+      : null;
+  const linkDung = tt?.landing_page || ctaDung?.url || undefined;
+  const giaDung = tt?.co_gia
+    ? `${tt.gia}${tt.tien_te ? ` ${tt.tien_te}` : ""}`
+    : `[CÂU HỎI: giá của thị trường '${tt?.ten ?? "?"}' chưa được cung cấp — cần đội local xác nhận, đầu ra không được tự quy đổi.]`;
+  const khaDungDung = tt?.co_kha_dung
+    ? tt.kha_dung
+    : `[CÂU HỎI: tình trạng khả dụng của thị trường '${tt?.ten ?? "?"}' chưa được cung cấp — cần đội local xác nhận.]`;
+
+  // Một dòng mỗi claim: claim có bằng chứng → marker [CL:<id>] để kiểm
+  // chứng; claim chưa xác nhận → [CÂU HỎI] — không trình bày như đã duyệt.
+  const dongClaim = () =>
+    th.ds_claim.map((cl) => {
+      if (!cl.xac_nhan) {
+        return `[CÂU HỎI: claim '${cl.noi_dung.slice(0, 60)}' chưa có bằng chứng nguồn — cần đội brand xác nhận trước khi dùng.]`;
+      }
+      return `${cl.noi_dung} [CL:${cl.id}]`;
+    });
+  const dongGhiDe = () =>
+    (tt?.ds_ghi_de ?? []).map((g) => `${g.khoa}: ${g.gia_tri}`);
+  const dongChiTiet = () =>
+    tt?.chi_tiet
+      ? [tt.chi_tiet]
+      : [
+          `[CÂU HỎI: thị trường '${tt?.ten ?? "?"}' chưa cung cấp chi tiết riêng cho đối tượng này — cần đội local bổ sung.]`,
+        ];
+
+  if (t.loai === "van_ban") {
+    if (t.ten === "tieu_de") {
+      return `${th.ten}${tt ? ` — ${tt.ten}` : ""}`;
+    }
+    if (t.ten === "tom_tat" || t.ten === "gioi_thieu" || t.ten === "hook") {
+      return [
+        th.thong_diep_loi || cauDau(ctx.thong_diep.noi_dung) || ctx.thong_diep.tieu_de,
+        tt?.co_gia ? `Giá: ${giaDung}` : "",
+        tt?.co_kha_dung ? khaDungDung : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+    }
+    if (t.ten === "phan_doan") {
+      return ctx.context_sinh?.doi_tuong?.ten || ctx.doi_tuong || "chung";
+    }
+    if (t.ten === "gia") return giaDung;
+    if (t.ten === "kha_dung") return khaDungDung;
+    if (t.ten === "thong_diep_chinh") {
+      return th.thong_diep_loi || cauDau(ctx.thong_diep.noi_dung) || ctx.thong_diep.tieu_de;
+    }
+    if (t.ten === "dinh_vi") return th.dinh_vi || undefined;
+    if (t.ten === "lien_ket" || t.ten === "hoi_them" || t.ten === "landing") {
+      return linkDung;
+    }
+    if (t.ten === "cta" || t.ten === "hanh_dong" || t.ten === "tiep_theo") {
+      return ctaDung ? `${ctaDung.nhan}: ${ctaDung.url}` : undefined;
+    }
+    return undefined;
+  }
+
+  if (t.loai === "danh_sach") {
+    if (t.ten === "bang_chung") {
+      return th.ds_claim
+        .filter((c) => c.xac_nhan)
+        .map(
+          (c) =>
+            `${c.noi_dung} [CL:${c.id}]${c.nguon_tieu_de ? ` — nguồn: ${c.nguon_tieu_de}` : ""}`,
+        );
+    }
+    if (t.ten === "con_thieu") {
+      return [
+        ...th.ds_claim
+          .filter((c) => !c.xac_nhan)
+          .map(
+            (c) =>
+              `[CÂU HỎI: claim '${c.noi_dung.slice(0, 60)}' chưa có bằng chứng nguồn — cần đội brand xác nhận.]`,
+          ),
+        ...(tt && !tt.co_gia ? [giaDung] : []),
+        ...(tt && !tt.co_kha_dung ? [khaDungDung] : []),
+      ];
+    }
+    if (t.ten === "yeu_cau" || t.ten === "cac_buoc" || t.ten === "nghia_vu") {
+      const ds = dongClaim();
+      return ds.length > 0
+        ? ds
+        : ["[CÂU HỎI: chiến dịch chưa khai báo claim đã duyệt — cần đội brand bổ sung trước khi công bố.]"];
+    }
+    if (
+      t.ten === "chi_tiet" ||
+      t.ten === "loi_ich" ||
+      t.ten === "uu_diem" ||
+      t.ten === "diem_ban" ||
+      t.ten === "cac_loi_ich"
+    ) {
+      return dongChiTiet();
+    }
+    if (t.ten === "ghi_chu") return dongGhiDe();
+    if (t.ten === "hoi_dap") {
+      const ds = th.ds_claim.map((c) =>
+        c.xac_nhan
+          ? `Hỏi: điểm này đã duyệt chưa? Đáp: ${c.noi_dung} [CL:${c.id}]`
+          : `[CÂU HỎI: claim '${c.noi_dung.slice(0, 60)}' chưa có bằng chứng nguồn.]`,
+      );
+      return ds.length > 0
+        ? ds
+        : ["[CÂU HỎI: chiến dịch chưa khai báo claim đã duyệt.]"];
+    }
+    if (t.ten === "gioi_han" || t.ten === "gioi_han_ap_dung") {
+      return dongGhiDe();
+    }
+    return undefined;
+  }
+
+  if (t.loai === "markdown" && (t.ten === "noi_dung" || t.ten === "gioi_thieu")) {
+    // Thân bài chiến dịch thị trường: thông điệp lõi chung → fact thị
+    // trường (giá/khả dụng/landing) → claim đã duyệt → chi tiết đối
+    // tượng → ghi đè → CTA (local ghi đè CTA chung). Nguyên văn mọi
+    // giá trị được cung cấp.
+    const dong: string[] = [
+      th.thong_diep_loi || cauDau(ctx.thong_diep.noi_dung) || ctx.thong_diep.tieu_de,
+    ];
+    if (tt) {
+      dong.push("", `**${tt.ten}:** Giá ${giaDung} — ${khaDungDung}${tt.landing_page ? ` — ${tt.landing_page}` : ""}`);
+    }
+    const dsClaim = dongClaim();
+    if (dsClaim.length > 0) dong.push("", "**Claim đã duyệt:**", ...dsClaim.map((d) => `- ${d}`));
+    if (tt?.chi_tiet) {
+      dong.push("", `**Cho đối tượng này:** ${tt.chi_tiet}`);
+    }
+    const gd = dongGhiDe();
+    if (gd.length > 0) dong.push("", "**Ghi đè thị trường:**", ...gd.map((d) => `- ${d}`));
+    if (ctaDung) dong.push("", `${ctaDung.nhan}: ${ctaDung.url}`);
+    return dong.join("\n");
+  }
+  return undefined;
+}
+
 // Gán nội dung cho một trường theo kiểu — deterministic từ context.
 function noiDungTruong(t: DinhNghiaTruong, ctx: ContextTask): string | string[] {
   if (ctx.phat_hanh) {
@@ -454,6 +614,10 @@ function noiDungTruong(t: DinhNghiaTruong, ctx: ContextTask): string | string[] 
   if (ctx.cong_quyen) {
     const cq = noiDungTruongCongQuyen(t, ctx);
     if (cq !== undefined) return cq;
+  }
+  if (ctx.thuong_hieu) {
+    const th = noiDungTruongThuongHieu(t, ctx);
+    if (th !== undefined) return th;
   }
   const dongMeta = [
     `Đối tượng: ${ctx.context_sinh?.doi_tuong?.ten || ctx.doi_tuong || "chung"}`,
@@ -476,6 +640,11 @@ function noiDungTruong(t: DinhNghiaTruong, ctx: ContextTask): string | string[] 
   if (ctx.cong_quyen) {
     dongMeta.push(
       `Chính sách: ${ctx.cong_quyen.ten}${ctx.cong_quyen.phien_ban ? ` ${ctx.cong_quyen.phien_ban}` : ""}`,
+    );
+  }
+  if (ctx.thuong_hieu) {
+    dongMeta.push(
+      `Chiến dịch thương hiệu: ${ctx.thuong_hieu.ten}${ctx.thuong_hieu.thi_truong ? ` — thị trường ${ctx.thuong_hieu.thi_truong.ten}` : ""}`,
     );
   }
   const dongThieu = dongThieuChungCu(ctx);

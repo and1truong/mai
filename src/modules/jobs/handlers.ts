@@ -158,6 +158,9 @@ export function taoHandlers(
           // Số báo (#8): campaign_id từ payload → lập trường + cờ thiếu
           // văn bản tham chiếu trong context. Vắng mặt → td.campaign_id.
           campaign_id: payload.campaign_id ? String(payload.campaign_id) : undefined,
+          // Thương hiệu (#12): thi trường của tổ hợp → fact local nguyên
+          // văn vào context (giá/khả dụng/CTA local/chi tiết đối tượng).
+          thi_truong_id: payload.thi_truong_id ? String(payload.thi_truong_id) : undefined,
         });
       } catch (e) {
         if (e instanceof LoiApi) throw new LoiVinhVien(e.message);

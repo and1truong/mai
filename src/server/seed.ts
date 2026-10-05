@@ -15,6 +15,7 @@ import {
   ghiSuKien,
   layBanTheHien,
   layCampaign,
+  layThongDiep,
   taoBanTheHien,
   taoCampaign,
   taoNguon,
@@ -38,6 +39,10 @@ import {
   deXuatDauRaCongQuyen,
   dongBoNguonCongQuyen,
 } from "../modules/cong_quyen/index.ts";
+import {
+  dongBoNguonThuongHieu,
+  dongBoThiTruong,
+} from "../modules/thuong_hieu/index.ts";
 import { enqueueJob } from "../modules/jobs/index.ts";
 import {
   datAssetBanTheHien,
@@ -1978,8 +1983,386 @@ export function seed(
     daSeed.push("story_cong_quyen_tai_che");
   }
 
+  // --- Story #12: Thương hiệu giày chạy Velocity — chiến dịch đa
+  // thị trường với claim chung và ghi đè theo thị trường ---
+  // Campaign loai 'thuong_hieu': claim sản phẩm đã duyệt, giọng văn,
+  // asset hình và CTA mặc định ở tầng chung; mỗi thị trường có nguồn
+  // fact + thông điệp riêng → sửa claim chung đánh dấu cũ mọi biến
+  // thể, sửa giá local chỉ đánh dấu cũ biến thể thị trường đó (#14).
+  // Ba thị trường: US (en/USD, đủ fact), VN (vi/VND, bắt buộc
+  // reviewer local), EU (en, chưa có giá/khả dụng → 'chưa đủ', tổ
+  // hợp bị chặn). Một claim 'khí động học' cố ý chưa có bằng chứng
+  // → đầu ra chỉ được để [CÂU HỎI]. Mọi số liệu và URL là hư cấu.
+  // Trạng thái sau seed: US có bài viết đã duyệt bởi reviewer local;
+  // VN có caption chờ duyệt. Walkthrough: chọn tổ hợp EU → bị chặn
+  // 'chưa đủ'; thêm giá cho EU → tổ hợp mở; sửa giá VN → chỉ biến
+  // thể VN đánh dấu cũ.
+  if (!db.query("SELECT id FROM campaign WHERE id = 'seed-cp-thuong-hieu-velocity'").get()) {
+    themThuongHieu(
+      db,
+      "seed-th-giay-chay-velocity",
+      {
+        ten: "Velocity Footwear (fixture)",
+        nhan_dien:
+          "Hãng giày chạy hư cấu. Bán giày chạy hằng ngày trên nhiều thị trường.",
+        ngon_ngu_uu_tien: ["en", "vi"],
+        vi_du_giong_van: "Velocity Run 2 carries your next run — verified specs, no hype.",
+        nguyen_tac:
+          "Mọi claim sản phẩm phải trỏ về spec đã duyệt. Không hứa hiệu năng hay lợi ích sức khỏe ngoài claim đã duyệt. Giá và khả dụng theo từng thị trường, không tự quy đổi tiền tệ.",
+        claim_duyet: [
+          "Số liệu kỹ thuật trích nguyên văn từ spec đã nạp.",
+          "Giá, tiền tệ và khả dụng lấy nguyên văn từ fact thị trường.",
+        ],
+        claim_cam: [
+          "Giày chạy nhanh nhất thế giới",
+          "Giảm chấn thương hay cải thiện sức khỏe",
+          "Tự quy đổi giá sang tiền tệ khác",
+          "Bịa yêu cầu pháp lý địa phương",
+        ],
+        assets: [],
+      },
+      tacGia,
+    );
+
+    themDoiTuong(
+      db,
+      "seed-dt-runner-thi-dau",
+      {
+        ten: "Runner thi đấu (fixture)",
+        ngon_ngu: "en",
+        dia_diem: "Runner chạy giải, theo dõi pace và số liệu.",
+        kien_thuc_nen: "Quen thuật ngữ giày chạy: đế đệm, trả năng lượng, drop.",
+        moi_quan_tam: "Số liệu spec, so sánh trọng lượng, thông tin giải chạy.",
+        do_sau: "chuyen_sau",
+        tu_vung: "Thuật ngữ chạy bộ phổ biến.",
+        quan_he_to_chuc: "Độc giả theo dõi thương hiệu trên blog và social.",
+        nhu_cau_giao_tiep: "Dẫn số liệu trước; claim phải có bằng chứng.",
+        nhan_khau_hoc: "",
+      },
+      tacGia,
+    );
+    themDoiTuong(
+      db,
+      "seed-dt-runner-phong-trao",
+      {
+        ten: "Runner phong trào (fixture)",
+        ngon_ngu: "vi",
+        dia_diem: "Người chạy vui khỏe cuối tuần, mới bắt đầu chạy.",
+        kien_thuc_nen: "Ít biết thuật ngữ kỹ thuật.",
+        moi_quan_tam: "Giày êm chân, giá, nơi mua, chính sách đổi trả.",
+        do_sau: "so_luoc",
+        tu_vung: "Đời thường; giải thích thuật ngữ một lần.",
+        quan_he_to_chuc: "Người mua tiềm năng đọc quảng cáo và mạng xã hội.",
+        nhu_cau_giao_tiep: "Ngắn gọn, thân thiện; giá và nơi mua rõ ràng.",
+        nhan_khau_hoc: "",
+      },
+      tacGia,
+    );
+
+    // Spec sản phẩm đã duyệt (hư cấu) — bằng chứng cho claim chung.
+    const nguonSpecTh = taoNguon(
+      db,
+      {
+        tieu_de: "Spec sản phẩm Velocity Run 2 (dữ liệu hư cấu)",
+        noi_dung:
+          "Thông số kỹ thuật đã duyệt của giày chạy Velocity Run 2. Tài liệu demo, hư cấu.",
+        loai: "van_ban",
+        cac_muc: [
+          {
+            id: "cl-de-dem",
+            loai: "fact",
+            tieu_de: "Đế đệm",
+            noi_dung:
+              "Đế đệm foam X-Return trả lại khoảng 80% năng lượng mỗi sải chạy, theo phép đo trong phòng thí nghiệm.",
+            assets: [],
+          },
+          {
+            id: "cl-trong-luong",
+            loai: "fact",
+            tieu_de: "Trọng lượng",
+            noi_dung: "Trọng lượng 210 g (size 42), đo trên mẫu sản xuất thử.",
+            assets: [],
+          },
+          {
+            id: "cl-upper",
+            loai: "fact",
+            tieu_de: "Upper",
+            noi_dung: "Upper dệt một lớp, thoáng khí; dây giày phản quang.",
+            assets: [],
+          },
+        ],
+      },
+      tacGia,
+      { id: "seed-nguon-giay-chay-spec" },
+    );
+
+    const anhGiay = ghiAssetFixture(
+      db,
+      tuyChon.dataDir ?? "./data",
+      nguonSpecTh.id,
+      tacGia,
+      "giay-chay-velocity.webp",
+      "Ảnh sản phẩm Velocity Run 2 (fixture).",
+    );
+
+    const cpTh = taoCampaign(
+      db,
+      {
+        loai: "thuong_hieu",
+        ten: "Velocity Run 2 — ra mắt toàn cầu",
+        mo_ta:
+          "Chiến dịch ra mắt giày chạy Velocity Run 2 trên nhiều thị trường. Persona demo: thương hiệu toàn cầu (hư cấu).",
+        thong_diep_loi:
+          "Velocity Run 2: đế đệm trả năng lượng, upper thoáng, cho ngày chạy tiếp theo.",
+        dinh_vi: "Giày chạy hằng ngày cho runner từ phong trào đến thi đấu.",
+        giong_van: "Gọn, tự tin, kỹ thuật — không phóng đại.",
+        thuong_hieu_id: "seed-th-giay-chay-velocity",
+        doi_tuong_id: "seed-dt-runner-phong-trao",
+        ds_claim: [
+          {
+            id: "cl-de-dem",
+            noi_dung:
+              "Đế đệm X-Return trả lại khoảng 80% năng lượng mỗi sải chạy (đo lab).",
+            nguon_id: nguonSpecTh.id,
+            muc_id: "cl-de-dem",
+          },
+          {
+            id: "cl-trong-luong",
+            noi_dung: "Trọng lượng 210 g (size 42).",
+            nguon_id: nguonSpecTh.id,
+            muc_id: "cl-trong-luong",
+          },
+          {
+            // Cố ý không trỏ nguồn: claim khí động học chưa có bằng
+            // chứng → đầu ra chỉ được để [CÂU HỎI], không viết như fact.
+            id: "cl-khi-dong",
+            noi_dung: "Thiết kế khí động học giảm lực cản 12%.",
+            nguon_id: null,
+            muc_id: null,
+          },
+        ],
+        ds_asset_hinh: anhGiay
+          ? [
+              {
+                id: "ah-giay-chinh",
+                asset_id: anhGiay,
+                ghi_chu: "Ảnh sản phẩm chính — dùng cho banner và thumbnail bài viết.",
+              },
+            ]
+          : [],
+        cta: [
+          {
+            id: "cta-chinh",
+            nhan: "Khám phá Velocity Run 2",
+            loai: "",
+            url: "https://velocity-run.example.com/run-2",
+          },
+        ],
+      },
+      tacGia,
+      { id: "seed-cp-thuong-hieu-velocity" },
+    );
+    // Nguồn fact chung 'th-*' tự động; mỗi thị trường tạo nguồn fact +
+    // thông điệp riêng pin cả nguồn chung và nguồn thị trường.
+    dongBoNguonThuongHieu(db, layCampaign(db, cpTh.id)!, tacGia);
+    const cpThMoi = layCampaign(db, cpTh.id)!;
+
+    const ttUs = dongBoThiTruong(
+      db,
+      cpThMoi,
+      {
+        ma: "us",
+        ten: "Hoa Kỳ",
+        ngon_ngu: "en",
+        gia: "189",
+        tien_te: "USD",
+        kha_dung: "co_hang",
+        landing_page: "https://velocity-run.example.com/us",
+        cta_nhan: "Shop the US store",
+        cta_url: "https://velocity-run.example.com/us/run-2",
+        ds_chi_tiet: [
+          {
+            doi_tuong_id: "seed-dt-runner-thi-dau",
+            chi_tiet: "Free gait analysis at partner labs through October.",
+          },
+          {
+            doi_tuong_id: "seed-dt-runner-phong-trao",
+            chi_tiet: "30-day trial runs — return in any condition.",
+          },
+        ],
+        ds_nguoi_duyet: [
+          { id: "rev-us-maya", ten: "Maya Chen", vai_tro: "Marketing lead US" },
+        ],
+        bat_buoc_duyet: 0,
+      },
+      tacGia,
+    ).thi_truong;
+
+    const ttVn = dongBoThiTruong(
+      db,
+      cpThMoi,
+      {
+        ma: "vn",
+        ten: "Việt Nam",
+        ngon_ngu: "vi",
+        gia: "4.590.000",
+        tien_te: "VND",
+        kha_dung: "co_hang",
+        landing_page: "/vn/giay-chay",
+        cta_nhan: "Đặt mua tại cửa hàng",
+        cta_url: "https://velocity-run.example.com/vn",
+        ds_chi_tiet: [
+          {
+            doi_tuong_id: "seed-dt-runner-thi-dau",
+            chi_tiet: "Nhóm chạy thử mỗi sáng thứ 7 tại công viên Tao Đàn.",
+          },
+          {
+            doi_tuong_id: "seed-dt-runner-phong-trao",
+            chi_tiet: "Đổi size miễn phí trong 30 ngày.",
+          },
+        ],
+        ds_nguoi_duyet: [
+          { id: "rev-vn-tam", ten: "Phạm Tâm", vai_tro: "Trưởng nhóm thị trường VN" },
+        ],
+        bat_buoc_duyet: 1,
+      },
+      tacGia,
+    ).thi_truong;
+
+    // Thị trường EU cố ý thiếu giá + khả dụng → 'chưa đủ', mọi tổ hợp
+    // cần fact đó bị chặn; ghi đè pháp lý là yêu cầu thật của đội local.
+    dongBoThiTruong(
+      db,
+      cpThMoi,
+      {
+        ma: "eu",
+        ten: "Liên minh châu Âu",
+        ngon_ngu: "en",
+        gia: "",
+        tien_te: "EUR",
+        kha_dung: "",
+        landing_page: "https://velocity-run.example.com/eu",
+        ghi_de: { phap_ly: "Cần đội pháp lý EU rà soát trước khi đăng." },
+        ds_nguoi_duyet: [
+          { id: "rev-eu-lena", ten: "Lena Fischer", vai_tro: "Marketing lead EU" },
+        ],
+      },
+      tacGia,
+    );
+
+    // Biến thể sẵn có: bài viết US đã duyệt bởi reviewer local + caption
+    // VN đang chờ duyệt — ma trận có dữ liệu ngay sau seed.
+    const tdUs = layThongDiep(db, ttUs.thong_diep_id!)!;
+    const tdVn = layThongDiep(db, ttVn.thong_diep_id!)!;
+    for (const o of NOI_DUNG_DAU_RA_THUONG_HIEU) {
+      const td = o.thi_truong === "us" ? tdUs : tdVn;
+      taoBanTheHien(
+        db,
+        {
+          thong_diep_id: td.id,
+          dinh_dang: o.dinh_dang,
+          ngon_ngu: o.ngon_ngu,
+          doi_tuong: o.doi_tuong,
+          dich_den: o.dich_den,
+        },
+        tacGia,
+        { id: o.id },
+      );
+      themRevision(
+        db,
+        {
+          ban_the_hien_id: o.id,
+          noi_dung: o.noi_dung,
+          dua_tren_revision_id: null,
+          thong_diep_revision_id: td.head_revision_id,
+        },
+        tacGia,
+      );
+      if (o.trang_thai === "nhap") continue;
+      chuyenTrangThai(db, o.id, "cho_duyet", "seed: gửi duyệt", tacGia);
+      if (o.trang_thai === "cho_duyet") continue;
+      const head = layBanTheHien(db, o.id)?.head_revision_id ?? undefined;
+      chuyenTrangThai(db, o.id, "da_duyet", "seed: duyệt", tacGia, head, o.nguoi_duyet);
+    }
+
+    daSeed.push("story_thuong_hieu_toan_cau");
+  }
+
   return { da_seed: daSeed };
 }
+
+// Nội dung story #12 (viết tay, canonical JSON theo schema định dạng):
+// bài viết US (en) đã duyệt + caption VN (vi) chờ duyệt. Giá, tiền tệ,
+// khả dụng và chi tiết đối tượng lấy nguyên văn từ fact thị trường;
+// claim 'khí động học' chưa có bằng chứng → [CÂU HỎI], không khẳng định.
+const NOI_DUNG_DAU_RA_THUONG_HIEU: {
+  id: string;
+  thi_truong: "us" | "vn";
+  dinh_dang: string;
+  doi_tuong: string;
+  dich_den: string;
+  ngon_ngu: string;
+  trang_thai: "nhap" | "cho_duyet" | "da_duyet";
+  nguoi_duyet?: string;
+  noi_dung: string;
+}[] = [
+  {
+    id: "seed-bth-th-us-bai-viet",
+    thi_truong: "us",
+    dinh_dang: "bai-viet",
+    doi_tuong: "Runner thi đấu (fixture)",
+    dich_den: "website-us",
+    ngon_ngu: "en",
+    trang_thai: "da_duyet",
+    nguoi_duyet: "rev-us-maya",
+    noi_dung: JSON.stringify({
+      tieu_de: "Velocity Run 2: energy-return cushioning for race day",
+      noi_dung: [
+        "Velocity Run 2 carries your next run.",
+        "",
+        "**United States:** Giá 189 USD — Còn hàng.",
+        "",
+        "The X-Return foam midsole returns about 80% of energy on each stride (lab measured). [CL:cl-de-dem]",
+        "Weight: 210 g (size 42). [CL:cl-trong-luong]",
+        "One-layer breathable knit upper with reflective laces.",
+        "",
+        "[CÂU HỎI] Claim 'thiết kế khí động học giảm lực cản 12%' chưa có bằng chứng nguồn (cl-khi-dong) — cần đội sản phẩm xác nhận.",
+        "",
+        "Free gait analysis at partner labs through October.",
+        "",
+        "Positioning: Giày chạy hằng ngày cho runner từ phong trào đến thi đấu.",
+        "",
+        "Shop the US store: https://velocity-run.example.com/us/run-2",
+      ].join("\n"),
+    }),
+  },
+  {
+    id: "seed-bth-th-vn-caption",
+    thi_truong: "vn",
+    dinh_dang: "caption",
+    doi_tuong: "Runner phong trào (fixture)",
+    dich_den: "facebook-vn",
+    ngon_ngu: "vi",
+    trang_thai: "cho_duyet",
+    noi_dung: JSON.stringify({
+      noi_dung: [
+        "Velocity Run 2 — giày chạy hằng ngày cho ngày chạy tiếp theo của bạn.",
+        "",
+        "**Việt Nam:** Giá 4.590.000 VND — Còn hàng.",
+        "",
+        "Đế đệm X-Return trả lại khoảng 80% năng lượng mỗi sải chạy (đo lab). [CL:cl-de-dem]",
+        "Trọng lượng 210 g (size 42). [CL:cl-trong-luong]",
+        "",
+        "[CÂU HỎI] Claim 'thiết kế khí động học giảm lực cản 12%' chưa có bằng chứng nguồn (cl-khi-dong).",
+        "",
+        "Đổi size miễn phí trong 30 ngày.",
+        "",
+        "Đặt mua tại cửa hàng: https://velocity-run.example.com/vn",
+      ].join("\n"),
+      hashtag: "#VelocityRun2 #ChayBo #GiayChay",
+    }),
+  },
+];
 
 // Ghi file fixture ảnh vào kho byte local + một dòng asset (đường
 // service luuAsset là async; seed chạy đồng bộ nên ghi file đồng bộ —

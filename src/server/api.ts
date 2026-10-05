@@ -172,6 +172,27 @@ import {
   laCongQuyen,
   laCuTheoNguon,
 } from "../modules/cong_quyen/index.ts";
+import {
+  chonToHop,
+  damBaoMoiThongDiepThiTruong,
+  damBaoThongDiepThiTruong,
+  docGiongVan,
+  docThuongHieuView,
+  dongBoNguonThuongHieu,
+  dongBoThiTruong,
+  duyetNhieu,
+  goiYThuongHieu,
+  kiemTraCongDuyetThiTruong,
+  kiemTraDsAssetHinh,
+  kiemTraDsClaim,
+  kiemTraNhapThiTruong,
+  laThuongHieu,
+  xemTruocToHop,
+} from "../modules/thuong_hieu/index.ts";
+import {
+  danhSachThiTruong,
+  layThiTruong,
+} from "../modules/content/index.ts";
 import { LOAI_JOB_HO_TRO } from "../modules/jobs/handlers.ts";
 import {
   DANH_SACH_LOAI_THAY_DOI,
@@ -395,6 +416,15 @@ function docLoaiCampaign(v: unknown, dsLoi: string[]): string | undefined {
 // release → 'phat_hanh'; có field số báo → 'so_bao'; còn lại campaign
 // thường.
 function inferLoaiCampaign(body: Record<string, unknown>): string {
+  // Thương hiệu (#12): key riêng ds_claim/giong_van/ds_asset_hinh không
+  // đụng loại khác — kiểm trước để campaign mới suy đúng loại.
+  if (
+    body.ds_claim !== undefined ||
+    body.giong_van !== undefined ||
+    body.ds_asset_hinh !== undefined
+  ) {
+    return "thuong_hieu";
+  }
   if (
     body.pham_vi_quyen_han !== undefined ||
     body.ngay_hieu_luc !== undefined ||
@@ -915,6 +945,11 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       const dsNgoaiLe = kiemTraDsNgoaiLe(c.db, body.ds_ngoai_le, dsLoi, dsYeuCau) ?? [];
       const dsFactVanHanh = kiemTraDsFactVanHanh(c.db, body.ds_fact_van_hanh, dsLoi) ?? [];
       const dsNguoiDuyet = kiemTraDsNguoiDuyet(body.ds_nguoi_duyet, dsLoi) ?? [];
+      // Field thương hiệu (#12): claim đã duyệt + giọng văn + asset hình
+      // — con trỏ bằng chứng/asset phải đúng trước mọi mutation.
+      const dsClaim = kiemTraDsClaim(c.db, body.ds_claim, dsLoi) ?? [];
+      const giongVan = docGiongVan(body.giong_van, dsLoi) ?? "";
+      const dsAssetHinh = kiemTraDsAssetHinh(c.db, body.ds_asset_hinh, dsLoi) ?? [];
       nemLoiValidation(dsLoi);
       const cp = taoCampaign(
         c.db,
@@ -975,6 +1010,11 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
         dongBoNguonCongQuyen(c.db, cp, c.actor);
         damBaoThongDiepCongQuyen(c.db, cp, c.actor);
       }
+      // Thương hiệu (#12): chiếu fact chung thành nguồn 'th-*' tự động;
+      // thông điệp tạo theo thị trường khi thêm thị trường đầu tiên.
+      if (laThuongHieu(cp)) {
+        dongBoNguonThuongHieu(c.db, cp, c.actor);
+      }
       return ok(layCampaign(c.db, cp.id)!, 201);
     }),
     route("GET", "/api/phat-hanh", (_req, _p, c) =>
@@ -986,6 +1026,9 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
     route("GET", "/api/cong-quyen", (_req, _p, c) =>
       ok(danhSachCampaign(c.db).filter(laCongQuyen)),
     ),
+    route("GET", "/api/thuong-hieu", (_req, _p, c) =>
+      ok(danhSachCampaign(c.db).filter(laThuongHieu)),
+    ),
     route("GET", "/api/campaign/:id", (_req, p, c) => {
       const cp = layCampaign(c.db, p.id!);
       if (!cp) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy campaign.");
@@ -993,6 +1036,7 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       const ph = laPhatHanh(cp);
       const gq = laGayQuy(cp);
       const cq = laCongQuyen(cp);
+      const th = laThuongHieu(cp);
       // View phái sinh theo loại campaign: bản phát hành có đề xuất đầu ra
       // theo đối tượng + fact/giới hạn/CTA; chiến dịch gây quỹ có tác
       // động/trích dẫn/ghi chú quyền; công quyền có cổng review thẩm
@@ -1017,7 +1061,9 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
             ? goiYGayQuy(c.db, cp)
             : cq
               ? goiYCongQuyen(c.db, cp)
-              : goiYKhoangTrong(c.db, cp),
+              : th
+                ? goiYThuongHieu(c.db, cp)
+                : goiYKhoangTrong(c.db, cp),
         tien_do: tienDoSoBao(c.db, cp),
         hang_cho: danhSachBanTheHien(c.db, { campaignId: cp.id, trangThai: "cho_duyet" }),
         phat_hanh: ph
@@ -1050,6 +1096,9 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
         // quyền — fact ràng buộc kèm bằng chứng, điều khoản mơ hồ, nhóm
         // đầu ra cũ theo đích và revision chính sách mỗi đầu ra đang ghim.
         cong_quyen: cq ? docCongQuyenView(c.db, cp) : null,
+        // Ma trận biến thể theo thị trường (#12): trạng thái review,
+        // ngoại lệ ghi đè, fact thiếu (chưa đủ), cờ cũ theo nguồn.
+        thuong_hieu: th ? docThuongHieuView(c.db, cp) : null,
       });
     }),
     route("PUT", "/api/campaign/:id", async (req, p, c) => {
@@ -1108,6 +1157,11 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       );
       const dsFactVanHanh = kiemTraDsFactVanHanh(c.db, body.ds_fact_van_hanh, dsLoi);
       const dsNguoiDuyet = kiemTraDsNguoiDuyet(body.ds_nguoi_duyet, dsLoi);
+      // Field thương hiệu (#12): absent → giữ giá trị đã lưu; có mặt →
+      // validate đầy đủ (con trỏ bằng chứng + asset).
+      const dsClaim = kiemTraDsClaim(c.db, body.ds_claim, dsLoi);
+      const giongVan = docGiongVan(body.giong_van, dsLoi);
+      const dsAssetHinh = kiemTraDsAssetHinh(c.db, body.ds_asset_hinh, dsLoi);
       // Số tiền có mà thiếu tiền tệ: chỉ lỗi khi cặp kết quả vẫn thiếu
       // tien_te (PUT gửi so_tien mà không gửi tien_te → giữ tien_te cũ).
       const tienTeKetQua = tienTe !== undefined ? tienTe : cu.tien_te;
@@ -1161,6 +1215,9 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
           ds_ngoai_le: dsNgoaiLe,
           ds_fact_van_hanh: dsFactVanHanh,
           ds_nguoi_duyet: dsNguoiDuyet,
+          ds_claim: dsClaim,
+          giong_van: giongVan,
+          ds_asset_hinh: dsAssetHinh,
         },
         c.actor,
       );
@@ -1194,6 +1251,16 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
           phatHien = phatHienThayDoiNguon(c.db, sync.nguon.id, c.actor);
         }
         damBaoThongDiepCongQuyen(c.db, cp, c.actor);
+      }
+      // Thương hiệu (#12): sửa claim chung → revision nguồn chung mới →
+      // #14 đánh dấu biến thể phụ thuộc trên MỌI thị trường (thông điệp
+      // mỗi thị trường đều pin nguồn chung). phatHien trước, repin sau.
+      if (laThuongHieu(cp)) {
+        const sync = dongBoNguonThuongHieu(c.db, cp, c.actor);
+        if (sync.da_doi) {
+          phatHien = phatHienThayDoiNguon(c.db, sync.nguon.id, c.actor);
+        }
+        damBaoMoiThongDiepThiTruong(c.db, cp, c.actor);
       }
       return ok({ ...layCampaign(c.db, cp.id)!, phat_hien: phatHien });
     }),
@@ -1235,6 +1302,88 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
     route("DELETE", "/api/campaign/:id", (_req, p, c) => {
       xoaCampaign(c.db, p.id!);
       return ok({ da_xoa: true });
+    }),
+    // --- Thị trường của chiến dịch thương hiệu (#12) ---
+    // Thêm/sửa thị trường: validate đầy đủ trước mọi mutation → đồng bộ
+    // nguồn fact thị trường (revision mới khi field đổi) → #14 đánh dấu
+    // đúng biến thể của thị trường → repin thông điệp riêng.
+    route("POST", "/api/campaign/:id/thi-truong", async (req, p, c) => {
+      const cp = layCampaign(c.db, p.id!);
+      if (!cp) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy campaign.");
+      if (!laThuongHieu(cp)) {
+        loiRequest(400, "VALIDATION", "Chỉ campaign loai 'thuong_hieu' mới có thị trường.");
+      }
+      const body = await docBody(req);
+      const dsLoi: string[] = [];
+      const nhap = kiemTraNhapThiTruong(c.db, cp, body, dsLoi);
+      nemLoiValidation(dsLoi);
+      const { thi_truong, da_doi } = dongBoThiTruong(c.db, cp, nhap!, c.actor);
+      let phatHien = null;
+      if (da_doi) {
+        phatHien = phatHienThayDoiNguon(c.db, thi_truong.nguon_id, c.actor);
+      }
+      return ok({ ...thi_truong, phat_hien: phatHien }, 201);
+    }),
+    route("PUT", "/api/campaign/:id/thi-truong/:ttId", async (req, p, c) => {
+      const cp = layCampaign(c.db, p.id!);
+      if (!cp) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy campaign.");
+      if (!laThuongHieu(cp)) {
+        loiRequest(400, "VALIDATION", "Chỉ campaign loai 'thuong_hieu' mới có thị trường.");
+      }
+      const cu = layThiTruong(c.db, p.ttId!);
+      if (!cu || cu.campaign_id !== cp.id) {
+        loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy thị trường của chiến dịch này.");
+      }
+      const body = await docBody(req);
+      const dsLoi: string[] = [];
+      const nhap = kiemTraNhapThiTruong(c.db, cp, body, dsLoi, cu);
+      nemLoiValidation(dsLoi);
+      const { thi_truong, da_doi } = dongBoThiTruong(c.db, cp, nhap!, c.actor, cu);
+      // Đổi fact local → revision nguồn thị trường mới → #14 chỉ đánh dấu
+      // biến thể của ĐÚNG thị trường này (thị trường khác pin nguồn riêng).
+      let phatHien = null;
+      if (da_doi) {
+        phatHien = phatHienThayDoiNguon(c.db, thi_truong.nguon_id, c.actor);
+      }
+      // Repin thông điệp riêng để lần sinh sau đọc head nguồn mới.
+      damBaoThongDiepThiTruong(c.db, cp, thi_truong, c.actor);
+      return ok({ ...thi_truong, phat_hien: phatHien });
+    }),
+    route("GET", "/api/campaign/:id/thi-truong", (_req, p, c) => {
+      const cp = layCampaign(c.db, p.id!);
+      if (!cp) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy campaign.");
+      return ok(danhSachThiTruong(c.db, cp.id));
+    }),
+    // Xem trước quy mô + chi phí ước tính của một lô tổ hợp: tổng số,
+    // trạng thái từng tổ hợp (san_sang/da_co/bi_chan), chi phí chỉ khi
+    // pricing provider được cấu hình thật — giới hạn ai.toi_da_fan_out.
+    route("POST", "/api/campaign/:id/to-hop/xem-truoc", async (req, p, c) => {
+      const cp = layCampaign(c.db, p.id!);
+      if (!cp) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy campaign.");
+      const body = await docBody(req);
+      return ok(
+        xemTruocToHop(c.db, cp, body.ds_chon, {
+          toiDa: c.ai.toi_da_fan_out ?? 8,
+          giaMoi1kVao: c.ai.gia_moi_1k_token_vao ?? null,
+          giaMoi1kRa: c.ai.gia_moi_1k_token_ra ?? null,
+        }),
+      );
+    }),
+    // Chọn tổ hợp đích danh → tạo/tìm biến thể + enqueue job sinh. Chỉ
+    // tổ hợp đã chọn mới sinh; thị trường chưa đủ fact → tổ hợp bị chặn.
+    route("POST", "/api/campaign/:id/to-hop", async (req, p, c) => {
+      const cp = layCampaign(c.db, p.id!);
+      if (!cp) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy campaign.");
+      const body = await docBody(req);
+      return ok(chonToHop(c.db, cp, body.ds_chon, c.actor, c.ai.toi_da_fan_out ?? 8), 201);
+    }),
+    // Duyệt hàng loạt biến thể đã chọn: mỗi mục ghim đúng revision head
+    // và reviewer local của thị trường sở hữu — kết quả per-item.
+    route("POST", "/api/campaign/:id/duyet", async (req, p, c) => {
+      const cp = layCampaign(c.db, p.id!);
+      if (!cp) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy campaign.");
+      const body = await docBody(req);
+      return ok(duyetNhieu(c.db, cp, body.ds, c.actor));
     }),
 
     // --- Thông điệp chuẩn ---
@@ -1725,14 +1874,14 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
       const tdTt = bthTt ? layThongDiep(c.db, bthTt.thong_diep_id) : null;
       const cpTt = tdTt?.campaign_id ? layCampaign(c.db, tdTt.campaign_id) : null;
       if (nguoiDuyetId) {
-        if (!cpTt || !laCongQuyen(cpTt)) {
+        if (!cpTt || (!laCongQuyen(cpTt) && !laThuongHieu(cpTt))) {
           throw new LoiApi(
             400,
             "VALIDATION",
-            "nguoi_duyet_id chỉ áp dụng cho đầu ra của campaign công quyền.",
+            "nguoi_duyet_id chỉ áp dụng cho đầu ra của campaign công quyền hoặc thương hiệu.",
           );
         }
-        if (!cpTt.ds_nguoi_duyet.some((x) => x.id === nguoiDuyetId)) {
+        if (laCongQuyen(cpTt) && !cpTt.ds_nguoi_duyet.some((x) => x.id === nguoiDuyetId)) {
           throw new LoiApi(
             400,
             "VALIDATION",
@@ -1755,6 +1904,13 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
             "Chế độ bảo vệ bật: duyệt công quyền phải ghi nguoi_duyet_id của reviewer trong ds_nguoi_duyet.",
           );
         }
+      }
+      // Thương hiệu (#12): duyệt biến thể của một thị trường áp ràng buộc
+      // review LOCAL của thị trường đó — reviewer phải nằm trong
+      // ds_nguoi_duyet của thị trường, bat_buoc_duyet=1 bắt buộc ghi, và
+      // đầu ra ghim nguồn cũ không được duyệt (phải có revision mới).
+      if (cpTt && laThuongHieu(cpTt) && den === "da_duyet" && bthTt) {
+        kiemTraCongDuyetThiTruong(c.db, bthTt, nguoiDuyetId);
       }
       return ok(
         chuyenTrangThai(
