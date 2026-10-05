@@ -226,6 +226,7 @@ import {
   thuLaiGiaoHang,
   xemTruocGiao,
 } from "../modules/kenh/index.ts";
+import { docDoiTuongGiao } from "../modules/kenh/audience.ts";
 import {
   baoCaoKetQua,
   chapNhanGoiY,
@@ -2417,7 +2418,9 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
     route("GET", "/api/giao-hang/:id", (_req, p, c) => {
       const giao = layGiaoHang(c.db, p.id!);
       if (!giao) loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy lần giao.");
-      return ok(giao);
+      // #68: snapshot audience đã resolve (rỗng khi không có segment) —
+      // audit giữ nguyên sau giao.
+      return ok({ ...giao, doi_tuong: docDoiTuongGiao(c.db, p.id!) });
     }),
 
     // Hủy trước khi gửi: chỉ 'cho_giao' (kể cả đã lên lịch) hủy được —

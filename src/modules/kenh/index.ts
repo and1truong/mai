@@ -20,6 +20,7 @@ import {
   danhSachXuatBan,
   ghiSuKien,
   layBanTheHien,
+  layCampaign,
   layRevision,
   layThongDiep,
   xuatBanBanTheHien,
@@ -27,6 +28,7 @@ import {
   type Revision,
   type ThongDiep,
 } from "../content/index.ts";
+import { damBaoAudienceGiao } from "./audience.ts";
 import {
   docNoiDung,
   layDinhDang,
@@ -303,15 +305,25 @@ function adapterEmail(cauHinh: Required<CauHinhKenh>): AdapterKenh {
         }
         dsDen = [{ id: "", email: test, urlHuy: "" }];
       } else {
-        const tatCa = danhSachNguoiNhanRaw(yc.db);
-        const dangKy = tatCa.filter((n) => n.trang_thai === "dang_ky");
-        // Suppression: đã hủy đăng ký không bao giờ nằm trong danh sách gửi.
-        soBoQua = tatCa.length - dangKy.length;
-        dsDen = dangKy.map((n) => ({
-          id: n.id,
-          email: n.email,
-          urlHuy: `${cauHinh.url_goc}/huy-dang-ky?token=${n.token_huy}`,
-        }));
+        // #68: audience resolve từ segment (snapshot trong chi_tiet lúc
+        // giao) thay danh bạ nguoi_nhan mặc định.
+        const audience = Array.isArray(yc.giao.chi_tiet.audience)
+          ? (yc.giao.chi_tiet.audience as { id: string; email: string; urlHuy: string }[])
+          : null;
+        if (audience) {
+          dsDen = audience;
+          soBoQua = Number(yc.giao.chi_tiet.audience_bo_qua) || 0;
+        } else {
+          const tatCa = danhSachNguoiNhanRaw(yc.db);
+          const dangKy = tatCa.filter((n) => n.trang_thai === "dang_ky");
+          // Suppression: đã hủy đăng ký không bao giờ nằm trong danh sách gửi.
+          soBoQua = tatCa.length - dangKy.length;
+          dsDen = dangKy.map((n) => ({
+            id: n.id,
+            email: n.email,
+            urlHuy: `${cauHinh.url_goc}/huy-dang-ky?token=${n.token_huy}`,
+          }));
+        }
       }
       if (dsDen.length === 0) {
         throw new LoiApi(400, "VALIDATION", "Không có người nhận nào đang đăng ký.");
@@ -1126,6 +1138,29 @@ export function taoHandlerGiaoKenh(cauHinhRaw: CauHinhKenh | undefined): JobHand
     const adapter = layAdapter(cauHinhRaw, giao.kenh);
     if (!adapter?.gui) {
       throw new LoiVinhVien(`Kênh '${giao.kenh}' không hỗ trợ đăng.`);
+    }
+
+    // #68: campaign gắn segment → resolve audience tại thời điểm gửi
+    // (sau kiểm duyệt — chưa duyệt không tới đây) + snapshot
+    // doi_tuong_giao ghi một lần; retry job đọc lại snapshot.
+    const campaign = thongDiep.campaign_id
+      ? layCampaign(ctx.db, thongDiep.campaign_id)
+      : null;
+    if (campaign?.segment_id && giao.kenh === "email") {
+      const audience = damBaoAudienceGiao(
+        ctx.db,
+        giaoId,
+        campaign.segment_id,
+        giao.kenh,
+        cauHinh.url_goc ?? "",
+      );
+      if (audience) {
+        ghiChiTietGiao(ctx.db, giaoId, {
+          audience: audience.ds_gui,
+          audience_bo_qua: audience.so_bo_qua,
+          audience_segment_id: audience.segment_id,
+        });
+      }
     }
 
     ctx.baoTienDo({ buoc: "gui", kenh: giao.kenh });
