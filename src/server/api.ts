@@ -277,15 +277,19 @@ import {
   DANH_SACH_LOAI_TUONG_TAC,
   danhSachDinhDanh,
   danhSachKhach,
+  danhSachChuyenDoi,
   datDongY,
   docDongY,
   dongBoNguoiNhan,
   ganDinhDanh,
+  ghiChuyenDoi,
   ghiTuongTac,
   layKhach,
+  quyVeCuaKhach,
   resolveKhach,
   taoKhach,
   timelineKhach,
+  type Khach,
   type NhapDinhDanh,
 } from "../modules/khach/index.ts";
 import type { CauHinhAi, CauHinhBaoMat, CauHinhKenh } from "../config.ts";
@@ -2797,6 +2801,83 @@ export function taoApi(ctx: ApiCtx): (req: Request) => Promise<Response> {
         loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy khách hàng.");
       }
       return ok(docDongY(c.db, p.id!));
+    }),
+
+    // Ticket #63: conversion + attribution. nguon + khoa_idem bắt buộc;
+    // tien_te bắt buộc khi có gia_tri; person resolve qua dinh_danh hoặc
+    // khach_id, thiếu cả hai → unattributed vẫn INSERT (không ép gán).
+    route("POST", "/api/khach/chuyen-doi", async (req, _p, c) => {
+      const body = await docBody(req);
+      const dsLoi: string[] = [];
+      const khachId = tuyChonChuoi(body.khach_id);
+      const ddRaw = body.dinh_danh;
+      const coDinhDanh =
+        typeof ddRaw === "object" && ddRaw !== null && !Array.isArray(ddRaw);
+      if (khachId && !layKhach(c.db, khachId)) {
+        dsLoi.push(`khach_id '${khachId}' không tồn tại.`);
+      }
+      const banTheHienId = tuyChonChuoi(body.ban_the_hien_id);
+      if (banTheHienId && !layBanTheHien(c.db, banTheHienId)) {
+        dsLoi.push(`ban_the_hien_id '${banTheHienId}' không tồn tại.`);
+      }
+      const campaignId = tuyChonChuoi(body.campaign_id);
+      if (campaignId && !layCampaign(c.db, campaignId)) {
+        dsLoi.push(`campaign_id '${campaignId}' không tồn tại.`);
+      }
+      nemLoiValidation(dsLoi);
+      return txn(c.db, () => {
+        let personId: string | null = khachId || null;
+        let khach: Khach | null = null;
+        if (!personId && coDinhDanh) {
+          const kq = resolveKhach(c.db, [ddRaw as NhapDinhDanh], {}, c.actor);
+          personId = kq.khach.id;
+          khach = kq.khach;
+        } else if (personId) {
+          khach = layKhach(c.db, personId);
+        }
+        const kq = ghiChuyenDoi(c.db, {
+          khach_id: personId,
+          loai: tuyChonChuoi(body.loai),
+          gia_tri: typeof body.gia_tri === "number" ? body.gia_tri : undefined,
+          tien_te: tuyChonChuoi(body.tien_te) || undefined,
+          nguon: tuyChonChuoi(body.nguon),
+          xay_ra_luc: tuyChonChuoi(body.xay_ra_luc) || undefined,
+          khoa_idem: tuyChonChuoi(body.khoa_idem),
+          ban_the_hien_id: banTheHienId || undefined,
+          campaign_id: campaignId || undefined,
+          don_hang_ngoai_id: tuyChonChuoi(body.don_hang_ngoai_id) || undefined,
+          chi_tiet: tuyChonObject(body.chi_tiet),
+        });
+        return ok(
+          {
+            chuyen_doi: { ...kq.chuyen_doi, chi_tiet: JSON.parse(kq.chuyen_doi.chi_tiet) },
+            quy_ve: kq.quy_ve,
+            khach,
+            da_tao: kq.da_tao,
+          },
+          kq.da_tao ? 201 : 200,
+        );
+      });
+    }),
+    // Liệt kê conversion; ?chua_gan=1 → chỉ unattributed (không ép gán).
+    route("GET", "/api/chuyen-doi", (req, _p, c) => {
+      const q = new URL(req.url).searchParams;
+      const ds = danhSachChuyenDoi(c.db, { chua_gan: q.get("chua_gan") === "1" });
+      return ok({
+        ds_chuyen_doi: ds.map((d) => ({ ...d, chi_tiet: JSON.parse(d.chi_tiet) as unknown })),
+        tong: ds.length,
+      });
+    }),
+    route("GET", "/api/khach/:id/quy-ve", (_req, p, c) => {
+      if (!layKhach(c.db, p.id!)) {
+        loiRequest(404, "KHONG_TIM_THAY", "Không tìm thấy khách hàng.");
+      }
+      return ok({
+        ds: quyVeCuaKhach(c.db, p.id!).map((x) => ({
+          chuyen_doi: { ...x.chuyen_doi, chi_tiet: JSON.parse(x.chuyen_doi.chi_tiet) as unknown },
+          quy_ve: x.quy_ve,
+        })),
+      });
     }),
 
     // --- Job ---

@@ -455,11 +455,10 @@ export function ghiTuongTac(
       .get(khoaIdem) as TuongTac;
     return { su_kien: cu, da_tao: false };
   }
+  const moi = db.query("SELECT * FROM tuong_tac WHERE id = ?").get(id) as TuongTac;
+  chamDauTien(db, moi);
   chamKhach(db, nhap.khach_id, xayRaLuc);
-  return {
-    su_kien: db.query("SELECT * FROM tuong_tac WHERE id = ?").get(id) as TuongTac,
-    da_tao: true,
-  };
+  return { su_kien: moi, da_tao: true };
 }
 
 // Timeline theo person: sắp xếp thời gian tăng dần (rowid làm tie-break
@@ -727,4 +726,277 @@ export function dongBoNguoiNhan(
     khoa_idem: `nb:${nhap.huong}:${emailChuan}`,
   });
   return { khach_id: kq.khach.id, da_tao_su_kien: sk.da_tao };
+}
+
+// --- Conversion + attribution (ticket #63) ---
+// chuyen_doi: business outcome; khach_id nullable — unattributed vẫn giữ,
+// không ép gán. quy_ve: kết quả theo model LƯU CÙNG record — first_touch và
+// last_touch tính cùng lúc khi ghi; không touch nào → loai_dich 'khong_ro'
+// + do_tin 'khong_chac', không bịa. Currency không bao giờ quy đổi.
+
+export const DANH_SACH_LOAI_CHUYEN_DOI = [
+  "mua",
+  "ung_ho",
+  "dang_ky",
+  "khac",
+] as const;
+export type LoaiChuyenDoi = (typeof DANH_SACH_LOAI_CHUYEN_DOI)[number];
+export const DANH_SACH_MO_HINH = ["first_touch", "last_touch"] as const;
+export type MoHinhQuyVe = (typeof DANH_SACH_MO_HINH)[number];
+
+export type ChuyenDoi = {
+  id: string;
+  khach_id: string | null;
+  loai: LoaiChuyenDoi;
+  gia_tri: number | null;
+  tien_te: string;
+  nguon: string;
+  xay_ra_luc: string;
+  khoa_idem: string;
+  ban_the_hien_id: string;
+  campaign_id: string;
+  don_hang_ngoai_id: string;
+  chi_tiet: string;
+  tao_luc: string;
+};
+
+export type QuyVe = {
+  id: string;
+  chuyen_doi_id: string;
+  khach_id: string | null;
+  mo_hinh: MoHinhQuyVe;
+  loai_dich: string; // campaign | link_dich | ban_the_hien | giao_hang | nguon | khong_ro
+  dich_id: string;
+  do_tin: string; // chac | khong_chac
+  tao_luc: string;
+};
+
+export type NhapChuyenDoi = {
+  khach_id?: string | null;
+  loai: string;
+  gia_tri?: number | null;
+  tien_te?: string;
+  nguon: string;
+  xay_ra_luc?: string;
+  khoa_idem: string;
+  ban_the_hien_id?: string;
+  campaign_id?: string;
+  don_hang_ngoai_id?: string;
+  chi_tiet?: Record<string, unknown>;
+};
+
+// Touch = interaction có tham chiếu attribution. Thứ tự ưu tiên khi rút
+// đích: campaign → link_dich → ban_the_hien → giao_hang (campaign là cấp
+// marketing cao nhất; link_dich là click trên link theo dõi).
+function dichTuRefs(r: {
+  campaign_id?: string;
+  link_dich_id?: string;
+  ban_the_hien_id?: string;
+  giao_hang_id?: string;
+}): { loai_dich: string; dich_id: string } {
+  if (r.campaign_id) return { loai_dich: "campaign", dich_id: r.campaign_id };
+  if (r.link_dich_id) return { loai_dich: "link_dich", dich_id: r.link_dich_id };
+  if (r.ban_the_hien_id) return { loai_dich: "ban_the_hien", dich_id: r.ban_the_hien_id };
+  if (r.giao_hang_id) return { loai_dich: "giao_hang", dich_id: r.giao_hang_id };
+  return { loai_dich: "", dich_id: "" };
+}
+
+// First-touch: ghi MỘT LẦN khi person có interaction đầu tiên mang
+// tham chiếu attribution. INSERT OR IGNORE — event sau không ghi đè
+// (bất biến; chỉ tính lại khi dữ liệu gốc sửa — giới hạn POC ghi trong
+// conventions). Gọi từ ghiTuongTac sau khi insert thành công.
+function chamDauTien(db: Database, sk: TuongTac): void {
+  const dich = dichTuRefs(sk);
+  if (!dich.loai_dich) return; // event không mang ref → không phải touch
+  db.query(
+    `INSERT OR IGNORE INTO dau_cham_dau
+     (khach_id, tuong_tac_id, xay_ra_luc, campaign_id, link_dich_id,
+      ban_the_hien_id, giao_hang_id, nguon)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    sk.khach_id,
+    sk.id,
+    sk.xay_ra_luc,
+    sk.campaign_id,
+    sk.link_dich_id,
+    sk.ban_the_hien_id,
+    sk.giao_hang_id,
+    sk.nguon,
+  );
+}
+
+export function layDauChamDau(
+  db: Database,
+  khachId: string,
+): { tuong_tac_id: string; xay_ra_luc: string; campaign_id: string; link_dich_id: string; ban_the_hien_id: string; giao_hang_id: string; nguon: string } | null {
+  return db
+    .query("SELECT * FROM dau_cham_dau WHERE khach_id = ?")
+    .get(khachId) as never;
+}
+
+// Tính hai model attribution cho một conversion (gọi trong txn ghi).
+// first_touch = dau_cham_dau của person; last_touch = conversion's own
+// refs nếu có, không thì interaction gần nhất trước conversion có ref;
+// cuối cùng fallback nguon của interaction đó (khong_chac). Không person
+// và không ref trên conversion → hai row khong_ro/khong_chac.
+function tinhQuyVe(
+  db: Database,
+  cd: ChuyenDoi,
+): { mo_hinh: MoHinhQuyVe; loai_dich: string; dich_id: string; do_tin: string }[] {
+  const ds: { mo_hinh: MoHinhQuyVe; loai_dich: string; dich_id: string; do_tin: string }[] = [];
+  // --- first_touch ---
+  const dau = cd.khach_id ? layDauChamDau(db, cd.khach_id) : null;
+  if (dau) {
+    const dich = dichTuRefs(dau);
+    ds.push({ mo_hinh: "first_touch", loai_dich: dich.loai_dich, dich_id: dich.dich_id, do_tin: "chac" });
+  } else {
+    ds.push({ mo_hinh: "first_touch", loai_dich: "khong_ro", dich_id: "", do_tin: "khong_chac" });
+  }
+  // --- last_touch ---
+  const trucTiep = dichTuRefs(cd);
+  if (trucTiep.loai_dich) {
+    // Conversion tự mang ref (vd đơn hàng gắn campaign) → chắc chắn.
+    ds.push({ mo_hinh: "last_touch", loai_dich: trucTiep.loai_dich, dich_id: trucTiep.dich_id, do_tin: "chac" });
+  } else if (cd.khach_id) {
+    const gan = db
+      .query(
+        `SELECT * FROM tuong_tac WHERE khach_id = ? AND xay_ra_luc <= ?
+         ORDER BY xay_ra_luc DESC, rowid DESC LIMIT 1`,
+      )
+      .get(cd.khach_id, cd.xay_ra_luc) as TuongTac | null;
+    if (gan) {
+      const dich = dichTuRefs(gan);
+      if (dich.loai_dich) {
+        ds.push({ mo_hinh: "last_touch", loai_dich: dich.loai_dich, dich_id: dich.dich_id, do_tin: "chac" });
+      } else {
+        // Event gần nhất không mang ref → quy về nguồn của nó, mức
+        // tin cậy thấp hơn (nguon chỉ là provenance, không phải ref).
+        ds.push({ mo_hinh: "last_touch", loai_dich: "nguon", dich_id: gan.nguon, do_tin: "khong_chac" });
+      }
+    } else {
+      ds.push({ mo_hinh: "last_touch", loai_dich: "khong_ro", dich_id: "", do_tin: "khong_chac" });
+    }
+  } else {
+    ds.push({ mo_hinh: "last_touch", loai_dich: "khong_ro", dich_id: "", do_tin: "khong_chac" });
+  }
+  return ds;
+}
+
+// Ghi conversion: idempotent theo khoa_idem (delivery lặp trả record cũ);
+// person nullable — unattributed vẫn INSERT. Validation: tien_te bắt
+// buộc khi gia_tri có (và ngược lại không lẻ), gia_tri phải là số ≥ 0.
+export function ghiChuyenDoi(
+  db: Database,
+  nhap: NhapChuyenDoi,
+): { chuyen_doi: ChuyenDoi; quy_ve: QuyVe[]; da_tao: boolean } {
+  const dsLoi: string[] = [];
+  if (!(DANH_SACH_LOAI_CHUYEN_DOI as readonly string[]).includes(nhap.loai)) {
+    dsLoi.push(`loai không hợp lệ. Cho phép: ${DANH_SACH_LOAI_CHUYEN_DOI.join(", ")}.`);
+  }
+  const nguon = tuyChonChuoi(nhap.nguon);
+  if (!nguon) dsLoi.push("nguon là bắt buộc (provenance của conversion).");
+  const khoaIdem = tuyChonChuoi(nhap.khoa_idem);
+  if (!khoaIdem) dsLoi.push("khoa_idem là bắt buộc (khử trùng delivery lặp).");
+  const coGiaTri = nhap.gia_tri !== undefined && nhap.gia_tri !== null;
+  if (coGiaTri && (typeof nhap.gia_tri !== "number" || !Number.isFinite(nhap.gia_tri) || nhap.gia_tri < 0)) {
+    dsLoi.push("gia_tri phải là số ≥ 0.");
+  }
+  const tienTe = tuyChonChuoi(nhap.tien_te).toUpperCase();
+  if (coGiaTri && !tienTe) dsLoi.push("tien_te là bắt buộc khi có gia_tri.");
+  if (!coGiaTri && tienTe) dsLoi.push("tien_te không có nghĩa khi gia_tri trống.");
+  if (tienTe && !/^[A-Z]{3}$/.test(tienTe)) {
+    dsLoi.push("tien_te phải là mã 3 ký tự (vd VND, USD).");
+  }
+  let xayRaLuc = tuyChonChuoi(nhap.xay_ra_luc);
+  if (xayRaLuc) {
+    const t = Date.parse(xayRaLuc);
+    if (!Number.isFinite(t)) {
+      dsLoi.push("xay_ra_luc không phải thời điểm hợp lệ (ISO 8601).");
+      xayRaLuc = "";
+    } else {
+      xayRaLuc = new Date(t).toISOString();
+    }
+  }
+  nemLoiValidation(dsLoi);
+  if (!xayRaLuc) xayRaLuc = bayGio();
+  return txn(db, () => {
+    const id = crypto.randomUUID();
+    const kq = db
+      .query(
+        `INSERT OR IGNORE INTO chuyen_doi
+         (id, khach_id, loai, gia_tri, tien_te, nguon, xay_ra_luc, khoa_idem,
+          ban_the_hien_id, campaign_id, don_hang_ngoai_id, chi_tiet, tao_luc)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        nhap.khach_id ?? null,
+        nhap.loai,
+        coGiaTri ? nhap.gia_tri! : null,
+        tienTe,
+        nguon,
+        xayRaLuc,
+        khoaIdem,
+        tuyChonChuoi(nhap.ban_the_hien_id),
+        tuyChonChuoi(nhap.campaign_id),
+        tuyChonChuoi(nhap.don_hang_ngoai_id),
+        JSON.stringify(nhap.chi_tiet ?? {}),
+        bayGio(),
+      );
+    if (kq.changes === 0) {
+      const cu = db
+        .query("SELECT * FROM chuyen_doi WHERE khoa_idem = ?")
+        .get(khoaIdem) as ChuyenDoi;
+      const qvCu = db
+        .query("SELECT * FROM quy_ve WHERE chuyen_doi_id = ? ORDER BY mo_hinh")
+        .all(cu.id) as QuyVe[];
+      return { chuyen_doi: cu, quy_ve: qvCu, da_tao: false };
+    }
+    const cd = db.query("SELECT * FROM chuyen_doi WHERE id = ?").get(id) as ChuyenDoi;
+    if (cd.khach_id) chamKhach(db, cd.khach_id, xayRaLuc);
+    const dsQv = tinhQuyVe(db, cd).map((qv) => {
+      const rid = crypto.randomUUID();
+      db.query(
+        `INSERT INTO quy_ve (id, chuyen_doi_id, khach_id, mo_hinh, loai_dich, dich_id, do_tin, tao_luc)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(rid, cd.id, cd.khach_id, qv.mo_hinh, qv.loai_dich, qv.dich_id, qv.do_tin, bayGio());
+      return { id: rid, chuyen_doi_id: cd.id, khach_id: cd.khach_id, ...qv, tao_luc: bayGio() };
+    });
+    ghiSuKien(db, "chuyen_doi", cd.id, "ghi", {
+      loai: cd.loai,
+      nguon: cd.nguon,
+      khach_id: cd.khach_id,
+    }, cd.nguon);
+    return { chuyen_doi: cd, quy_ve: dsQv, da_tao: true };
+  });
+}
+
+// Attribution của một person: mỗi conversion kèm 2 row quy_ve
+// (first_touch + last_touch). Conversion không touch nào → quy_ve vẫn có
+// 2 row với loai_dich 'khong_ro' + do_tin 'khong_chac' — không bịa.
+export function quyVeCuaKhach(
+  db: Database,
+  khachId: string,
+): { chuyen_doi: ChuyenDoi; quy_ve: QuyVe[] }[] {
+  const ds = db
+    .query("SELECT * FROM chuyen_doi WHERE khach_id = ? ORDER BY xay_ra_luc, rowid")
+    .all(khachId) as ChuyenDoi[];
+  return ds.map((cd) => ({
+    chuyen_doi: cd,
+    quy_ve: db
+      .query("SELECT * FROM quy_ve WHERE chuyen_doi_id = ? ORDER BY mo_hinh")
+      .all(cd.id) as QuyVe[],
+  }));
+}
+
+// Liệt kê conversion; chua_gan=true → chỉ conversion chưa gán person
+// (hàng chờ cho merge/backfill sau — không mất dữ liệu).
+export function danhSachChuyenDoi(
+  db: Database,
+  loc: { chua_gan?: boolean } = {},
+): ChuyenDoi[] {
+  const where = loc.chua_gan ? "WHERE khach_id IS NULL" : "";
+  return db
+    .query(`SELECT * FROM chuyen_doi ${where} ORDER BY xay_ra_luc, rowid`)
+    .all() as ChuyenDoi[];
 }
