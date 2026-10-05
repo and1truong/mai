@@ -514,6 +514,95 @@ export function timelineKhach(
     .all(...thamSo, loc.gioiHan ?? 500) as TuongTac[];
 }
 
+// --- Hành trình tới conversion (#69) ---
+// Journey là projection của tuong_tac — tính lại khi đọc, không lưu
+// narrative. Boundary: mọi event có xay_ra_luc <= conversion; cùng giây
+// giữ thứ tự ổn định bằng rowid (tie-break insert).
+
+export type BuocHanhTrinh = TuongTac & {
+  la_first_touch: boolean;
+  la_last_touch: boolean;
+};
+
+// Đánh dấu bước khớp đích quy_về (ref cùng loại + cùng id) — chọn bước
+// GẦN conversion nhất khi nhiều bước mang cùng ref.
+function danhDauLastTouch(
+  buoc: BuocHanhTrinh[],
+  quyVe: QuyVe[],
+): void {
+  const lt = quyVe.find((q) => q.mo_hinh === "last_touch");
+  if (!lt || lt.loai_dich === "khong_ro") return;
+  const truong =
+    lt.loai_dich === "campaign" ? "campaign_id"
+    : lt.loai_dich === "link_dich" ? "link_dich_id"
+    : lt.loai_dich === "ban_the_hien" ? "ban_the_hien_id"
+    : lt.loai_dich === "giao_hang" ? "giao_hang_id"
+    : lt.loai_dich === "nguon" ? "nguon"
+    : "";
+  if (!truong) return;
+  for (let i = buoc.length - 1; i >= 0; i--) {
+    if ((buoc[i]![truong as keyof BuocHanhTrinh] as string) === lt.dich_id) {
+      buoc[i]!.la_last_touch = true;
+      return;
+    }
+  }
+}
+
+// Thiếu chuyen_doi_id → conversion MỚI NHẤT của person (lựa chọn đã ghi
+// trong conventions); person chưa có conversion nào → LoiApi 400.
+// chuyen_doi_id thuộc person khác / không tồn tại → 404.
+export function hanhTrinhChuyenDoi(
+  db: Database,
+  khachId: string,
+  chuyenDoiId?: string,
+): { chuyen_doi: ChuyenDoi; quy_ve: QuyVe[]; hanh_trinh: BuocHanhTrinh[] } {
+  let cd: ChuyenDoi | null;
+  if (chuyenDoiId) {
+    cd = db
+      .query("SELECT * FROM chuyen_doi WHERE id = ?")
+      .get(chuyenDoiId) as ChuyenDoi | null;
+    if (!cd || cd.khach_id !== khachId) {
+      throw new LoiApi(404, "KHONG_TIM_THAY", "Không tìm thấy conversion của khách hàng này.");
+    }
+  } else {
+    cd = db
+      .query(
+        `SELECT * FROM chuyen_doi WHERE khach_id = ?
+         ORDER BY xay_ra_luc DESC, rowid DESC LIMIT 1`,
+      )
+      .get(khachId) as ChuyenDoi | null;
+    if (!cd) {
+      throw new LoiApi(
+        400,
+        "VALIDATION",
+        "Khách hàng chưa có conversion nào — truyền chuyen_doi_id khi đã có.",
+      );
+    }
+  }
+
+  const buoc: BuocHanhTrinh[] = timelineKhach(db, khachId, {
+    den: cd!.xay_ra_luc,
+  }).map((s) => ({ ...s, la_first_touch: false, la_last_touch: false }));
+
+  const quyVe = db
+    .query("SELECT * FROM quy_ve WHERE chuyen_doi_id = ?")
+    .all(cd!.id) as QuyVe[];
+
+  // first_touch = event dau_cham_dau của person (đúng mốc quy_về ghi:
+  // chỉ khi touch không ở tương lai so với conversion).
+  const ft = quyVe.find((q) => q.mo_hinh === "first_touch");
+  const dau = layDauChamDau(db, khachId);
+  if (ft && ft.loai_dich !== "khong_ro" && dau && dau.xay_ra_luc <= cd!.xay_ra_luc) {
+    const b = buoc.find((s) => s.id === dau.tuong_tac_id);
+    if (b) b.la_first_touch = true;
+  }
+  // last_touch là chính conversion (conversion mang ref) → không bước
+  // nào mang dấu; ngược lại đánh dấu bước khớp quy_về đã ghi.
+  if (!dichTuRefs(cd!).loai_dich) danhDauLastTouch(buoc, quyVe);
+
+  return { chuyen_doi: cd!, quy_ve: quyVe, hanh_trinh: buoc };
+}
+
 // --- Visitor nặc danh (cookie mai_v) ---
 // Trang public (/p/, /l/, /huy-dang-ky) đặt/giữ cookie mai_v: visitor
 // chưa định danh vẫn là person trong graph — khi identity email gắn vào
